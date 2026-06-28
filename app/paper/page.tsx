@@ -13,8 +13,32 @@ import { PageHeader } from "@/components/PageHeader";
 import { Disclaimer } from "@/components/Disclaimer";
 import { useI18n } from "@/lib/i18n";
 
-const STORAGE_KEY = "gios.paper.v2";
-const POLL_MS     = 5_000;
+const STORAGE_KEY    = "gios.paper.v2";
+const TG_STORAGE_KEY = "gios.telegram";
+const POLL_MS        = 5_000;
+
+// ── Telegram helpers ──────────────────────────────────────────────────────────
+
+interface TgSettings { chatId: string; enabled: boolean; minConfidence: number }
+function loadTg(): TgSettings {
+  try { const r = localStorage.getItem(TG_STORAGE_KEY); if (r) return JSON.parse(r); } catch {}
+  return { chatId: "", enabled: false, minConfidence: 65 };
+}
+function saveTg(s: TgSettings) { localStorage.setItem(TG_STORAGE_KEY, JSON.stringify(s)); }
+
+async function sendTgAlert(chatId: string, setup: TradeSetup, testMode = false): Promise<string | null> {
+  try {
+    const res = await fetch("/api/telegram/send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chatId, setup, testMode }),
+    });
+    const json = await res.json();
+    return json.ok ? null : (json.error ?? "Unknown error");
+  } catch (e) {
+    return e instanceof Error ? e.message : "Network error";
+  }
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -293,8 +317,15 @@ export default function PaperPage() {
   const [showForm, setShowForm] = useState(false);
   const [showReset, setShowReset] = useState(false);
 
-  // ── Load account ─────────────────────────────────────────────────────────
-  useEffect(() => { setAccount(loadAccount()); }, []);
+  // Telegram
+  const [tg, setTg]             = useState<TgSettings>({ chatId: "", enabled: false, minConfidence: 65 });
+  const [showTg, setShowTg]     = useState(false);
+  const [tgStatus, setTgStatus] = useState<"idle" | "sending" | "ok" | "err">("idle");
+  const [tgErr, setTgErr]       = useState("");
+  const lastSentSetup           = useRef<string>("");
+
+  // ── Load account + Telegram settings ─────────────────────────────────────
+  useEffect(() => { setAccount(loadAccount()); setTg(loadTg()); }, []);
 
   // ── Fetch AI Strategy ─────────────────────────────────────────────────────
   const fetchStrategy = useCallback(async (forceRefresh = false) => {
@@ -315,6 +346,19 @@ export default function PaperPage() {
   }, []);
 
   useEffect(() => { fetchStrategy(); }, [fetchStrategy]);
+
+  // ── Auto-send Telegram when new signal arrives ────────────────────────────
+  useEffect(() => {
+    if (!setup || !tg.enabled || !tg.chatId) return;
+    if (setup.direction === "wait") return;
+    if (setup.confidence < tg.minConfidence) return;
+    const key = `${setup.direction}-${setup.entry}-${setup.confidence}`;
+    if (key === lastSentSetup.current) return;
+    lastSentSetup.current = key;
+    sendTgAlert(tg.chatId, setup).then(err => {
+      if (!err) setTgStatus("ok");
+    });
+  }, [setup, tg]);
 
   // ── Price polling + SL/TP auto-close ─────────────────────────────────────
   useEffect(() => {
@@ -546,6 +590,83 @@ export default function PaperPage() {
             </button>
           </div>
         </div>
+      </div>
+
+      {/* ── Telegram Alert Panel ──────────────────────────────────────────── */}
+      <div className="mb-4">
+        <button onClick={() => setShowTg(v => !v)}
+          className="flex items-center gap-2 rounded-xl border px-4 py-2.5 text-xs font-bold transition-all w-full"
+          style={tg.enabled
+            ? { borderColor: "rgba(52,211,153,0.4)", background: "rgba(52,211,153,0.08)", color: "#34d399" }
+            : { borderColor: "rgba(71,85,105,0.25)", background: "transparent", color: "#475569" }}>
+          <span>🔔</span>
+          <span>Telegram Alerts {tg.enabled ? `(เปิด · ≥${tg.minConfidence}%)` : "(ปิด)"}</span>
+          {tgStatus === "ok" && <span className="ml-auto text-emerald-400">✓ ส่งแล้ว</span>}
+          <span className="ml-auto text-[10px] opacity-50">{showTg ? "▲" : "▼"}</span>
+        </button>
+
+        {showTg && (
+          <div className="mt-2 rounded-xl border border-base-border/40 bg-base-panel/60 p-4 space-y-4">
+            {/* Enable toggle */}
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-silver/70">เปิดใช้งาน Auto-Alert</span>
+              <button onClick={() => { const next = { ...tg, enabled: !tg.enabled }; setTg(next); saveTg(next); }}
+                className={`relative h-6 w-11 rounded-full transition-colors ${tg.enabled ? "bg-emerald-500/70" : "bg-base-border"}`}>
+                <span className={`absolute top-1 h-4 w-4 rounded-full bg-white shadow transition-all ${tg.enabled ? "left-6" : "left-1"}`} />
+              </button>
+            </div>
+
+            {/* Chat ID */}
+            <div>
+              <label className="mb-1 block text-[10px] uppercase tracking-widest text-silver/40">Telegram Chat ID</label>
+              <input type="text" placeholder="เช่น 123456789 (ได้จาก @userinfobot)" value={tg.chatId}
+                onChange={e => { const next = { ...tg, chatId: e.target.value }; setTg(next); saveTg(next); }}
+                className="w-full rounded-lg border border-base-border/40 bg-base-black px-3 py-2 text-sm text-silver focus:border-emerald-400/40 focus:outline-none" />
+              <p className="mt-1 text-[10px] text-silver/30">
+                วิธีหา Chat ID: เปิด Telegram → ส่งข้อความให้ <b>@userinfobot</b> → copy Id ที่ได้
+              </p>
+            </div>
+
+            {/* Min confidence */}
+            <div>
+              <label className="mb-1 block text-[10px] uppercase tracking-widest text-silver/40">
+                ส่งเมื่อ Confidence ≥ {tg.minConfidence}%
+              </label>
+              <input type="range" min={50} max={90} step={5} value={tg.minConfidence}
+                onChange={e => { const next = { ...tg, minConfidence: Number(e.target.value) }; setTg(next); saveTg(next); }}
+                className="w-full accent-emerald-400" />
+              <div className="flex justify-between text-[10px] text-silver/30">
+                <span>50%</span><span>90%</span>
+              </div>
+            </div>
+
+            {/* Bot token notice */}
+            <div className="rounded-lg border border-amber-400/20 bg-amber-400/5 px-3 py-2 text-[11px] text-amber-400/80">
+              ⚠ ต้องตั้ง <code>TELEGRAM_BOT_TOKEN</code> ใน Vercel Environment Variables ก่อน
+              <br />วิธี: สร้าง bot ผ่าน <b>@BotFather</b> → copy token → เพิ่มใน Vercel Dashboard
+            </div>
+
+            {/* Test button */}
+            <button
+              disabled={!tg.chatId || tgStatus === "sending"}
+              onClick={async () => {
+                if (!tg.chatId) return;
+                setTgStatus("sending"); setTgErr("");
+                const err = await sendTgAlert(tg.chatId, {} as TradeSetup, true);
+                if (err) { setTgStatus("err"); setTgErr(err); }
+                else { setTgStatus("ok"); }
+              }}
+              className="w-full rounded-lg border border-emerald-500/40 bg-emerald-500/10 py-2 text-xs font-bold text-emerald-400 transition-colors hover:bg-emerald-500/20 disabled:opacity-40">
+              {tgStatus === "sending" ? "กำลังส่ง…" : "📨 ทดสอบส่งข้อความ"}
+            </button>
+            {tgStatus === "err" && tgErr && (
+              <p className="text-[11px] text-red-400">⚠ {tgErr}</p>
+            )}
+            {tgStatus === "ok" && (
+              <p className="text-[11px] text-emerald-400">✓ ส่งสำเร็จ! ตรวจสอบ Telegram ของคุณ</p>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Reset confirm */}

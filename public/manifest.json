@@ -1,0 +1,31 @@
+{
+  "name": "Gold Intelligence OS",
+  "short_name": "GIOS",
+  "description": "XAUUSD AI Trading Intelligence Platform — real-time gold analysis, signals & paper trading",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#06091a",
+  "theme_color": "#f5c451",
+  "categories": ["finance", "utilities"],
+  "icons": [
+    {
+      "src": "/api/pwa-icon?size=192",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/api/pwa-icon?size=512",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ],
+  "screenshots": [],
+  "shortcuts": [
+    { "name": "Overview",  "url": "/",        "icons": [{"src": "/icon-192.png","sizes": "192x192"}] },
+    { "name": "Scanner",   "url": "/scanner", "icons": [{"src": "/icon-192.png","sizes": "192x192"}] },
+    { "name": "Paper Trader", "url": "/paper","icons": [{"src": "/icon-192.png","sizes": "192x192"}] }
+  ]
+}

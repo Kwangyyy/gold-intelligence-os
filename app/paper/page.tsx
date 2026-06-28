@@ -7,7 +7,7 @@ import {
   calcSnapshot, calcTradeStats, calcEquityCurve, calcMaxDrawdown, calcStreak, checkSLTP,
   type PaperTrade, type PaperAccount, type TradeType, type EquityPoint,
 } from "@/lib/paper";
-import type { TradeSetup } from "@/lib/gemini";
+import type { TradeSetup, JournalAnalysis } from "@/lib/gemini";
 import { PaperChart } from "@/components/PaperChart";
 import { PageHeader } from "@/components/PageHeader";
 import { Disclaimer } from "@/components/Disclaimer";
@@ -313,7 +313,10 @@ export default function PaperPage() {
   const [formErr, setFormErr]         = useState("");
 
   // UI
-  const [tab, setTab]           = useState<"positions" | "stats" | "history">("positions");
+  const [tab, setTab]           = useState<"positions" | "stats" | "history" | "ai-coach">("positions");
+  const [aiCoach, setAiCoach]   = useState<JournalAnalysis | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError]   = useState("");
   const [showForm, setShowForm] = useState(false);
   const [showReset, setShowReset] = useState(false);
 
@@ -498,6 +501,56 @@ export default function PaperPage() {
   const previewRew   = previewEntry && previewTp ? calcReward(previewEntry, previewTp, lots, tradeType) : null;
   const previewRR    = previewRisk && previewRew && previewRisk < 0
     ? (Math.abs(previewRew) / Math.abs(previewRisk)).toFixed(2) : null;
+
+  async function fetchAiCoach() {
+    const closed = account.trades.filter(t => t.status === "closed" && t.pnl !== null);
+    const wins   = closed.filter(t => t.pnl! > 0);
+    const losses = closed.filter(t => t.pnl! <= 0);
+    const grossL = Math.abs(losses.reduce((s, t) => s + t.pnl!, 0));
+
+    const bySetup: Record<string, { trades: number; wins: number; pnl: number }> = {};
+    for (const t of closed) {
+      const key = t.closedBy === "tp" ? "TP Hit" : t.closedBy === "sl" ? "SL Hit" : "Manual Close";
+      if (!bySetup[key]) bySetup[key] = { trades: 0, wins: 0, pnl: 0 };
+      bySetup[key].trades++;
+      if (t.pnl! > 0) bySetup[key].wins++;
+      bySetup[key].pnl = parseFloat((bySetup[key].pnl + t.pnl!).toFixed(2));
+    }
+
+    const buys  = closed.filter(t => t.type === "buy");
+    const sells = closed.filter(t => t.type === "sell");
+
+    const summary = {
+      totalClosed:  closed.length,
+      winRate:      stats.winRate,
+      totalPnL:     stats.totalPnl,
+      avgRR:        grossL > 0 && stats.avgLoss !== 0 ? parseFloat((stats.avgWin / Math.abs(stats.avgLoss)).toFixed(2)) : 0,
+      profitFactor: stats.profitFactor,
+      bySetup,
+      byDirection: {
+        buy:  { trades: buys.length,  wins: buys.filter(t => t.pnl! > 0).length,  pnl: parseFloat(buys.reduce((s, t) => s + t.pnl!, 0).toFixed(2)) },
+        sell: { trades: sells.length, wins: sells.filter(t => t.pnl! > 0).length, pnl: parseFloat(sells.reduce((s, t) => s + t.pnl!, 0).toFixed(2)) },
+      },
+      recentNotes: closed.slice(-5).map(t => t.note).filter(Boolean),
+    };
+
+    setAiLoading(true);
+    setAiError("");
+    try {
+      const res = await fetch("/api/ai/journal-analysis", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(summary),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "API error");
+      setAiCoach(data as JournalAnalysis);
+    } catch (e) {
+      setAiError(e instanceof Error ? e.message : "วิเคราะห์ไม่สำเร็จ");
+    } finally {
+      setAiLoading(false);
+    }
+  }
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
@@ -815,6 +868,7 @@ export default function PaperPage() {
           ["positions", `Positions (${openTrades.length})`],
           ["stats",     "Stats"],
           ["history",   `History (${closedTrades.length})`],
+          ["ai-coach",  "AI Coach 🤖"],
         ] as [typeof tab, string][]).map(([key, label]) => (
           <button key={key} onClick={() => setTab(key)}
             className="rounded-lg px-4 py-2 text-xs font-bold transition-colors"
@@ -1041,6 +1095,121 @@ export default function PaperPage() {
                 </table>
               </div>
             </>
+          )}
+        </div>
+      )}
+
+      {/* ── AI Coach ──────────────────────────────────────────────────────── */}
+      {tab === "ai-coach" && (
+        <div className="panel p-5">
+          {stats.totalTrades < 3 ? (
+            <div className="py-10 text-center">
+              <div className="text-3xl mb-3">🤖</div>
+              <div className="text-sm text-silver/50">ต้องมีอย่างน้อย 3 trades ที่ปิดแล้ว</div>
+              <div className="text-xs text-silver/30 mt-1">ปัจจุบัน: {stats.totalTrades} trades</div>
+            </div>
+          ) : aiLoading ? (
+            <div className="py-10 text-center">
+              <div className="text-3xl mb-3 animate-spin">⚙️</div>
+              <div className="text-sm text-silver/50">Gemini กำลังวิเคราะห์ journal ของคุณ…</div>
+            </div>
+          ) : aiCoach === null ? (
+            <div className="flex flex-col items-center gap-4 py-10 text-center">
+              <div className="text-4xl">🤖</div>
+              <div className="text-sm text-silver/60">
+                Gemini จะวิเคราะห์ <span className="font-bold text-silver/80">{stats.totalTrades} trades</span> ของคุณ<br />
+                และบอก strengths, weaknesses, และคำแนะนำ
+              </div>
+              {aiError && <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-2 text-xs text-red-400">{aiError}</div>}
+              <button onClick={fetchAiCoach}
+                className="rounded-xl px-6 py-3 text-sm font-bold transition-all hover:scale-105"
+                style={{ background: "linear-gradient(135deg,rgba(245,196,81,0.2),rgba(168,85,247,0.15))", border: "1px solid rgba(245,196,81,0.4)", color: "#f5c451" }}>
+                วิเคราะห์ Journal ของฉัน
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-5">
+              {/* Header: rating + re-analyze */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-14 w-14 items-center justify-center rounded-2xl text-2xl font-black"
+                    style={{ background: aiCoach.rating >= 7 ? "rgba(52,211,153,0.15)" : aiCoach.rating >= 5 ? "rgba(245,196,81,0.15)" : "rgba(248,113,113,0.15)", border: `1px solid ${aiCoach.rating >= 7 ? "rgba(52,211,153,0.4)" : aiCoach.rating >= 5 ? "rgba(245,196,81,0.4)" : "rgba(248,113,113,0.4)"}`, color: aiCoach.rating >= 7 ? "#34d399" : aiCoach.rating >= 5 ? "#f5c451" : "#f87171" }}>
+                    {aiCoach.rating}
+                  </div>
+                  <div>
+                    <div className="text-xs text-silver/40 uppercase tracking-widest">Rating</div>
+                    <div className="text-sm font-bold text-silver/80">/ 10</div>
+                    <div className="text-[10px] text-silver/35">{stats.totalTrades} trades analyzed</div>
+                  </div>
+                </div>
+                <button onClick={() => { setAiCoach(null); setAiError(""); }}
+                  className="rounded-lg border border-base-border/30 px-3 py-1.5 text-[10px] text-silver/40 hover:text-silver/70 transition-colors">
+                  วิเคราะห์ใหม่
+                </button>
+              </div>
+
+              {/* Summary */}
+              <div className="rounded-xl border border-base-border/20 bg-white/[0.02] p-4">
+                <div className="text-xs text-silver/70 leading-relaxed">{aiCoach.summaryTh}</div>
+              </div>
+
+              {/* Strengths + Weaknesses */}
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
+                  <div className="mb-3 flex items-center gap-2">
+                    <span className="text-sm">✅</span>
+                    <span className="text-xs font-bold uppercase tracking-widest text-emerald-400/80">Strengths</span>
+                  </div>
+                  <ul className="flex flex-col gap-2">
+                    {aiCoach.strengths.map((s, i) => (
+                      <li key={i} className="flex items-start gap-2 text-xs text-silver/65">
+                        <span className="mt-0.5 text-emerald-400/60">▸</span>{s}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-4">
+                  <div className="mb-3 flex items-center gap-2">
+                    <span className="text-sm">⚠️</span>
+                    <span className="text-xs font-bold uppercase tracking-widest text-red-400/80">Weaknesses</span>
+                  </div>
+                  <ul className="flex flex-col gap-2">
+                    {aiCoach.weaknesses.map((w, i) => (
+                      <li key={i} className="flex items-start gap-2 text-xs text-silver/65">
+                        <span className="mt-0.5 text-red-400/60">▸</span>{w}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+
+              {/* Best Setup */}
+              {aiCoach.bestSetup && aiCoach.bestSetup !== "—" && (
+                <div className="flex items-center gap-3 rounded-xl border border-gold/20 bg-gold/5 px-4 py-3">
+                  <span className="text-lg">🏆</span>
+                  <div>
+                    <div className="text-[10px] uppercase tracking-widest text-gold/50">Best Setup</div>
+                    <div className="text-sm font-bold text-gold/80">{aiCoach.bestSetup}</div>
+                  </div>
+                </div>
+              )}
+
+              {/* Recommendations */}
+              <div className="rounded-xl border border-purple-500/20 bg-purple-500/5 p-4">
+                <div className="mb-3 flex items-center gap-2">
+                  <span className="text-sm">🎯</span>
+                  <span className="text-xs font-bold uppercase tracking-widest text-purple-400/80">คำแนะนำ</span>
+                </div>
+                <ol className="flex flex-col gap-2">
+                  {aiCoach.recommendations.map((r, i) => (
+                    <li key={i} className="flex items-start gap-2.5 text-xs text-silver/65">
+                      <span className="shrink-0 flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-black" style={{ background: "rgba(168,85,247,0.2)", color: "#a855f7" }}>{i + 1}</span>
+                      {r}
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            </div>
           )}
         </div>
       )}

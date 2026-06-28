@@ -7,6 +7,7 @@ import { canAccess, useTier } from "@/lib/tier";
 import { LanguageToggle } from "./LanguageToggle";
 import { ModeToggle } from "./ModeToggle";
 import { TierToggle } from "./TierToggle";
+import { AuthButton } from "./AuthButton";
 
 const NAV = [
   { href: "/",            icon: "🏠", key: "navOverview"       },
@@ -205,6 +206,8 @@ export function SideNav({ open, onClose }: Props) {
             <ModeToggle />
             <LanguageToggle />
           </div>
+          {/* Auth */}
+          <AuthButton />
         </div>
       </div>
     </aside>

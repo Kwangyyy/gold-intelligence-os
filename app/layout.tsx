@@ -6,6 +6,7 @@ import { TierProvider } from "@/lib/tier";
 import { ShellLayout } from "@/components/ShellLayout";
 import { TierGuard } from "@/components/TierGuard";
 import { SwRegister } from "@/components/SwRegister";
+import { AuthProvider } from "@/components/AuthProvider";
 
 export const metadata: Metadata = {
   title: "Gold Intelligence OS — XAUUSD Market Overview",
@@ -45,15 +46,17 @@ export default function RootLayout({
       </head>
       <body className="font-sans antialiased">
         <SwRegister />
-        <LanguageProvider>
-          <ModeProvider>
-            <TierProvider>
-              <ShellLayout>
-                <TierGuard>{children}</TierGuard>
-              </ShellLayout>
-            </TierProvider>
-          </ModeProvider>
-        </LanguageProvider>
+        <AuthProvider>
+          <LanguageProvider>
+            <ModeProvider>
+              <TierProvider>
+                <ShellLayout>
+                  <TierGuard>{children}</TierGuard>
+                </ShellLayout>
+              </TierProvider>
+            </ModeProvider>
+          </LanguageProvider>
+        </AuthProvider>
       </body>
     </html>
   );

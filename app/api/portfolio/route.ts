@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
   } catch { /* use fallback */ }
 
   // Prefer live MT5 data if fresh
-  const mt5 = getMT5Data();
+  const mt5 = await getMT5Data();
   if (mt5) {
     const floating = mt5.positions.reduce((s, p) => s + p.profit + p.swap, 0);
     return NextResponse.json({

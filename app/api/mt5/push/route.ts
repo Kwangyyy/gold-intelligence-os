@@ -29,7 +29,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
     }
 
-    setMT5Data(body);
+    await setMT5Data(body);
     return NextResponse.json({ ok: true, ts: Date.now() });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });
@@ -42,6 +42,6 @@ export async function DELETE(req: Request) {
   if (token !== API_KEY) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  clearMT5Data();
+  await clearMT5Data();
   return NextResponse.json({ ok: true });
 }

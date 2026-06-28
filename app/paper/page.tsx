@@ -1,11 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   STARTING_BALANCE, MIN_LOT, MAX_LOT,
   calcPnl, calcMargin, calcRisk, calcReward, suggestTp,
-  calcSnapshot, calcTradeStats, checkSLTP,
-  type PaperTrade, type PaperAccount, type TradeType,
+  calcSnapshot, calcTradeStats, calcEquityCurve, calcMaxDrawdown, calcStreak, checkSLTP,
+  type PaperTrade, type PaperAccount, type TradeType, type EquityPoint,
 } from "@/lib/paper";
 import type { TradeSetup } from "@/lib/gemini";
 import { PaperChart } from "@/components/PaperChart";
@@ -180,6 +180,81 @@ function LevelPill({ label, price, color, sub }: { label: string; price: number;
       {sub && <span className="text-[9px] text-silver/35 mt-0.5">{sub}</span>}
     </div>
   );
+}
+
+// ── Equity Curve Chart ────────────────────────────────────────────────────────
+function EquityCurve({ curve, initialBalance }: { curve: EquityPoint[]; initialBalance: number }) {
+  const W = 600; const H = 140; const PAD = { t: 10, r: 12, b: 28, l: 56 };
+  const cW = W - PAD.l - PAD.r;
+  const cH = H - PAD.t - PAD.b;
+
+  const allY = [initialBalance, ...curve.map(p => p.equity)];
+  const minY = Math.min(...allY);
+  const maxY = Math.max(...allY);
+  const rangeY = maxY - minY || 1;
+  const points = [{ index: -1, equity: initialBalance }, ...curve];
+
+  const px = (i: number) => PAD.l + (i + 1) / points.length * cW;
+  const py = (v: number) => PAD.t + cH - ((v - minY) / rangeY) * cH;
+
+  const polyline = points.map((p, i) => `${px(i - 1)},${py(p.equity)}`).join(" ");
+  const area = `M${PAD.l},${py(initialBalance)} ` +
+    points.map((p, i) => `L${px(i - 1)},${py(p.equity)}`).join(" ") +
+    ` L${px(points.length - 2)},${H - PAD.b} L${PAD.l},${H - PAD.b} Z`;
+
+  const last = curve.length > 0 ? curve[curve.length - 1].equity : initialBalance;
+  const up = last >= initialBalance;
+  const color = up ? "#34d399" : "#f87171";
+  const fmtK = (v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}k` : v.toFixed(0);
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: 140 }}>
+      {/* Y axis labels */}
+      {[minY, (minY + maxY) / 2, maxY].map((v, i) => (
+        <text key={i} x={PAD.l - 4} y={py(v) + 4} textAnchor="end" fontSize={9}
+          fill="rgba(148,163,184,0.4)">${fmtK(v)}</text>
+      ))}
+      {/* Grid */}
+      {[0, 0.5, 1].map(r => (
+        <line key={r} x1={PAD.l} x2={W - PAD.r} y1={PAD.t + r * cH} y2={PAD.t + r * cH}
+          stroke="rgba(71,85,105,0.15)" strokeDasharray="3,4" />
+      ))}
+      {/* Baseline */}
+      <line x1={PAD.l} x2={W - PAD.r} y1={py(initialBalance)} y2={py(initialBalance)}
+        stroke="rgba(245,196,81,0.2)" strokeDasharray="4,4" />
+      {/* Area fill */}
+      <path d={area} fill={`${color}10`} />
+      {/* Line */}
+      <polyline points={polyline} fill="none" stroke={color} strokeWidth={1.8} strokeLinejoin="round" strokeLinecap="round" />
+      {/* Last point dot */}
+      {curve.length > 0 && (
+        <circle cx={px(points.length - 2)} cy={py(last)} r={3} fill={color} />
+      )}
+      {/* X axis labels */}
+      {curve.length > 0 && [0, Math.floor(curve.length / 2), curve.length - 1].filter((v, i, a) => a.indexOf(v) === i).map(idx => (
+        <text key={idx} x={px(idx)} y={H - PAD.b + 14} textAnchor="middle" fontSize={8}
+          fill="rgba(148,163,184,0.35)">#{idx + 1}</text>
+      ))}
+    </svg>
+  );
+}
+
+// ── Export CSV ────────────────────────────────────────────────────────────────
+function exportCsv(trades: PaperTrade[]) {
+  const closed = [...trades.filter(t => t.status === "closed")]
+    .sort((a, b) => new Date(a.closedAt!).getTime() - new Date(b.closedAt!).getTime());
+  const header = "Date,Type,Lots,Entry,Close,PnL,ClosedBy,Note";
+  const rows = closed.map(t => [
+    t.closedAt ? new Date(t.closedAt).toLocaleString("th-TH") : "",
+    t.type, t.lots, t.entryPrice,
+    t.closePrice ?? "", t.pnl ?? "", t.closedBy ?? "", `"${(t.note || "").replace(/"/g, "'")}"`,
+  ].join(","));
+  const csv = [header, ...rows].join("\n");
+  const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = `gios-trades-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click(); URL.revokeObjectURL(url);
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────────
@@ -367,6 +442,9 @@ export default function PaperPage() {
   const openTrades = account.trades.filter(t => t.status === "open");
   const closedTrades = [...account.trades.filter(t => t.status === "closed")].reverse();
   const secondsAgo = price > 0 ? Math.floor((Date.now() - priceTs) / 1000) : null;
+  const equityCurve  = calcEquityCurve(STARTING_BALANCE, account.trades);
+  const { maxDrawdown, maxDrawdownPct } = calcMaxDrawdown(STARTING_BALANCE, account.trades);
+  const streak = calcStreak(account.trades);
 
   // Form preview
   const previewEntry = useMarket ? price : parseFloat(customEntry) || 0;
@@ -685,65 +763,87 @@ export default function PaperPage() {
 
       {/* ── Stats ─────────────────────────────────────────────────────────── */}
       {tab === "stats" && (
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="space-y-4">
+          {/* Equity Curve */}
           <div className="panel p-5">
-            <h3 className="mb-4 text-xs font-bold uppercase tracking-widest text-silver/50">Performance</h3>
-            {stats.totalTrades === 0 ? (
-              <div className="py-8 text-center text-sm text-silver/30">ยังไม่มีออเดอร์ปิด</div>
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-xs font-bold uppercase tracking-widest text-silver/50">Equity Curve</h3>
+              {equityCurve.length > 0 && (
+                <span className="font-mono text-sm font-black" style={{ color: pnlColor(stats.totalPnl) }}>
+                  {sign(stats.totalPnl)}${fmt(Math.abs(stats.totalPnl))}
+                </span>
+              )}
+            </div>
+            {equityCurve.length === 0 ? (
+              <div className="py-8 text-center text-sm text-silver/30">เริ่มเทรดเพื่อดู Equity Curve</div>
             ) : (
-              <div className="grid grid-cols-2 gap-x-6 gap-y-4">
-                {[
-                  { label: "Total Trades",   value: stats.totalTrades.toString() },
-                  { label: "Win Rate",       value: `${stats.winRate}%`, color: stats.winRate > 50 ? "#34d399" : "#f87171" },
-                  { label: "Wins",           value: stats.wins.toString(),   color: "#34d399" },
-                  { label: "Losses",         value: stats.losses.toString(), color: "#f87171" },
-                  { label: "Avg Win",        value: `+$${fmt(stats.avgWin)}`,  color: "#34d399" },
-                  { label: "Avg Loss",       value: `$${fmt(stats.avgLoss)}`,  color: "#f87171" },
-                  { label: "Profit Factor",  value: stats.profitFactor.toFixed(2), color: stats.profitFactor >= 1 ? "#34d399" : "#f87171" },
-                  { label: "Total P&L",      value: `${sign(stats.totalPnl)}$${fmt(Math.abs(stats.totalPnl))}`, color: pnlColor(stats.totalPnl) },
-                  { label: "Best Trade",     value: `+$${fmt(stats.bestTrade)}`,  color: "#34d399" },
-                  { label: "Worst Trade",    value: `-$${fmt(Math.abs(stats.worstTrade))}`, color: "#f87171" },
-                ].map(row => (
-                  <div key={row.label}>
-                    <div className="text-[10px] uppercase tracking-widest text-silver/35">{row.label}</div>
-                    <div className="mt-0.5 font-mono text-base font-black" style={{ color: row.color ?? "#e2e8f0" }}>{row.value}</div>
-                  </div>
-                ))}
-              </div>
+              <EquityCurve curve={equityCurve} initialBalance={STARTING_BALANCE} />
             )}
           </div>
 
-          <div className="panel flex flex-col items-center justify-center p-5">
-            {stats.totalTrades === 0 ? (
-              <div className="text-center text-sm text-silver/30">เริ่มเทรดเพื่อดู Stats</div>
-            ) : (
-              <>
-                <div className="mb-3 text-[10px] uppercase tracking-widest text-silver/35">Win Rate</div>
-                <svg width={140} height={140} viewBox="0 0 140 140">
-                  <circle cx={70} cy={70} r={55} fill="none" stroke="rgba(71,85,105,0.2)" strokeWidth={12} />
-                  <circle cx={70} cy={70} r={55} fill="none"
-                    stroke={stats.winRate >= 50 ? "#34d399" : "#f87171"}
-                    strokeWidth={12} strokeLinecap="round"
-                    strokeDasharray={`${2 * Math.PI * 55}`}
-                    strokeDashoffset={`${2 * Math.PI * 55 * (1 - stats.winRate / 100)}`}
-                    style={{ transform: "rotate(-90deg)", transformOrigin: "center" }} />
-                  <text x={70} y={66} textAnchor="middle" fontSize={26} fontWeight="900"
-                    fill={stats.winRate >= 50 ? "#34d399" : "#f87171"}
-                    fontFamily="ui-monospace,monospace">{stats.winRate}%</text>
-                  <text x={70} y={84} textAnchor="middle" fontSize={10} fill="rgba(148,163,184,0.5)">
-                    {stats.wins}W / {stats.losses}L
-                  </text>
-                </svg>
-                <div className="mt-3 text-center">
-                  <div className="text-xl font-black font-mono" style={{ color: pnlColor(stats.totalPnl) }}>
-                    {sign(stats.totalPnl)}${fmt(Math.abs(stats.totalPnl))}
-                  </div>
-                  <div className="mt-0.5 text-[11px] text-silver/30">
-                    PF {stats.profitFactor > 0 ? stats.profitFactor.toFixed(2) : "—"}
-                  </div>
+          {/* Stats grid */}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="panel p-5">
+              <h3 className="mb-4 text-xs font-bold uppercase tracking-widest text-silver/50">Performance</h3>
+              {stats.totalTrades === 0 ? (
+                <div className="py-8 text-center text-sm text-silver/30">ยังไม่มีออเดอร์ปิด</div>
+              ) : (
+                <div className="grid grid-cols-2 gap-x-6 gap-y-4">
+                  {[
+                    { label: "Total Trades",  value: stats.totalTrades.toString() },
+                    { label: "Win Rate",      value: `${stats.winRate}%`, color: stats.winRate > 50 ? "#34d399" : "#f87171" },
+                    { label: "Wins",          value: stats.wins.toString(),   color: "#34d399" },
+                    { label: "Losses",        value: stats.losses.toString(), color: "#f87171" },
+                    { label: "Avg Win",       value: `+$${fmt(stats.avgWin)}`,  color: "#34d399" },
+                    { label: "Avg Loss",      value: `$${fmt(stats.avgLoss)}`,  color: "#f87171" },
+                    { label: "Profit Factor", value: stats.profitFactor.toFixed(2), color: stats.profitFactor >= 1 ? "#34d399" : "#f87171" },
+                    { label: "Total P&L",     value: `${sign(stats.totalPnl)}$${fmt(Math.abs(stats.totalPnl))}`, color: pnlColor(stats.totalPnl) },
+                    { label: "Best Trade",    value: `+$${fmt(stats.bestTrade)}`,  color: "#34d399" },
+                    { label: "Worst Trade",   value: `-$${fmt(Math.abs(stats.worstTrade))}`, color: "#f87171" },
+                    { label: "Max Drawdown",  value: maxDrawdown > 0 ? `-$${fmt(maxDrawdown)} (${maxDrawdownPct}%)` : "—", color: maxDrawdown > 0 ? "#f87171" : "#64748b" },
+                    { label: "Streak",        value: streak.type === "none" ? "—" : `${streak.streak}× ${streak.type === "win" ? "Win" : "Loss"}`, color: streak.type === "win" ? "#34d399" : streak.type === "loss" ? "#f87171" : "#64748b" },
+                  ].map(row => (
+                    <div key={row.label}>
+                      <div className="text-[10px] uppercase tracking-widest text-silver/35">{row.label}</div>
+                      <div className="mt-0.5 font-mono text-base font-black" style={{ color: row.color ?? "#e2e8f0" }}>{row.value}</div>
+                    </div>
+                  ))}
                 </div>
-              </>
-            )}
+              )}
+            </div>
+
+            <div className="panel flex flex-col items-center justify-center p-5">
+              {stats.totalTrades === 0 ? (
+                <div className="text-center text-sm text-silver/30">เริ่มเทรดเพื่อดู Stats</div>
+              ) : (
+                <>
+                  <div className="mb-3 text-[10px] uppercase tracking-widest text-silver/35">Win Rate</div>
+                  <svg width={140} height={140} viewBox="0 0 140 140">
+                    <circle cx={70} cy={70} r={55} fill="none" stroke="rgba(71,85,105,0.2)" strokeWidth={12} />
+                    <circle cx={70} cy={70} r={55} fill="none"
+                      stroke={stats.winRate >= 50 ? "#34d399" : "#f87171"}
+                      strokeWidth={12} strokeLinecap="round"
+                      strokeDasharray={`${2 * Math.PI * 55}`}
+                      strokeDashoffset={`${2 * Math.PI * 55 * (1 - stats.winRate / 100)}`}
+                      style={{ transform: "rotate(-90deg)", transformOrigin: "center" }} />
+                    <text x={70} y={66} textAnchor="middle" fontSize={26} fontWeight="900"
+                      fill={stats.winRate >= 50 ? "#34d399" : "#f87171"}
+                      fontFamily="ui-monospace,monospace">{stats.winRate}%</text>
+                    <text x={70} y={84} textAnchor="middle" fontSize={10} fill="rgba(148,163,184,0.5)">
+                      {stats.wins}W / {stats.losses}L
+                    </text>
+                  </svg>
+                  <div className="mt-3 text-center">
+                    <div className="text-xl font-black font-mono" style={{ color: pnlColor(stats.totalPnl) }}>
+                      {sign(stats.totalPnl)}${fmt(Math.abs(stats.totalPnl))}
+                    </div>
+                    <div className="mt-1 text-[11px] text-silver/30">
+                      PF {stats.profitFactor > 0 ? stats.profitFactor.toFixed(2) : "—"} · DD {maxDrawdownPct > 0 ? `${maxDrawdownPct}%` : "—"}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -754,35 +854,72 @@ export default function PaperPage() {
           {closedTrades.length === 0 ? (
             <div className="py-12 text-center text-sm text-silver/30">ยังไม่มีออเดอร์ปิด</div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="border-b border-base-border/30 text-[10px] uppercase tracking-widest text-silver/35">
-                    {["Type","Lots","Entry","Close","P&L","ปิดโดย","เวลาเปิด","Note"].map(h => (
-                      <th key={h} className="px-2 pb-2 pt-1 text-left whitespace-nowrap">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {closedTrades.map(t => (
-                    <tr key={t.id} className="border-b border-base-border/15 transition-colors hover:bg-white/[0.015]">
-                      <td className="px-2 py-2"><TypeBadge type={t.type} /></td>
-                      <td className="px-2 py-2 font-mono text-silver/60">{t.lots}</td>
-                      <td className="px-2 py-2 font-mono text-silver/60">{fmt(t.entryPrice)}</td>
-                      <td className="px-2 py-2 font-mono text-silver/60">{t.closePrice ? fmt(t.closePrice) : "—"}</td>
-                      <td className="px-2 py-2 font-mono font-black" style={{ color: pnlColor(t.pnl ?? 0) }}>
-                        {t.pnl !== null ? `${sign(t.pnl)}$${fmt(Math.abs(t.pnl))}` : "—"}
-                      </td>
-                      <td className="px-2 py-2"><ClosedByBadge by={t.closedBy} /></td>
-                      <td className="px-2 py-2 whitespace-nowrap text-silver/30">
-                        {new Date(t.openedAt).toLocaleString("th-TH", { dateStyle: "short", timeStyle: "short" })}
-                      </td>
-                      <td className="max-w-[120px] truncate px-2 py-2 text-silver/40">{t.note || "—"}</td>
+            <>
+              {/* Export button */}
+              <div className="flex justify-end px-4 pt-3 pb-1">
+                <button onClick={() => exportCsv(account.trades)}
+                  className="rounded-lg border border-base-border/30 px-3 py-1.5 text-[10px] font-bold text-silver/40 hover:text-silver/70 transition-colors">
+                  ↓ Export CSV
+                </button>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-base-border/30 text-[10px] uppercase tracking-widest text-silver/35">
+                      {["Type","Lots","Entry","Close","P&L","ปิดโดย","เวลาปิด","Note"].map(h => (
+                        <th key={h} className="px-2 pb-2 pt-1 text-left whitespace-nowrap">{h}</th>
+                      ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {(() => {
+                      const sorted = [...account.trades.filter(t => t.status === "closed" && t.closedAt)]
+                        .sort((a, b) => new Date(b.closedAt!).getTime() - new Date(a.closedAt!).getTime());
+                      const rows: React.ReactNode[] = [];
+                      let lastDay = "";
+                      for (const t of sorted) {
+                        const day = new Date(t.closedAt!).toLocaleDateString("th-TH", { dateStyle: "medium" });
+                        if (day !== lastDay) {
+                          const dayTrades = sorted.filter(x => new Date(x.closedAt!).toLocaleDateString("th-TH", { dateStyle: "medium" }) === day);
+                          const dayPnl = dayTrades.reduce((s, x) => s + (x.pnl ?? 0), 0);
+                          rows.push(
+                            <tr key={`day-${day}`} className="border-b border-base-border/20 bg-white/[0.018]">
+                              <td colSpan={8} className="px-3 py-1.5">
+                                <div className="flex items-center gap-3">
+                                  <span className="text-[10px] font-bold text-silver/50">{day}</span>
+                                  <span className="font-mono text-[11px] font-black" style={{ color: pnlColor(dayPnl) }}>
+                                    {sign(dayPnl)}${fmt(Math.abs(dayPnl))}
+                                  </span>
+                                  <span className="text-[10px] text-silver/30">{dayTrades.length} trade{dayTrades.length !== 1 ? "s" : ""}</span>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                          lastDay = day;
+                        }
+                        rows.push(
+                          <tr key={t.id} className="border-b border-base-border/10 transition-colors hover:bg-white/[0.015]">
+                            <td className="px-2 py-2"><TypeBadge type={t.type} /></td>
+                            <td className="px-2 py-2 font-mono text-silver/60">{t.lots}</td>
+                            <td className="px-2 py-2 font-mono text-silver/60">{fmt(t.entryPrice)}</td>
+                            <td className="px-2 py-2 font-mono text-silver/60">{t.closePrice ? fmt(t.closePrice) : "—"}</td>
+                            <td className="px-2 py-2 font-mono font-black" style={{ color: pnlColor(t.pnl ?? 0) }}>
+                              {t.pnl !== null ? `${sign(t.pnl)}$${fmt(Math.abs(t.pnl))}` : "—"}
+                            </td>
+                            <td className="px-2 py-2"><ClosedByBadge by={t.closedBy} /></td>
+                            <td className="px-2 py-2 whitespace-nowrap text-silver/30">
+                              {new Date(t.closedAt!).toLocaleString("th-TH", { timeStyle: "short" })}
+                            </td>
+                            <td className="max-w-[120px] truncate px-2 py-2 text-silver/40">{t.note || "—"}</td>
+                          </tr>
+                        );
+                      }
+                      return rows;
+                    })()}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </div>
       )}

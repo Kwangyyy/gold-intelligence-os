@@ -115,6 +115,54 @@ export function calcSnapshot(account: PaperAccount, price: number): AccountSnaps
   };
 }
 
+// ── Equity Curve ──────────────────────────────────────────────────────────────
+
+export interface EquityPoint {
+  index: number;
+  date: string;
+  equity: number;
+  pnl: number;
+}
+
+export function calcEquityCurve(initialBalance: number, trades: PaperTrade[]): EquityPoint[] {
+  const closed = trades
+    .filter(t => t.status === "closed" && t.pnl !== null && t.closedAt !== null)
+    .sort((a, b) => new Date(a.closedAt!).getTime() - new Date(b.closedAt!).getTime());
+  let equity = initialBalance;
+  return closed.map((t, i) => {
+    equity += t.pnl!;
+    return { index: i, date: t.closedAt!, equity: parseFloat(equity.toFixed(2)), pnl: t.pnl! };
+  });
+}
+
+export function calcMaxDrawdown(initialBalance: number, trades: PaperTrade[]): { maxDrawdown: number; maxDrawdownPct: number } {
+  const curve = calcEquityCurve(initialBalance, trades);
+  if (curve.length === 0) return { maxDrawdown: 0, maxDrawdownPct: 0 };
+  let peak = initialBalance;
+  let maxDD = 0;
+  for (const p of curve) {
+    if (p.equity > peak) peak = p.equity;
+    const dd = peak - p.equity;
+    if (dd > maxDD) maxDD = dd;
+  }
+  return { maxDrawdown: parseFloat(maxDD.toFixed(2)), maxDrawdownPct: parseFloat(((maxDD / initialBalance) * 100).toFixed(1)) };
+}
+
+export function calcStreak(trades: PaperTrade[]): { streak: number; type: "win" | "loss" | "none" } {
+  const closed = trades
+    .filter(t => t.status === "closed" && t.pnl !== null)
+    .sort((a, b) => new Date(a.closedAt!).getTime() - new Date(b.closedAt!).getTime());
+  if (closed.length === 0) return { streak: 0, type: "none" };
+  const lastWin = closed[closed.length - 1].pnl! > 0;
+  const type: "win" | "loss" = lastWin ? "win" : "loss";
+  let streak = 0;
+  for (let i = closed.length - 1; i >= 0; i--) {
+    if ((closed[i].pnl! > 0) === lastWin) streak++;
+    else break;
+  }
+  return { streak, type };
+}
+
 export function calcTradeStats(trades: PaperTrade[]): TradeStats {
   const closed  = trades.filter(t => t.status === "closed" && t.pnl !== null);
   const pnls    = closed.map(t => t.pnl!);

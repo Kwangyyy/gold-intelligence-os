@@ -271,7 +271,8 @@ function LotPanel({ cfg, onChange }: { cfg: EAConfig; onChange: (c: EAConfig) =>
 
 // ── Preset management ─────────────────────────────────────────────────────────
 
-const STORE_PRESETS = "gios.eaPresets";
+const STORE_PRESETS      = "gios.eaPresets";
+const STORE_EA_BACKTEST  = "gios.eaToBacktest";
 
 interface EAPreset {
   name: string;
@@ -345,6 +346,11 @@ export default function EABuilderPage() {
     a.href = URL.createObjectURL(new Blob([code], { type: "text/plain" }));
     a.download = `${cfg.name.replace(/\s+/g,"_")}.${ext}`;
     a.click();
+  }
+
+  function handleSendToBacktest() {
+    localStorage.setItem(STORE_EA_BACKTEST, JSON.stringify(cfg));
+    window.location.href = "/backtest";
   }
 
   async function handleEnhance() {
@@ -534,6 +540,10 @@ export default function EABuilderPage() {
             <span className="font-mono text-xs text-silver/40">{cfg.name}.{getFileExtension(cfg.language)}</span>
             <span className="text-[10px] text-silver/25">{lines} lines · {LOT_MODE_META[cfg.lotConfig.mode].label}</span>
             <div className="ml-auto flex flex-wrap gap-2">
+              <button onClick={handleSendToBacktest} disabled={active === 0}
+                className="rounded-lg border border-emerald-500/50 px-3 py-1.5 text-xs font-medium text-emerald-400 hover:bg-emerald-500/10 disabled:opacity-40 transition-colors">
+                📊 ทดสอบใน Backtester
+              </button>
               <button onClick={handleEnhance} disabled={enhancing}
                 className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${enhancing?"opacity-50 border-royal/30 text-royal/60":"border-royal/50 text-royal hover:bg-royal/10"}`}>
                 {enhancing?"🤖 กำลังปรับ…":"🤖 AI Enhance"}

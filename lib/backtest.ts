@@ -12,12 +12,12 @@ export type BacktestStrategyType =
 
 export type BacktestDirection = "both" | "buy_only" | "sell_only";
 export type BacktestLotMode   = "fixed" | "martingale" | "anti_martingale";
+export type BacktestLogicOp   = "AND" | "OR";
 
-export interface BacktestConfig {
+// Shared strategy params — used by both BacktestConfig (cond 1) and BacktestExtraCond (cond 2-3)
+export interface BacktestStrategyParams {
   strategy: BacktestStrategyType;
-  // Strategy params
-  fastPeriod: number; slowPeriod: number;   // ema/sma cross, triple (fast+mid+slow)
-  midPeriod: number;
+  fastPeriod: number; slowPeriod: number; midPeriod: number;
   rsiPeriod: number; rsiOS: number; rsiOB: number;
   macdFast: number; macdSlow: number; macdSignal: number;
   stochK: number; stochD: number; stochSlowing: number; stochOS: number; stochOB: number;
@@ -25,6 +25,14 @@ export interface BacktestConfig {
   momentumPeriod: number;
   bbPeriod: number; bbDev: number;
   sarStep: number; sarMax: number;
+}
+
+export interface BacktestExtraCond extends BacktestStrategyParams {
+  enabled: boolean;
+  logic: BacktestLogicOp;
+}
+
+export interface BacktestConfig extends BacktestStrategyParams {
   // Trade settings
   direction: BacktestDirection;
   baseLot: number;
@@ -34,6 +42,9 @@ export interface BacktestConfig {
   lotMultiplier: number;
   maxLotSteps: number;
   initialBalance: number;
+  // Extra conditions (optional — disabled by default)
+  cond2: BacktestExtraCond;
+  cond3: BacktestExtraCond;
 }
 
 export interface BacktestTrade {
@@ -68,9 +79,9 @@ export interface BacktestResult {
   maxConsecLosses: number;
 }
 
-export function defaultBacktestConfig(): BacktestConfig {
+export function defaultCondParams(strategy: BacktestStrategyType = "rsi"): BacktestStrategyParams {
   return {
-    strategy: "ema_cross",
+    strategy,
     fastPeriod: 9, slowPeriod: 21, midPeriod: 50,
     rsiPeriod: 14, rsiOS: 30, rsiOB: 70,
     macdFast: 12, macdSlow: 26, macdSignal: 9,
@@ -79,6 +90,16 @@ export function defaultBacktestConfig(): BacktestConfig {
     momentumPeriod: 14,
     bbPeriod: 20, bbDev: 2,
     sarStep: 0.02, sarMax: 0.2,
+  };
+}
+
+export function defaultExtraCond(strategy: BacktestStrategyType = "rsi"): BacktestExtraCond {
+  return { enabled: false, logic: "AND", ...defaultCondParams(strategy) };
+}
+
+export function defaultBacktestConfig(): BacktestConfig {
+  return {
+    ...defaultCondParams("ema_cross"),
     direction: "both",
     baseLot: 0.1,
     slPoints: 5.0,
@@ -87,6 +108,8 @@ export function defaultBacktestConfig(): BacktestConfig {
     lotMultiplier: 2.0,
     maxLotSteps: 4,
     initialBalance: 10000,
+    cond2: defaultExtraCond("rsi"),
+    cond3: defaultExtraCond("macd"),
   };
 }
 
@@ -222,16 +245,28 @@ export function calcSAR(highs: number[], lows: number[], step: number, max: numb
 
 type Signal = "buy" | "sell" | null;
 
-function signals(ohlc: OHLC[], cfg: BacktestConfig): Signal[] {
+function combineSignals(base: Signal[], extra: Signal[], logic: BacktestLogicOp): Signal[] {
+  return base.map((b, i) => {
+    const e = extra[i];
+    if (logic === "AND") {
+      if (b === null || e === null || b !== e) return null;
+      return b;
+    }
+    // OR: either fires (cond1 takes priority)
+    return b !== null ? b : e;
+  });
+}
+
+function computeSignals(ohlc: OHLC[], p: BacktestStrategyParams): Signal[] {
   const closes = ohlc.map((b) => b.close);
   const highs  = ohlc.map((b) => b.high);
   const lows   = ohlc.map((b) => b.low);
   const n = ohlc.length;
 
-  switch (cfg.strategy) {
+  switch (p.strategy) {
     case "ema_cross": {
-      const f = calcEMA(closes, cfg.fastPeriod);
-      const s = calcEMA(closes, cfg.slowPeriod);
+      const f = calcEMA(closes, p.fastPeriod);
+      const s = calcEMA(closes, p.slowPeriod);
       return ohlc.map((_, i) => {
         if (i < 1 || isNaN(f[i]) || isNaN(s[i]) || isNaN(f[i-1]) || isNaN(s[i-1])) return null;
         if (f[i-1] < s[i-1] && f[i] > s[i]) return "buy";
@@ -240,8 +275,8 @@ function signals(ohlc: OHLC[], cfg: BacktestConfig): Signal[] {
       });
     }
     case "sma_cross": {
-      const f = calcSMA(closes, cfg.fastPeriod);
-      const s = calcSMA(closes, cfg.slowPeriod);
+      const f = calcSMA(closes, p.fastPeriod);
+      const s = calcSMA(closes, p.slowPeriod);
       return ohlc.map((_, i) => {
         if (i < 1 || isNaN(f[i]) || isNaN(s[i])) return null;
         if (f[i-1] < s[i-1] && f[i] > s[i]) return "buy";
@@ -250,9 +285,9 @@ function signals(ohlc: OHLC[], cfg: BacktestConfig): Signal[] {
       });
     }
     case "triple_ema": {
-      const f = calcEMA(closes, cfg.fastPeriod);
-      const m = calcEMA(closes, cfg.midPeriod);
-      const s = calcEMA(closes, cfg.slowPeriod);
+      const f = calcEMA(closes, p.fastPeriod);
+      const m = calcEMA(closes, p.midPeriod);
+      const s = calcEMA(closes, p.slowPeriod);
       return ohlc.map((_, i) => {
         if (i < 1 || isNaN(f[i]) || isNaN(m[i]) || isNaN(s[i])) return null;
         if (f[i] > m[i] && m[i-1] <= s[i-1] && m[i] > s[i]) return "buy";
@@ -261,7 +296,7 @@ function signals(ohlc: OHLC[], cfg: BacktestConfig): Signal[] {
       });
     }
     case "price_ema": {
-      const e = calcEMA(closes, cfg.fastPeriod);
+      const e = calcEMA(closes, p.fastPeriod);
       return ohlc.map((_, i) => {
         if (i < 1 || isNaN(e[i])) return null;
         if (closes[i-1] < e[i] && closes[i] > e[i]) return "buy";
@@ -270,16 +305,16 @@ function signals(ohlc: OHLC[], cfg: BacktestConfig): Signal[] {
       });
     }
     case "rsi": {
-      const r = calcRSI(closes, cfg.rsiPeriod);
+      const r = calcRSI(closes, p.rsiPeriod);
       return ohlc.map((_, i) => {
         if (i < 1 || isNaN(r[i]) || isNaN(r[i-1])) return null;
-        if (r[i-1] < cfg.rsiOS && r[i] >= cfg.rsiOS) return "buy";
-        if (r[i-1] > cfg.rsiOB && r[i] <= cfg.rsiOB) return "sell";
+        if (r[i-1] < p.rsiOS && r[i] >= p.rsiOS) return "buy";
+        if (r[i-1] > p.rsiOB && r[i] <= p.rsiOB) return "sell";
         return null;
       });
     }
     case "macd": {
-      const { macd, signal: sig } = calcMACD(closes, cfg.macdFast, cfg.macdSlow, cfg.macdSignal);
+      const { macd, signal: sig } = calcMACD(closes, p.macdFast, p.macdSlow, p.macdSignal);
       return ohlc.map((_, i) => {
         if (i < 1 || isNaN(macd[i]) || isNaN(sig[i])) return null;
         if (macd[i-1] < sig[i-1] && macd[i] > sig[i]) return "buy";
@@ -288,25 +323,25 @@ function signals(ohlc: OHLC[], cfg: BacktestConfig): Signal[] {
       });
     }
     case "stoch": {
-      const { k, d } = calcStoch(highs, lows, closes, cfg.stochK, cfg.stochD);
+      const { k, d } = calcStoch(highs, lows, closes, p.stochK, p.stochD);
       return ohlc.map((_, i) => {
         if (i < 1 || isNaN(k[i]) || isNaN(d[i])) return null;
-        if (k[i-1] < d[i-1] && k[i] > d[i] && k[i] < cfg.stochOS + 10) return "buy";
-        if (k[i-1] > d[i-1] && k[i] < d[i] && k[i] > cfg.stochOB - 10) return "sell";
+        if (k[i-1] < d[i-1] && k[i] > d[i] && k[i] < p.stochOS + 10) return "buy";
+        if (k[i-1] > d[i-1] && k[i] < d[i] && k[i] > p.stochOB - 10) return "sell";
         return null;
       });
     }
     case "cci": {
-      const c = calcCCI(highs, lows, closes, cfg.cciPeriod);
+      const c = calcCCI(highs, lows, closes, p.cciPeriod);
       return ohlc.map((_, i) => {
         if (i < 1 || isNaN(c[i])) return null;
-        if (c[i-1] < -cfg.cciThreshold && c[i] >= -cfg.cciThreshold) return "buy";
-        if (c[i-1] > cfg.cciThreshold  && c[i] <= cfg.cciThreshold)  return "sell";
+        if (c[i-1] < -p.cciThreshold && c[i] >= -p.cciThreshold) return "buy";
+        if (c[i-1] > p.cciThreshold  && c[i] <= p.cciThreshold)  return "sell";
         return null;
       });
     }
     case "momentum": {
-      const m = calcMomentum(closes, cfg.momentumPeriod);
+      const m = calcMomentum(closes, p.momentumPeriod);
       return ohlc.map((_, i) => {
         if (i < 1 || isNaN(m[i])) return null;
         if (m[i-1] < 100 && m[i] >= 100) return "buy";
@@ -315,7 +350,7 @@ function signals(ohlc: OHLC[], cfg: BacktestConfig): Signal[] {
       });
     }
     case "bb_bounce": {
-      const { upper, lower } = calcBB(closes, cfg.bbPeriod, cfg.bbDev);
+      const { upper, lower } = calcBB(closes, p.bbPeriod, p.bbDev);
       return ohlc.map((_, i) => {
         if (isNaN(upper[i])) return null;
         if (closes[i] <= lower[i]) return "buy";
@@ -324,7 +359,7 @@ function signals(ohlc: OHLC[], cfg: BacktestConfig): Signal[] {
       });
     }
     case "bb_breakout": {
-      const { upper, lower } = calcBB(closes, cfg.bbPeriod, cfg.bbDev);
+      const { upper, lower } = calcBB(closes, p.bbPeriod, p.bbDev);
       return ohlc.map((_, i) => {
         if (i < 1 || isNaN(upper[i])) return null;
         if (closes[i-1] <= upper[i-1] && closes[i] > upper[i]) return "buy";
@@ -333,7 +368,7 @@ function signals(ohlc: OHLC[], cfg: BacktestConfig): Signal[] {
       });
     }
     case "parabolic_sar": {
-      const sar = calcSAR(highs, lows, cfg.sarStep, cfg.sarMax);
+      const sar = calcSAR(highs, lows, p.sarStep, p.sarMax);
       return ohlc.map((_, i) => {
         if (i < 1 || isNaN(sar[i])) return null;
         if (sar[i-1] > closes[i-1] && sar[i] < closes[i]) return "buy";
@@ -343,6 +378,13 @@ function signals(ohlc: OHLC[], cfg: BacktestConfig): Signal[] {
     }
     default: return new Array(n).fill(null);
   }
+}
+
+function signals(ohlc: OHLC[], cfg: BacktestConfig): Signal[] {
+  let sigs = computeSignals(ohlc, cfg);
+  if (cfg.cond2.enabled) sigs = combineSignals(sigs, computeSignals(ohlc, cfg.cond2), cfg.cond2.logic);
+  if (cfg.cond3.enabled) sigs = combineSignals(sigs, computeSignals(ohlc, cfg.cond3), cfg.cond3.logic);
+  return sigs;
 }
 
 // ── Backtest runner ───────────────────────────────────────────────────────────

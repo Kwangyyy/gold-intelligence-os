@@ -1,18 +1,109 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   defaultBacktestConfig,
+  defaultExtraCond,
   runBacktest,
   type BacktestConfig,
   type BacktestDirection,
+  type BacktestExtraCond,
+  type BacktestLogicOp,
   type BacktestLotMode,
   type BacktestResult,
   type BacktestStrategyType,
   type OHLC,
 } from "@/lib/backtest";
+import type { EAConfig } from "@/lib/eaBuilder";
 import { PageHeader } from "@/components/PageHeader";
 import { Disclaimer } from "@/components/Disclaimer";
+
+// ── EA Builder → Backtester bridge ───────────────────────────────────────────
+
+const STORE_EA_BACKTEST = "gios.eaToBacktest";
+
+// Strategies in EA Builder that have no direct equivalent in the Backtester
+const UNSUPPORTED: Record<string, BacktestStrategyType> = {
+  adx_di:    "ema_cross",
+  donchian:  "bb_breakout",
+  williams_r:"rsi",
+  engulfing: "ema_cross",
+};
+
+type EACond = EAConfig["conditions"][number];
+
+function mapEACondToParams(c: EACond, target: { strategy: BacktestStrategyType; [k: string]: unknown }): string | undefined {
+  const s = c.strategy;
+  let warning: string | undefined;
+  switch (s.type) {
+    case "ema_cross":    target.strategy = "ema_cross"; target.fastPeriod = s.fastPeriod; target.slowPeriod = s.slowPeriod; break;
+    case "sma_cross":    target.strategy = "sma_cross"; target.fastPeriod = s.fastPeriod; target.slowPeriod = s.slowPeriod; break;
+    case "triple_ema":   target.strategy = "triple_ema"; target.fastPeriod = s.fast; target.midPeriod = s.mid; target.slowPeriod = s.slow; break;
+    case "price_ema":    target.strategy = "price_ema"; target.fastPeriod = s.period; break;
+    case "parabolic_sar":target.strategy = "parabolic_sar"; target.sarStep = s.step; target.sarMax = s.max; break;
+    case "rsi":          target.strategy = "rsi"; target.rsiPeriod = s.period; target.rsiOS = s.oversold; target.rsiOB = s.overbought; break;
+    case "stoch_cross":  target.strategy = "stoch"; target.stochK = s.kPeriod; target.stochD = s.dPeriod; target.stochOS = s.oversold; target.stochOB = s.overbought; break;
+    case "macd":         target.strategy = "macd"; target.macdFast = s.fast; target.macdSlow = s.slow; target.macdSignal = s.signal; break;
+    case "cci":          target.strategy = "cci"; target.cciPeriod = s.period; target.cciThreshold = s.threshold; break;
+    case "momentum":     target.strategy = "momentum"; target.momentumPeriod = s.period; break;
+    case "bb_bounce":    target.strategy = "bb_bounce"; target.bbPeriod = s.period; target.bbDev = s.deviation; break;
+    case "bb_breakout":  target.strategy = "bb_breakout"; target.bbPeriod = s.period; target.bbDev = s.deviation; break;
+    case "donchian":     target.strategy = "bb_breakout"; target.bbPeriod = s.period; target.bbDev = 2; warning = "Donchian → BB Breakout"; break;
+    default: {
+      const fallback = UNSUPPORTED[(s as { type: string }).type];
+      if (fallback) { target.strategy = fallback; warning = `${(s as { type: string }).type} → ${fallback}`; }
+    }
+  }
+  return warning;
+}
+
+function mapEAToBacktest(ea: EAConfig): { cfg: BacktestConfig; label: string; warning?: string } {
+  const cfg = defaultBacktestConfig();
+
+  cfg.direction = ea.direction as BacktestDirection;
+  cfg.baseLot   = ea.lotConfig.baseLot;
+  if (ea.lotConfig.mode === "martingale" || ea.lotConfig.mode === "anti_martingale") {
+    cfg.lotMode       = ea.lotConfig.mode as BacktestLotMode;
+    cfg.lotMultiplier = ea.lotConfig.multiplier;
+    cfg.maxLotSteps   = ea.lotConfig.maxOrders;
+  } else {
+    cfg.lotMode = "fixed";
+  }
+  const PT = 0.01;
+  if (ea.slConfig.type === "fixed") cfg.slPoints = Math.max(0.5, +(ea.slConfig.points * PT).toFixed(2));
+  if (ea.tpConfig.type === "fixed") cfg.tpPoints = Math.max(0.5, +(ea.tpConfig.points * PT).toFixed(2));
+
+  const enabled = ea.conditions.filter((c) => c.enabled);
+  if (!enabled.length) return { cfg, label: ea.name, warning: "ไม่มีเงื่อนไขที่เปิดอยู่ — ใช้ค่า default" };
+
+  const warnings: string[] = [];
+
+  // Cond 1
+  const w1 = mapEACondToParams(enabled[0], cfg as unknown as { strategy: BacktestStrategyType; [k: string]: unknown });
+  if (w1) warnings.push(w1);
+
+  // Cond 2
+  if (enabled[1]) {
+    const c2 = defaultExtraCond();
+    c2.enabled = true;
+    c2.logic   = "AND";
+    const w2 = mapEACondToParams(enabled[1], c2 as unknown as { strategy: BacktestStrategyType; [k: string]: unknown });
+    if (w2) warnings.push(w2);
+    cfg.cond2 = c2;
+  }
+
+  // Cond 3
+  if (enabled[2]) {
+    const c3 = defaultExtraCond();
+    c3.enabled = true;
+    c3.logic   = "AND";
+    const w3 = mapEACondToParams(enabled[2], c3 as unknown as { strategy: BacktestStrategyType; [k: string]: unknown });
+    if (w3) warnings.push(w3);
+    cfg.cond3 = c3;
+  }
+
+  return { cfg, label: ea.name, warning: warnings.length ? warnings.join(", ") : undefined };
+}
 
 // ── Strategy meta ─────────────────────────────────────────────────────────────
 
@@ -119,30 +210,90 @@ function PNum({ label, k, cfg, set, step = 1, min = 1 }: {
     <div className="flex flex-col gap-1">
       <label className="text-[10px] uppercase tracking-wider text-silver/40">{label}</label>
       <input type="number" step={step} min={min} value={cfg[k] as number}
-        onChange={(e) => set({ [k]: parseFloat(e.target.value) || min })}
+        onChange={(e) => set({ [k]: parseFloat(e.target.value) || min } as Partial<BacktestConfig>)}
         className="w-full rounded border border-base-border bg-base-black px-2 py-1 text-xs text-silver focus:border-gold/40 focus:outline-none" />
     </div>
   );
 }
 
-// ── Strategy params ───────────────────────────────────────────────────────────
+// ── Strategy params — shared between BacktestConfig and BacktestExtraCond ──────
 
-function StrategyParams({ cfg, set }: { cfg: BacktestConfig; set: (p: Partial<BacktestConfig>) => void }) {
+type AnyStratP = BacktestConfig | BacktestExtraCond;
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function StrategyParams({ cfg, set }: { cfg: AnyStratP; set: (p: any) => void }) {
+  const num = (label: string, k: string, step = 1, min = 1) => (
+    <div key={k} className="flex flex-col gap-1">
+      <label className="text-[10px] uppercase tracking-wider text-silver/40">{label}</label>
+      <input type="number" step={step} min={min} value={v[k] as number}
+        onChange={(e) => set({ [k]: parseFloat(e.target.value) || min })}
+        className="w-full rounded border border-base-border bg-base-black px-2 py-1 text-xs text-silver focus:border-gold/40 focus:outline-none" />
+    </div>
+  );
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const v = cfg as any;
   switch (cfg.strategy) {
-    case "ema_cross":  return <div className="grid grid-cols-2 gap-2"><PNum label="Fast EMA" k="fastPeriod" cfg={cfg} set={set}/><PNum label="Slow EMA" k="slowPeriod" cfg={cfg} set={set}/></div>;
-    case "sma_cross":  return <div className="grid grid-cols-2 gap-2"><PNum label="Fast SMA" k="fastPeriod" cfg={cfg} set={set}/><PNum label="Slow SMA" k="slowPeriod" cfg={cfg} set={set}/></div>;
-    case "triple_ema": return <div className="grid grid-cols-3 gap-2"><PNum label="Fast" k="fastPeriod" cfg={cfg} set={set}/><PNum label="Mid" k="midPeriod" cfg={cfg} set={set}/><PNum label="Slow" k="slowPeriod" cfg={cfg} set={set}/></div>;
-    case "price_ema":  return <div className="grid grid-cols-2 gap-2"><PNum label="EMA Period" k="fastPeriod" cfg={cfg} set={set}/></div>;
-    case "parabolic_sar": return <div className="grid grid-cols-2 gap-2"><PNum label="Step" k="sarStep" cfg={cfg} set={set} step={0.01} min={0.001}/><PNum label="Max" k="sarMax" cfg={cfg} set={set} step={0.05} min={0.05}/></div>;
-    case "rsi":        return <div className="grid grid-cols-3 gap-2"><PNum label="Period" k="rsiPeriod" cfg={cfg} set={set}/><PNum label="Oversold" k="rsiOS" cfg={cfg} set={set}/><PNum label="Overbought" k="rsiOB" cfg={cfg} set={set}/></div>;
-    case "macd":       return <div className="grid grid-cols-3 gap-2"><PNum label="Fast" k="macdFast" cfg={cfg} set={set}/><PNum label="Slow" k="macdSlow" cfg={cfg} set={set}/><PNum label="Signal" k="macdSignal" cfg={cfg} set={set}/></div>;
-    case "stoch":      return <div className="grid grid-cols-3 gap-2"><PNum label="%K" k="stochK" cfg={cfg} set={set}/><PNum label="%D" k="stochD" cfg={cfg} set={set}/><PNum label="OS" k="stochOS" cfg={cfg} set={set}/></div>;
-    case "cci":        return <div className="grid grid-cols-2 gap-2"><PNum label="Period" k="cciPeriod" cfg={cfg} set={set}/><PNum label="Threshold ±" k="cciThreshold" cfg={cfg} set={set}/></div>;
-    case "momentum":   return <div className="grid grid-cols-2 gap-2"><PNum label="Period" k="momentumPeriod" cfg={cfg} set={set}/></div>;
+    case "ema_cross":     return <div className="grid grid-cols-2 gap-2">{num("Fast EMA","fastPeriod")}{num("Slow EMA","slowPeriod")}</div>;
+    case "sma_cross":     return <div className="grid grid-cols-2 gap-2">{num("Fast SMA","fastPeriod")}{num("Slow SMA","slowPeriod")}</div>;
+    case "triple_ema":    return <div className="grid grid-cols-3 gap-2">{num("Fast","fastPeriod")}{num("Mid","midPeriod")}{num("Slow","slowPeriod")}</div>;
+    case "price_ema":     return <div className="grid grid-cols-2 gap-2">{num("EMA Period","fastPeriod")}</div>;
+    case "parabolic_sar": return <div className="grid grid-cols-2 gap-2">{num("Step","sarStep",0.01,0.001)}{num("Max","sarMax",0.05,0.05)}</div>;
+    case "rsi":           return <div className="grid grid-cols-3 gap-2">{num("Period","rsiPeriod")}{num("Oversold","rsiOS")}{num("Overbought","rsiOB")}</div>;
+    case "macd":          return <div className="grid grid-cols-3 gap-2">{num("Fast","macdFast")}{num("Slow","macdSlow")}{num("Signal","macdSignal")}</div>;
+    case "stoch":         return <div className="grid grid-cols-3 gap-2">{num("%K","stochK")}{num("%D","stochD")}{num("OS","stochOS")}</div>;
+    case "cci":           return <div className="grid grid-cols-2 gap-2">{num("Period","cciPeriod")}{num("Threshold ±","cciThreshold")}</div>;
+    case "momentum":      return <div className="grid grid-cols-2 gap-2">{num("Period","momentumPeriod")}</div>;
     case "bb_bounce":
-    case "bb_breakout":return <div className="grid grid-cols-2 gap-2"><PNum label="Period" k="bbPeriod" cfg={cfg} set={set}/><PNum label="Deviation" k="bbDev" cfg={cfg} set={set} step={0.1} min={0.1}/></div>;
-    default:           return null;
+    case "bb_breakout":   return <div className="grid grid-cols-2 gap-2">{num("Period","bbPeriod")}{num("Deviation","bbDev",0.1,0.1)}</div>;
+    default:              return null;
   }
+}
+
+// ── Extra condition slot (cond2 / cond3) ─────────────────────────────────────
+
+function CondSlot({ label, cond, onChange, color }: {
+  label: string;
+  cond: BacktestExtraCond;
+  onChange: (c: BacktestExtraCond) => void;
+  color: string;
+}) {
+  const set = (patch: Partial<BacktestExtraCond>) => onChange({ ...cond, ...patch });
+  return (
+    <div className={`rounded-xl border ${cond.enabled ? color : "border-base-border/30"} bg-base-panel/40 p-3 space-y-2 transition-all`}>
+      <div className="flex items-center gap-2">
+        <button onClick={() => set({ enabled: !cond.enabled })}
+          className={`relative h-5 w-9 rounded-full transition-colors ${cond.enabled ? "bg-gold/60" : "bg-base-border"}`}>
+          <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${cond.enabled ? "left-4" : "left-0.5"}`} />
+        </button>
+        <span className="text-xs font-semibold text-silver/70">{label}</span>
+        {cond.enabled && (
+          <div className="ml-auto flex gap-1">
+            {(["AND", "OR"] as BacktestLogicOp[]).map((op) => (
+              <button key={op} onClick={() => set({ logic: op })}
+                className={`rounded px-2 py-0.5 text-[10px] font-bold border transition-colors ${cond.logic === op ? "bg-gold/20 text-gold border-gold/40" : "border-base-border text-silver/30 hover:text-silver"}`}>
+                {op}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      {cond.enabled && (
+        <div className="space-y-2">
+          <select value={cond.strategy} onChange={(e) => set({ strategy: e.target.value as BacktestStrategyType })}
+            className="w-full rounded border border-base-border bg-base-black px-2 py-1.5 text-xs text-silver focus:border-gold/40 focus:outline-none">
+            {CATS.map((cat) => (
+              <optgroup key={cat} label={`── ${cat} ──`}>
+                {STRATEGY_OPTS.filter((s) => s.cat === cat).map((s) => (
+                  <option key={s.value} value={s.value}>{s.label}</option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+          <StrategyParams cfg={cond} set={(p) => onChange({ ...cond, ...p })} />
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────────
@@ -187,6 +338,20 @@ export default function BacktestPage() {
   const [loading, setLoading] = useState(true);
   const [fetchErr, setFetchErr] = useState("");
   const [showTrades, setShowTrades] = useState(false);
+  const [eaBanner, setEaBanner] = useState<{ name: string; warning?: string } | null>(null);
+
+  // Auto-load config sent from EA Builder
+  useEffect(() => {
+    const raw = localStorage.getItem(STORE_EA_BACKTEST);
+    if (!raw) return;
+    localStorage.removeItem(STORE_EA_BACKTEST);
+    try {
+      const ea = JSON.parse(raw) as EAConfig;
+      const { cfg: mapped, label, warning } = mapEAToBacktest(ea);
+      setCfg(mapped);
+      setEaBanner({ name: label, warning });
+    } catch { /* ignore malformed data */ }
+  }, []);
 
   const set = (patch: Partial<BacktestConfig>) => setCfg((c) => ({ ...c, ...patch }));
 
@@ -233,6 +398,26 @@ export default function BacktestPage() {
       <PageHeader title="Strategy Backtester"
         subtitle="ทดสอบ strategy บนข้อมูลจริง XAUUSD Daily — ผลลัพธ์เปลี่ยนทันทีเมื่อปรับ parameter" />
 
+      {/* EA Builder import banner */}
+      {eaBanner && (
+        <div className="mb-4 flex items-start gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3">
+          <span className="text-lg">📊</span>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-semibold text-emerald-300">
+              โหลดจาก EA Builder: <span className="text-emerald-200">{eaBanner.name}</span>
+            </div>
+            {eaBanner.warning && (
+              <div className="mt-0.5 text-[11px] text-amber-400">⚠ {eaBanner.warning}</div>
+            )}
+            <div className="mt-0.5 text-[11px] text-emerald-400/60">
+              Strategy, SL/TP และ Lot mapping โหลดอัตโนมัติจาก EA ที่สร้าง — ปรับได้ด้านซ้าย
+            </div>
+          </div>
+          <button onClick={() => setEaBanner(null)}
+            className="text-silver/30 hover:text-silver/60 transition-colors text-lg leading-none">×</button>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-5">
 
         {/* ── Left config ────────────────────────────────────────────────── */}
@@ -265,19 +450,39 @@ export default function BacktestPage() {
             )}
           </div>
 
-          {/* Strategy */}
+          {/* Entry Conditions x3 */}
           <div className="panel p-4 space-y-3">
-            <div className="stat-label">Strategy</div>
-            <select value={cfg.strategy} onChange={(e) => set({ strategy: e.target.value as BacktestStrategyType })}
-              className={inputCls}>
-              {CATS.map((cat) => (
-                <optgroup key={cat} label={`── ${cat} ──`}>
-                  {STRATEGY_OPTS.filter((s) => s.cat === cat).map((s) => (
-                    <option key={s.value} value={s.value}>{s.label}</option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
+            <div className="flex items-center justify-between">
+              <div className="stat-label">เงื่อนไขเข้าไม้</div>
+              <span className="text-[10px] text-silver/30">เงื่อนไข 2–3 ใช้ AND/OR รวมสัญญาณ</span>
+            </div>
+
+            {/* Cond 1 — always active */}
+            <div className="rounded-xl border border-gold/30 bg-gold/5 p-3 space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-gold" />
+                <span className="text-xs font-semibold text-silver/70">เงื่อนไขที่ 1 (หลัก)</span>
+              </div>
+              <select value={cfg.strategy} onChange={(e) => set({ strategy: e.target.value as BacktestStrategyType })}
+                className="w-full rounded border border-base-border bg-base-black px-2 py-1.5 text-xs text-silver focus:border-gold/40 focus:outline-none">
+                {CATS.map((cat) => (
+                  <optgroup key={cat} label={`── ${cat} ──`}>
+                    {STRATEGY_OPTS.filter((s) => s.cat === cat).map((s) => (
+                      <option key={s.value} value={s.value}>{s.label}</option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+              <StrategyParams cfg={cfg} set={set} />
+            </div>
+
+            {/* Cond 2 */}
+            <CondSlot label="เงื่อนไขที่ 2" cond={cfg.cond2} color="border-royal/40 bg-royal/5"
+              onChange={(c) => set({ cond2: c })} />
+
+            {/* Cond 3 */}
+            <CondSlot label="เงื่อนไขที่ 3" cond={cfg.cond3} color="border-emerald-500/40 bg-emerald-500/5"
+              onChange={(c) => set({ cond3: c })} />
 
             {/* Direction */}
             <div>
@@ -291,9 +496,6 @@ export default function BacktestPage() {
                 ))}
               </div>
             </div>
-
-            {/* Strategy params */}
-            <StrategyParams cfg={cfg} set={set} />
           </div>
 
           {/* SL / TP */}

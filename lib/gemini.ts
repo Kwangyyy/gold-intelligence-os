@@ -41,33 +41,41 @@ interface GeminiSchema {
 }
 
 // Low-level call: prompt + responseSchema -> parsed JSON object.
+// Retries up to 2× on 503/429 (transient overload) with 1.5s backoff.
 async function generateJson<T>(prompt: string, schema: GeminiSchema, signal?: AbortSignal): Promise<T> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "x-goog-api-key": API_KEY, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: {
-        responseMimeType: "application/json",
-        responseSchema: schema,
-        temperature: 0.3,
-        // Disable "thinking" for these structured calls: faster + cheaper.
-        thinkingConfig: { thinkingBudget: 0 },
-      },
-    }),
-    signal,
-    cache: "no-store",
+  const body = JSON.stringify({
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: {
+      responseMimeType: "application/json",
+      responseSchema: schema,
+      temperature: 0.3,
+      thinkingConfig: { thinkingBudget: 0 },
+    },
   });
 
-  if (!res.ok) {
-    throw new Error(`Gemini ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const MAX_TRIES = 3;
+  let lastErr = "";
+  for (let attempt = 0; attempt < MAX_TRIES; attempt++) {
+    if (attempt > 0) await new Promise(r => setTimeout(r, 1500 * attempt));
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "x-goog-api-key": API_KEY, "Content-Type": "application/json" },
+      body,
+      signal,
+      cache: "no-store",
+    });
+    if (res.status === 503 || res.status === 429) {
+      lastErr = `Gemini ${res.status}`;
+      continue; // retry
+    }
+    if (!res.ok) throw new Error(`Gemini ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    const json = await res.json();
+    const text: string | undefined = json?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!text) throw new Error("Gemini returned no content");
+    return JSON.parse(text) as T;
   }
-
-  const json = await res.json();
-  const text: string | undefined = json?.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) throw new Error("Gemini returned no content");
-  return JSON.parse(text) as T;
+  throw new Error(`${lastErr} — model overloaded, all retries exhausted`);
 }
 
 // --- Conversational chat (Module 16: AI Chat Copilot) ----------------------
@@ -505,7 +513,13 @@ RULES — follow exactly:
 • setupType: name in English (e.g. "OB Retest", "EMA Pullback", "RSI Divergence Reversal")
 • All prices must be realistic near the current price of $${input.price.toFixed(2)}`;
 
-  const raw = await generateJson<RawTradeSetup>(prompt, STRATEGY_SCHEMA);
+  let raw: RawTradeSetup;
+  try {
+    raw = await generateJson<RawTradeSetup>(prompt, STRATEGY_SCHEMA);
+  } catch {
+    // Gemini unavailable — use rule-based fallback so Paper Trader still works
+    return ruleBasedSetup(input);
+  }
   return {
     direction:      (raw.direction as "buy" | "sell" | "wait") || "wait",
     confidence:     Math.min(100, Math.max(0, raw.confidence || 50)),

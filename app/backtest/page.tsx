@@ -220,8 +220,8 @@ function PNum({ label, k, cfg, set, step = 1, min = 1 }: {
 
 type AnyStratP = BacktestConfig | BacktestExtraCond;
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function StrategyParams({ cfg, set }: { cfg: AnyStratP; set: (p: any) => void }) {
+  const v = cfg as any;
   const num = (label: string, k: string, step = 1, min = 1) => (
     <div key={k} className="flex flex-col gap-1">
       <label className="text-[10px] uppercase tracking-wider text-silver/40">{label}</label>
@@ -230,8 +230,6 @@ function StrategyParams({ cfg, set }: { cfg: AnyStratP; set: (p: any) => void })
         className="w-full rounded border border-base-border bg-base-black px-2 py-1 text-xs text-silver focus:border-gold/40 focus:outline-none" />
     </div>
   );
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const v = cfg as any;
   switch (cfg.strategy) {
     case "ema_cross":     return <div className="grid grid-cols-2 gap-2">{num("Fast EMA","fastPeriod")}{num("Slow EMA","slowPeriod")}</div>;
     case "sma_cross":     return <div className="grid grid-cols-2 gap-2">{num("Fast SMA","fastPeriod")}{num("Slow SMA","slowPeriod")}</div>;

@@ -610,6 +610,7 @@ const DICT: Record<string, Bilingual> = {
   navPaper:        { th: "Paper Trader",       en: "Paper Trader"       },
   hub_paper:       { th: "ฝึกเทรด virtual ไม่ใช้เงินจริง บัญชีเริ่มต้น $10,000", en: "Virtual trading — $10,000 demo account, live P&L" },
   navNews:         { th: "Gold News",          en: "Gold News"          },
+  navCalculator:   { th: "คำนวณ Lot Size",     en: "Lot Calculator"     },
   hub_news:        { th: "AI วิเคราะห์ sentiment ข่าวทองคำ real-time", en: "AI gold news sentiment — real-time analysis" },
 
   // shared error / loading

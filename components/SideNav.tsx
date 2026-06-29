@@ -41,6 +41,8 @@ const NAV = [
   { href: "/econ-calendar", icon: "🗓️", key: "navEconCalendar"  },
   { href: "/performance",   icon: "📊", key: "navPerformance"   },
   { href: "/intermarket",   icon: "🌐", key: "navIntermarket"   },
+  { href: "/cot",           icon: "📋", key: "navCot"           },
+  { href: "/broadcast",     icon: "📢", key: "navBroadcast"     },
   { href: "/news",        icon: "📰", key: "navNews"           },
 ] as const;
 

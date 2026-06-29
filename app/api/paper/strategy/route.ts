@@ -4,6 +4,7 @@ import { emaSeries, rsi, macd, atr } from "@/lib/indicators";
 import { generateTradeStrategy, type TradeSetup } from "@/lib/gemini";
 import { logSignal } from "@/lib/signalLog";
 import { geminiEnabled } from "@/lib/gemini";
+import { broadcastSignal } from "@/lib/telegram";
 
 export const dynamic = "force-dynamic";
 
@@ -34,7 +35,6 @@ export async function GET(req: Request) {
     const macdH  = macdR?.histogram ?? 0;
     const atrV   = atr(h1, 14) ?? 10;
 
-    // Recent swing highs/lows for S/R
     const recent30 = h1.slice(-30);
     const highs = [...recent30.map(c => c.high)].sort((a, b) => b - a).slice(0, 3);
     const lows  = [...recent30.map(c => c.low)].sort((a, b) => a - b).slice(0, 3);
@@ -54,7 +54,7 @@ export async function GET(req: Request) {
 
     CACHE = { setup, candles, ts: Date.now() };
 
-    // Fire-and-forget: log signal to Redis (don't await — never block response)
+    // Fire-and-forget: log + broadcast (never block response)
     logSignal({
       symbol: "XAUUSD",
       direction: setup.direction,
@@ -66,7 +66,25 @@ export async function GET(req: Request) {
       tp2: setup.tp2,
       rr1: setup.rr1,
       source: geminiEnabled() ? "gemini" : "rule",
-    }).catch(() => {/* ignore Redis errors */});
+    }).catch(() => {});
+
+    // Broadcast to Telegram channel if confidence >= 65 and actionable
+    if (setup.direction !== "wait" && setup.confidence >= 65) {
+      broadcastSignal({
+        symbol: "XAUUSD",
+        direction: setup.direction,
+        confidence: setup.confidence,
+        entry: setup.entry,
+        sl: setup.sl,
+        tp1: setup.tp1,
+        tp2: setup.tp2 ?? null,
+        rr1: setup.rr1,
+        setupType: setup.setupType,
+        biasTh: setup.biasTh ?? "",
+        reasoningTh: setup.reasoningTh ?? [],
+        risksTh: setup.risksTh ?? [],
+      }).catch(() => {});
+    }
 
     return NextResponse.json({ setup, candles });
   } catch (err) {

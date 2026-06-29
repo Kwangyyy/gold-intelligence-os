@@ -29,6 +29,7 @@ export default function RiskPage() {
   const { t, rmRisk } = useI18n();
 
   const [balance, setBalance] = useState(10000);
+  const [currency, setCurrency] = useState<"USD" | "USC">("USD");
   const [riskPct, setRiskPct] = useState(1);
   const [leverage, setLeverage] = useState(100);
   const [direction, setDirection] = useState<"buy" | "sell">("buy");
@@ -62,9 +63,14 @@ export default function RiskPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // USC = US Cents: 1 USD = 100 USC. Convert to USD for all calculations.
+  const balanceUSD = currency === "USC" ? balance / 100 : balance;
+  const cSign      = currency === "USC" ? "¢" : "$";
+  const toDisp     = (usd: number) => currency === "USC" ? usd * 100 : usd;
+
   const result = useMemo(
-    () => computeRisk({ balance, riskPct, leverage, entry, stopLoss, direction }),
-    [balance, riskPct, leverage, entry, stopLoss, direction]
+    () => computeRisk({ balance: balanceUSD, riskPct, leverage, entry, stopLoss, direction }),
+    [balanceUSD, riskPct, leverage, entry, stopLoss, direction]
   );
 
   const level = riskLabel(riskPct, result.marginPct, newsWarning);
@@ -93,7 +99,28 @@ export default function RiskPage() {
         <Card>
           <div className="stat-label mb-3">{t("rmInputs")}</div>
           <div className="space-y-3">
-            <Field label={t("rmBalance")} value={balance} onChange={setBalance} step={100} />
+            {/* Balance + USD/USC toggle */}
+            <div>
+              <div className="mb-1 flex items-center justify-between">
+                <label className="stat-label">{t("rmBalance")}</label>
+                <div className="flex overflow-hidden rounded-lg border border-base-border text-xs font-bold">
+                  {(["USD", "USC"] as const).map(c => (
+                    <button key={c} onClick={() => setCurrency(c)}
+                      className={`px-3 py-1 transition-colors ${currency === c ? "bg-gold/20 text-gold" : "text-silver/40"}`}>
+                      {c}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <input type="number" value={Number.isFinite(balance) ? balance : ""} step={100}
+                onChange={e => setBalance(parseFloat(e.target.value) || 0)}
+                className="w-full rounded-lg border border-base-border bg-base-panel px-3 py-2 font-mono text-sm text-silver outline-none focus:border-neon/50" />
+              {currency === "USC" && balance > 0 && (
+                <div className="mt-1 text-[11px] text-silver/40">
+                  = ${money(balance / 100)} USD จริง
+                </div>
+              )}
+            </div>
             <Field label={t("rmRiskPct")} value={riskPct} onChange={setRiskPct} step={0.25} />
             <Field label={t("rmLeverage")} value={leverage} onChange={setLeverage} step={50} />
             <div>
@@ -142,11 +169,11 @@ export default function RiskPage() {
             <div className="text-xs text-silver/40">{result.units.toLocaleString()} oz</div>
           </div>
           <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
-            <Stat label={t("rmRiskAmount")} value={`$${money(result.riskAmount)}`} />
+            <Stat label={t("rmRiskAmount")} value={`${cSign}${money(toDisp(result.riskAmount))}`} />
             <Stat label={t("rmSlDistance")} value={money(result.slDistance)} />
-            <Stat label={t("rmPotentialLoss")} value={`-$${money(result.potentialLoss)}`} tone="text-bear" />
-            <Stat label={t("rmNotional")} value={`$${money(result.notional)}`} />
-            <Stat label={t("rmMargin")} value={`$${money(result.margin)}`} />
+            <Stat label={t("rmPotentialLoss")} value={`-${cSign}${money(toDisp(result.potentialLoss))}`} tone="text-bear" />
+            <Stat label={t("rmNotional")} value={`${cSign}${money(toDisp(result.notional))}`} />
+            <Stat label={t("rmMargin")} value={`${cSign}${money(toDisp(result.margin))}`} />
             <Stat label={t("rmMarginPct")} value={`${result.marginPct}%`} tone={result.marginPct > 60 ? "text-warn" : undefined} />
           </div>
           <div className="mt-4">
@@ -156,7 +183,7 @@ export default function RiskPage() {
                 <div key={tp.rr} className="rounded-lg border border-base-border/60 bg-base-panel/50 p-2 text-center">
                   <div className="text-[11px] text-silver/50">1:{tp.rr}</div>
                   <div className="font-mono text-sm text-bull">{money(tp.price)}</div>
-                  <div className="text-[10px] text-silver/40">+${money(tp.reward)}</div>
+                  <div className="text-[10px] text-silver/40">+{cSign}{money(toDisp(tp.reward))}</div>
                 </div>
               ))}
             </div>

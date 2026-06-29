@@ -618,6 +618,7 @@ const DICT: Record<string, Bilingual> = {
   navMt5:          { th: "MT5 Bridge",         en: "MT5 Bridge"         },
   navEconCalendar: { th: "Economic Calendar",  en: "Economic Calendar"  },
   navPerformance:  { th: "Performance",        en: "Performance"        },
+  navIntermarket:  { th: "Intermarket",        en: "Intermarket"        },
   hub_news:        { th: "AI วิเคราะห์ sentiment ข่าวทองคำ real-time", en: "AI gold news sentiment — real-time analysis" },
 
   // shared error / loading

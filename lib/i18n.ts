@@ -619,6 +619,7 @@ const DICT: Record<string, Bilingual> = {
   navEconCalendar: { th: "Economic Calendar",  en: "Economic Calendar"  },
   navPerformance:  { th: "Performance",        en: "Performance"        },
   navIntermarket:  { th: "Intermarket",        en: "Intermarket"        },
+  navMultiScanner: { th: "Multi-Symbol Scan",   en: "Multi-Symbol Scan"  },
   navCot:          { th: "COT Report",         en: "COT Report"         },
   navBroadcast:    { th: "Broadcast Settings", en: "Broadcast Settings" },
   hub_news:        { th: "AI วิเคราะห์ sentiment ข่าวทองคำ real-time", en: "AI gold news sentiment — real-time analysis" },

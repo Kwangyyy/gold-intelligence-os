@@ -78,6 +78,33 @@ function ttlFor(interval: string): number {
   return 60 * 60_000; // daily/weekly/monthly: 1 hour
 }
 
+export async function fetchCandlesByTicker(ticker: string, interval: string, range: string): Promise<Candle[]> {
+  const key = `${ticker}:${interval}:${range}`;
+  const cached = candleCache.get(key);
+  if (cached && Date.now() - cached.at < ttlFor(interval)) return cached.candles;
+
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=${interval}&range=${range}`;
+  const res = await fetch(url, {
+    headers: { "User-Agent": UA, Accept: "application/json" },
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`Yahoo ${ticker} ${interval}/${range} -> ${res.status}`);
+  const json = await res.json();
+  const q = json?.chart?.result?.[0]?.indicators?.quote?.[0];
+  if (!q) throw new Error("no quote");
+
+  const candles: Candle[] = [];
+  const len = q.close?.length ?? 0;
+  for (let i = 0; i < len; i++) {
+    const o = q.open[i]; const h = q.high[i];
+    const l = q.low[i];  const c = q.close[i];
+    if (o == null || h == null || l == null || c == null) continue;
+    candles.push({ open: o, high: h, low: l, close: c, volume: q.volume?.[i] ?? undefined });
+  }
+  candleCache.set(key, { candles, at: Date.now() });
+  return candles;
+}
+
 export async function fetchCandles(interval: string, range: string): Promise<Candle[]> {
   const key = `${interval}:${range}`;
   const cached = candleCache.get(key);

@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { fetchCandlesForTf } from "@/lib/timeframes";
 import { emaSeries, rsi, macd, atr } from "@/lib/indicators";
 import { generateTradeStrategy, type TradeSetup } from "@/lib/gemini";
+import { logSignal } from "@/lib/signalLog";
+import { geminiEnabled } from "@/lib/gemini";
 
 export const dynamic = "force-dynamic";
 
@@ -51,6 +53,21 @@ export async function GET(req: Request) {
     }));
 
     CACHE = { setup, candles, ts: Date.now() };
+
+    // Fire-and-forget: log signal to Redis (don't await — never block response)
+    logSignal({
+      symbol: "XAUUSD",
+      direction: setup.direction,
+      confidence: setup.confidence,
+      setupType: setup.setupType,
+      entry: setup.entry,
+      sl: setup.sl,
+      tp1: setup.tp1,
+      tp2: setup.tp2,
+      rr1: setup.rr1,
+      source: geminiEnabled() ? "gemini" : "rule",
+    }).catch(() => {/* ignore Redis errors */});
+
     return NextResponse.json({ setup, candles });
   } catch (err) {
     return NextResponse.json(

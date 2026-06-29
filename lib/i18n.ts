@@ -613,6 +613,7 @@ const DICT: Record<string, Bilingual> = {
   navCalculator:   { th: "คำนวณ Lot Size",     en: "Lot Calculator"     },
   navPriceAlerts:  { th: "Price Alerts",       en: "Price Alerts"       },
   navMarkets:      { th: "Markets",            en: "Markets"            },
+  navSignalLog:    { th: "Signal Log",         en: "Signal Log"         },
   hub_news:        { th: "AI วิเคราะห์ sentiment ข่าวทองคำ real-time", en: "AI gold news sentiment — real-time analysis" },
 
   // shared error / loading

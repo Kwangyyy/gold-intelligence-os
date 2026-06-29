@@ -616,6 +616,8 @@ const DICT: Record<string, Bilingual> = {
   navSignalLog:    { th: "Signal Log",         en: "Signal Log"         },
   navHeatmap:      { th: "Volatility Heatmap", en: "Volatility Heatmap" },
   navMt5:          { th: "MT5 Bridge",         en: "MT5 Bridge"         },
+  navEconCalendar: { th: "Economic Calendar",  en: "Economic Calendar"  },
+  navPerformance:  { th: "Performance",        en: "Performance"        },
   hub_news:        { th: "AI วิเคราะห์ sentiment ข่าวทองคำ real-time", en: "AI gold news sentiment — real-time analysis" },
 
   // shared error / loading

@@ -38,6 +38,8 @@ const NAV = [
   { href: "/signal-log",  icon: "📡", key: "navSignalLog"     },
   { href: "/heatmap",     icon: "🌡️", key: "navHeatmap"       },
   { href: "/mt5",         icon: "🔌", key: "navMt5"           },
+  { href: "/econ-calendar", icon: "🗓️", key: "navEconCalendar" },
+  { href: "/performance",   icon: "📊", key: "navPerformance"  },
   { href: "/news",        icon: "📰", key: "navNews"           },
 ] as const;
 

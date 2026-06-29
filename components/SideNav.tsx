@@ -11,6 +11,7 @@ import { AuthButton } from "./AuthButton";
 
 const NAV = [
   { href: "/",            icon: "🏠", key: "navOverview"       },
+  { href: "/markets",     icon: "🌐", key: "navMarkets"        },
   { href: "/chart",       icon: "📈", key: "navChart"          },
   { href: "/technical",   icon: "📊", key: "navMultiTimeframe" },
   { href: "/indicators",  icon: "🔬", key: "navTechnical"      },

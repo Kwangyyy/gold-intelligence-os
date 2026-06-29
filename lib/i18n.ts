@@ -612,6 +612,7 @@ const DICT: Record<string, Bilingual> = {
   navNews:         { th: "Gold News",          en: "Gold News"          },
   navCalculator:   { th: "คำนวณ Lot Size",     en: "Lot Calculator"     },
   navPriceAlerts:  { th: "Price Alerts",       en: "Price Alerts"       },
+  navMarkets:      { th: "Markets",            en: "Markets"            },
   hub_news:        { th: "AI วิเคราะห์ sentiment ข่าวทองคำ real-time", en: "AI gold news sentiment — real-time analysis" },
 
   // shared error / loading

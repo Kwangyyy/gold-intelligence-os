@@ -23,6 +23,23 @@ export interface MT5Position {
   comment: string;
 }
 
+export interface MT5ClosedTrade {
+  ticket: number;
+  symbol: string;
+  type: "buy" | "sell";
+  lots: number;
+  openPrice: number;
+  closePrice: number;
+  sl: number;
+  tp: number;
+  profit: number;
+  swap: number;
+  commission: number;
+  openTime: number;  // unix seconds
+  closeTime: number; // unix seconds
+  comment: string;
+}
+
 export interface MT5Account {
   balance: number;
   equity: number;
@@ -33,6 +50,7 @@ export interface MT5Account {
   currency: string;
   leverage: number;
   positions: MT5Position[];
+  closedTrades?: MT5ClosedTrade[]; // last 50 closed trades from EA
   server: string;
   account: string;
   lastUpdate: number; // Date.now()

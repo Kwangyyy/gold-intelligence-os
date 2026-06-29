@@ -393,6 +393,39 @@ export default function JournalPage() {
   const [aiData, setAiData] = useState<AiReview | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importMsg, setImportMsg] = useState("");
+
+  async function importFromMT5() {
+    setImporting(true);
+    setImportMsg("");
+    try {
+      const r = await fetch("/api/mt5/import-journal");
+      const d = await r.json() as { trades: TradeEntry[]; count?: number; message?: string };
+      if (!d.trades?.length) {
+        setImportMsg(d.message ?? "ไม่มี trade history จาก MT5 Bridge");
+        return;
+      }
+      const existing = loadTrades();
+      const existingIds = new Set(existing.map(t => t.id));
+      const newTrades = d.trades.filter(t => !existingIds.has(t.id));
+      if (newTrades.length === 0) {
+        setImportMsg("ไม่มี trade ใหม่ — ทุก trade import แล้ว");
+        return;
+      }
+      const merged = [...existing, ...newTrades].sort(
+        (a, b) => new Date(b.openTime).getTime() - new Date(a.openTime).getTime()
+      );
+      saveTrades(merged);
+      setTrades(merged);
+      setImportMsg(`✓ Import ${newTrades.length} trades จาก MT5`);
+    } catch (e) {
+      setImportMsg("Error: " + String(e));
+    } finally {
+      setImporting(false);
+      setTimeout(() => setImportMsg(""), 5000);
+    }
+  }
 
   useEffect(() => {
     setTrades(loadTrades());
@@ -459,21 +492,36 @@ export default function JournalPage() {
         title={t("journalTitle")}
         subtitle={t("journalSubtitle")}
         right={
-          <div className="flex gap-2">
-            {trades.length > 0 && (
+          <div className="flex flex-col items-end gap-1.5">
+            <div className="flex gap-2">
               <button
-                onClick={() => exportCSV(trades)}
-                className="rounded-lg border border-base-border px-3 py-1.5 text-xs text-silver/60 hover:text-silver hover:border-silver/30 transition-colors"
+                onClick={importFromMT5} disabled={importing}
+                className="rounded-lg border px-3 py-1.5 text-xs transition-colors disabled:opacity-40"
+                style={{ borderColor: "rgba(96,165,250,0.3)", color: "#60a5fa" }}
+                title="Import closed trades จาก MT5 Bridge"
               >
-                {t("journalExport")}
+                {importing ? "กำลัง import…" : "🔌 Import MT5"}
               </button>
+              {trades.length > 0 && (
+                <button
+                  onClick={() => exportCSV(trades)}
+                  className="rounded-lg border border-base-border px-3 py-1.5 text-xs text-silver/60 hover:text-silver hover:border-silver/30 transition-colors"
+                >
+                  {t("journalExport")}
+                </button>
+              )}
+              <button
+                onClick={() => { setShowForm(true); setEditId(null); }}
+                className="btn-primary px-4 py-1.5 text-sm"
+              >
+                + {t("journalAddTrade")}
+              </button>
+            </div>
+            {importMsg && (
+              <div className="text-[11px]" style={{ color: importMsg.startsWith("✓") ? "#34d399" : "#f5c451" }}>
+                {importMsg}
+              </div>
             )}
-            <button
-              onClick={() => { setShowForm(true); setEditId(null); }}
-              className="btn-primary px-4 py-1.5 text-sm"
-            >
-              + {t("journalAddTrade")}
-            </button>
           </div>
         }
       />

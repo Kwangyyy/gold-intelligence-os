@@ -1,15 +1,14 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { buildPortfolio } from "@/lib/portfolio";
 import { getMT5Data } from "@/lib/mt5Store";
-import type { MarketSnapshot } from "@/lib/types";
+import { getMarketSnapshot } from "@/lib/marketSnapshot";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(req: NextRequest) {
-  const origin = new URL(req.url).origin;
+export async function GET() {
   let price = 4000;
   try {
-    const m = (await fetch(`${origin}/api/market/xauusd`, { cache: "no-store" }).then((r) => r.json())) as MarketSnapshot;
+    const m = await getMarketSnapshot();
     if (m?.price) price = m.price;
   } catch { /* use fallback */ }
 

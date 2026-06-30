@@ -34,7 +34,7 @@ const TTL = 4 * 60 * 60 * 1000; // 4 h
 export async function GET() {
   if (CACHE && Date.now() - CACHE.ts < TTL) {
     return NextResponse.json(CACHE.data, {
-      headers: { "Cache-Control": "public, max-age=14400" },
+      headers: { "Cache-Control": "no-store" },
     });
   }
 
@@ -100,7 +100,7 @@ export async function GET() {
 
     CACHE = { data, ts: Date.now() };
     return NextResponse.json(data, {
-      headers: { "Cache-Control": "public, max-age=14400" },
+      headers: { "Cache-Control": "no-store" },
     });
   } catch (err) {
     return NextResponse.json(

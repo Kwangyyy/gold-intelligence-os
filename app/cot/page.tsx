@@ -103,7 +103,7 @@ function CotCard({ row }: { row: CotRow }) {
           </div>
         </div>
         <div className="rounded-xl p-3" style={{ background:"rgba(255,255,255,0.02)", border:"1px solid rgba(255,255,255,0.05)" }}>
-          <div className="text-[9px] uppercase tracking-widest text-silver/25 mb-1.5">Non-Commercial</div>
+          <div className="text-[9px] uppercase tracking-widest text-silver/25 mb-1.5">Other Reportables</div>
           <div className="font-mono text-xs font-bold" style={{ color: row.ncNet > 0 ? "#34d399" : "#f87171" }}>
             {row.ncNet > 0 ? "+" : ""}{fmtK(row.ncNet)}
           </div>

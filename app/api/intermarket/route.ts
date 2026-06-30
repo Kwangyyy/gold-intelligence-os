@@ -46,7 +46,7 @@ async function fetchYahoo(ticker: string): Promise<{ price: number; change: numb
 
 export async function GET() {
   if (CACHE && Date.now() - CACHE.ts < TTL) {
-    return NextResponse.json(CACHE.data, { headers: { "Cache-Control": "public, max-age=60" } });
+    return NextResponse.json(CACHE.data, { headers: { "Cache-Control": "no-store" } });
   }
 
   const results = await Promise.allSettled(
@@ -63,5 +63,5 @@ export async function GET() {
     .filter(Boolean);
 
   CACHE = { data, ts: Date.now() };
-  return NextResponse.json(data, { headers: { "Cache-Control": "public, max-age=60" } });
+  return NextResponse.json(data, { headers: { "Cache-Control": "no-store" } });
 }

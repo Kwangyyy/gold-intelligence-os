@@ -4,7 +4,12 @@ export const dynamic = "force-dynamic";
 
 // CFTC Disaggregated COT Report — Futures-and-Options-Combined
 // https://publicreporting.cftc.gov/resource/kh3c-gbw2.json
-// Gold (COMEX) code: 088691  Silver: 084691  BTC: 133741
+// Filtered by cftc_contract_market_code (NOT cftc_commodity_code, which is a
+// different, shorter code). Only covers physical commodities — financial
+// futures (FX, crypto) live in a separate "Traders in Financial Futures"
+// dataset with a different schema, so they're not included here.
+// Codes verified directly against the dataset: Gold 088691, Silver 084691,
+// Platinum 076651, Copper 085692, WTI 067651.
 
 export interface CotRow {
   id: string;
@@ -17,11 +22,11 @@ export interface CotRow {
   mmNet: number;
   mmNetPrev: number;
   mmChange: number;
-  // Commercial (hedgers)
+  // Commercial (producer/merchant — hedgers)
   commLong: number;
   commShort: number;
   commNet: number;
-  // Non-Commercial (large speculators)
+  // Other Reportables (large speculators outside managed money)
   ncLong: number;
   ncShort: number;
   ncNet: number;
@@ -31,12 +36,12 @@ export interface CotRow {
 
 interface CftcRecord {
   report_date_as_yyyy_mm_dd?: string;
-  // Non-commercial
-  noncomm_positions_long_all?: string;
-  noncomm_positions_short_all?: string;
-  // Commercial
-  comm_positions_long_all?: string;
-  comm_positions_short_all?: string;
+  // Producer/Merchant (disaggregated "commercial")
+  prod_merc_positions_long?: string;
+  prod_merc_positions_short?: string;
+  // Other Reportables (disaggregated "non-commercial" proxy)
+  other_rept_positions_long?: string;
+  other_rept_positions_short?: string;
   // Open interest
   open_interest_all?: string;
   // Managed money (disaggregated)
@@ -45,11 +50,11 @@ interface CftcRecord {
 }
 
 const INSTRUMENTS = [
-  { id: "XAUUSD", name: "Gold",   icon: "🥇", code: "088691" },
-  { id: "XAGUSD", name: "Silver", icon: "🥈", code: "084691" },
-  { id: "USOUSD", name: "WTI",    icon: "🛢", code: "067651" },
-  { id: "EURUSD", name: "EUR/USD",icon: "💶", code: "099741" },
-  { id: "BTCUSD", name: "Bitcoin",icon: "₿",  code: "133741" },
+  { id: "XAUUSD", name: "Gold",     icon: "🥇", code: "088691" },
+  { id: "XAGUSD", name: "Silver",   icon: "🥈", code: "084691" },
+  { id: "XPTUSD", name: "Platinum", icon: "⚪", code: "076651" },
+  { id: "COPPER",  name: "Copper",   icon: "🔶", code: "085692" },
+  { id: "USOUSD", name: "WTI",      icon: "🛢", code: "067651" },
 ];
 
 const BASE = "https://publicreporting.cftc.gov/resource/kh3c-gbw2.json";
@@ -58,7 +63,7 @@ let CACHE: { data: CotRow[]; ts: number } | null = null;
 const TTL = 4 * 60 * 60 * 1000; // 4 hours (COT updates weekly on Fridays)
 
 async function fetchCot(code: string): Promise<CftcRecord[]> {
-  const url = `${BASE}?cftc_commodity_code=${code}&$limit=2&$order=report_date_as_yyyy_mm_dd+DESC`;
+  const url = `${BASE}?cftc_contract_market_code=${code}&$limit=2&$order=report_date_as_yyyy_mm_dd+DESC`;
   const r = await fetch(url, { signal: AbortSignal.timeout(8_000) });
   if (!r.ok) throw new Error(`CFTC ${r.status}`);
   return r.json();
@@ -89,19 +94,19 @@ async function buildRow(inst: typeof INSTRUMENTS[0]): Promise<CotRow> {
     mmLong, mmShort, mmNet,
     mmNetPrev,
     mmChange: mmNet - mmNetPrev,
-    commLong:  toNum(cur.comm_positions_long_all),
-    commShort: toNum(cur.comm_positions_short_all),
-    commNet:   toNum(cur.comm_positions_long_all) - toNum(cur.comm_positions_short_all),
-    ncLong:    toNum(cur.noncomm_positions_long_all),
-    ncShort:   toNum(cur.noncomm_positions_short_all),
-    ncNet:     toNum(cur.noncomm_positions_long_all) - toNum(cur.noncomm_positions_short_all),
+    commLong:  toNum(cur.prod_merc_positions_long),
+    commShort: toNum(cur.prod_merc_positions_short),
+    commNet:   toNum(cur.prod_merc_positions_long) - toNum(cur.prod_merc_positions_short),
+    ncLong:    toNum(cur.other_rept_positions_long),
+    ncShort:   toNum(cur.other_rept_positions_short),
+    ncNet:     toNum(cur.other_rept_positions_long) - toNum(cur.other_rept_positions_short),
     openInterest: toNum(cur.open_interest_all),
   };
 }
 
 export async function GET() {
   if (CACHE && Date.now() - CACHE.ts < TTL) {
-    return NextResponse.json(CACHE.data, { headers: { "Cache-Control": "public, max-age=14400" } });
+    return NextResponse.json(CACHE.data, { headers: { "Cache-Control": "no-store" } });
   }
 
   const results = await Promise.allSettled(INSTRUMENTS.map(buildRow));
@@ -114,5 +119,5 @@ export async function GET() {
   );
 
   CACHE = { data, ts: Date.now() };
-  return NextResponse.json(data, { headers: { "Cache-Control": "public, max-age=14400" } });
+  return NextResponse.json(data, { headers: { "Cache-Control": "no-store" } });
 }

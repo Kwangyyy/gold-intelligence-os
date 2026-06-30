@@ -75,7 +75,7 @@ export async function GET(req: Request) {
 
   if (CACHE && Date.now() - CACHE.ts < TTL) {
     const events = gold ? CACHE.events.filter(e => e.affectsGold) : CACHE.events;
-    return NextResponse.json(events, { headers: { "Cache-Control": "public, max-age=1800" } });
+    return NextResponse.json(events, { headers: { "Cache-Control": "no-store" } });
   }
 
   try {
@@ -93,7 +93,7 @@ export async function GET(req: Request) {
 
     CACHE = { events, ts: Date.now() };
     const out = gold ? events.filter(e => e.affectsGold) : events;
-    return NextResponse.json(out, { headers: { "Cache-Control": "public, max-age=1800" } });
+    return NextResponse.json(out, { headers: { "Cache-Control": "no-store" } });
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "calendar fetch failed" },

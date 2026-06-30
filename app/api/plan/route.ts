@@ -1,17 +1,16 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { buildTradePlan } from "@/lib/plan";
-import type { MarketSnapshot, SupportResistance } from "@/lib/types";
+import { getMarketSnapshot } from "@/lib/marketSnapshot";
+import { buildSupportResistance } from "@/lib/levels";
+import type { SupportResistance } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(req: NextRequest) {
-  const origin = new URL(req.url).origin;
+export async function GET() {
   try {
     const [market, levels] = await Promise.all([
-      fetch(`${origin}/api/market/xauusd`, { cache: "no-store" }).then((r) => r.json() as Promise<MarketSnapshot>),
-      fetch(`${origin}/api/technical/levels`, { cache: "no-store" })
-        .then((r) => (r.ok ? (r.json() as Promise<SupportResistance>) : null))
-        .catch(() => null),
+      getMarketSnapshot(),
+      buildSupportResistance().catch(() => null as SupportResistance | null),
     ]);
     const plan = buildTradePlan(market, levels);
     return NextResponse.json(plan, { headers: { "Cache-Control": "no-store" } });

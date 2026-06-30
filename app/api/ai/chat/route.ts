@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { chatWithContext, geminiEnabled, type ChatMessage } from "@/lib/gemini";
+import { getMarketSnapshot } from "@/lib/marketSnapshot";
+import { buildMultiTimeframe } from "@/lib/timeframes";
 import type { MarketSnapshot, MultiTimeframe } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -59,15 +61,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Last message must be from the user." }, { status: 400 });
   }
 
-  // Ground the answer in the platform's own live endpoints (reuses their caches).
-  const origin = new URL(req.url).origin;
+  // Ground the answer in the platform's own live data (reuses their caches).
   const [mkt, mtf] = await Promise.all([
-    fetch(`${origin}/api/market/xauusd`, { cache: "no-store" })
-      .then((r) => (r.ok ? (r.json() as Promise<MarketSnapshot>) : null))
-      .catch(() => null),
-    fetch(`${origin}/api/technical/mtf`, { cache: "no-store" })
-      .then((r) => (r.ok ? (r.json() as Promise<MultiTimeframe>) : null))
-      .catch(() => null),
+    getMarketSnapshot().catch(() => null as MarketSnapshot | null),
+    buildMultiTimeframe().catch(() => null as MultiTimeframe | null),
   ]);
 
   const controller = new AbortController();

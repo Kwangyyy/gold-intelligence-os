@@ -309,7 +309,58 @@ const BRIEF_SCHEMA: GeminiSchema = {
   required: ["headline","headlineTh","summary","summaryTh","bias","confidence","sections"],
 };
 
+function ruleBasedBrief(input: BriefInput): DailyBrief {
+  const trendUp   = input.price > input.sma20;
+  const bias: DailyBrief["bias"] = input.changePct > 0.3 ? "bullish" : input.changePct < -0.3 ? "bearish" : "neutral";
+  const rsiStatus = input.rsi14 > 70 ? "Overbought" : input.rsi14 < 30 ? "Oversold" : "Neutral";
+  const rsiStatusTh = input.rsi14 > 70 ? "ซื้อมากเกินไป" : input.rsi14 < 30 ? "ขายมากเกินไป" : "เป็นกลาง";
+  const dirEn = input.change >= 0 ? "up" : "down";
+  const dirTh = input.change >= 0 ? "ขึ้น" : "ลง";
+  const sup = input.supports[0] ?? input.price - input.atr * 1.5;
+  const res = input.resistances[0] ?? input.price + input.atr * 1.5;
+
+  const evtList = input.events.length > 0
+    ? input.events.map((e) => `${e.title} (${e.country})`).join(", ")
+    : "ไม่มีเหตุการณ์สำคัญ / no major events";
+
+  return {
+    headline:   `Gold ${dirEn} ${Math.abs(input.changePct).toFixed(2)}% — ${trendUp ? "Above" : "Below"} 20-day SMA`,
+    headlineTh: `ทองคำ${dirTh} ${Math.abs(input.changePct).toFixed(2)}% — ${trendUp ? "เหนือ" : "ต่ำกว่า"} SMA 20 วัน`,
+    summary:    `Gold trades at $${input.price.toFixed(2)}, ${dirEn} ${Math.abs(input.changePct).toFixed(2)}% today. RSI(14) at ${input.rsi14.toFixed(1)} (${rsiStatus}), price is ${trendUp ? "above" : "below"} the 20-day SMA — bias leans ${bias}.`,
+    summaryTh:  `ทองคำเทรดที่ $${input.price.toFixed(2)} ${dirTh} ${Math.abs(input.changePct).toFixed(2)}% วันนี้ RSI(14) ที่ ${input.rsi14.toFixed(1)} (${rsiStatusTh}) ราคาอยู่${trendUp ? "เหนือ" : "ต่ำกว่า"} SMA 20 วัน — แนวโน้มเอียงไปทาง${bias === "bullish" ? "ขาขึ้น" : bias === "bearish" ? "ขาลง" : "กลาง"}`,
+    bias,
+    confidence: "medium",
+    sections: [
+      { id: "overview", icon: "📊", title: "Market Overview", titleTh: "ภาพรวมตลาด",
+        content: `Gold is trading at $${input.price.toFixed(2)} during the ${input.session}, ${dirEn} $${Math.abs(input.change).toFixed(2)} (${Math.abs(input.changePct).toFixed(2)}%) on the day. Day range: $${input.low.toFixed(2)} — $${input.high.toFixed(2)}.`,
+        contentTh: `ทองคำเทรดที่ $${input.price.toFixed(2)} ในช่วง ${input.session} ${dirTh} $${Math.abs(input.change).toFixed(2)} (${Math.abs(input.changePct).toFixed(2)}%) ของวัน ช่วงราคาวันนี้: $${input.low.toFixed(2)} — $${input.high.toFixed(2)}` },
+      { id: "technical", icon: "📈", title: "Technical Analysis", titleTh: "วิเคราะห์เทคนิค",
+        content: `RSI(14) is at ${input.rsi14.toFixed(1)} (${rsiStatus}). Price is ${trendUp ? "above" : "below"} the SMA(20) at $${input.sma20.toFixed(2)} — a ${trendUp ? "bullish" : "bearish"} signal. ATR(14) of $${input.atr.toFixed(2)} indicates ${input.atr > 20 ? "elevated" : "normal"} volatility.`,
+        contentTh: `RSI(14) อยู่ที่ ${input.rsi14.toFixed(1)} (${rsiStatusTh}) ราคาอยู่${trendUp ? "เหนือ" : "ต่ำกว่า"} SMA(20) ที่ $${input.sma20.toFixed(2)} ซึ่งเป็นสัญญาณ${trendUp ? "ขาขึ้น" : "ขาลง"} ATR(14) ที่ $${input.atr.toFixed(2)} บ่งชี้ความผันผวน${input.atr > 20 ? "สูง" : "ปกติ"}` },
+      { id: "events", icon: "📅", title: "Key Events Today", titleTh: "เหตุการณ์สำคัญ",
+        content: `Today's calendar: ${evtList}.`,
+        contentTh: `ปฏิทินวันนี้: ${evtList}` },
+      { id: "strategy", icon: "🎯", title: "Trading Strategy", titleTh: "กลยุทธ์การเทรด",
+        content: `Bias leans ${bias}. Watch for reaction near support $${sup.toFixed(2)} and resistance $${res.toFixed(2)}. Use tight risk management given current volatility (ATR $${input.atr.toFixed(2)}).`,
+        contentTh: `แนวโน้มเอียงไปทาง${bias === "bullish" ? "ขาขึ้น" : bias === "bearish" ? "ขาลง" : "กลาง"} จับตาปฏิกิริยาราคาใกล้แนวรับ $${sup.toFixed(2)} และแนวต้าน $${res.toFixed(2)} บริหารความเสี่ยงให้รัดกุมเนื่องจากความผันผวนปัจจุบัน (ATR $${input.atr.toFixed(2)})` },
+      { id: "risks", icon: "⚠️", title: "Risk Factors", titleTh: "ปัจจัยความเสี่ยง",
+        content: `A reversal from ${trendUp ? "support" : "resistance"} levels could invalidate the current bias. Unexpected news or shifts in broader market sentiment can move gold quickly.`,
+        contentTh: `การกลับตัวจาก${trendUp ? "แนวรับ" : "แนวต้าน"} อาจทำให้แนวโน้มปัจจุบันเปลี่ยนไป ข่าวที่ไม่คาดคิดหรือการเปลี่ยนแปลงอารมณ์ตลาดอาจทำให้ราคาทองคำเคลื่อนไหวอย่างรวดเร็ว` },
+      { id: "watchlist", icon: "🔍", title: "Price Levels to Watch", titleTh: "ระดับราคาที่ต้องจับตา",
+        content: `Key support at $${sup.toFixed(2)}, resistance at $${res.toFixed(2)}. A break of either level could signal the next directional move.`,
+        contentTh: `แนวรับสำคัญที่ $${sup.toFixed(2)} แนวต้านที่ $${res.toFixed(2)} การทะลุระดับใดระดับหนึ่งอาจส่งสัญญาณการเคลื่อนไหวครั้งต่อไป` },
+    ],
+    price: input.price,
+    change: input.change,
+    changePct: input.changePct,
+    date: input.date,
+    generatedAt: new Date().toISOString(),
+  };
+}
+
 export async function generateDailyBrief(input: BriefInput, signal?: AbortSignal): Promise<DailyBrief> {
+  if (!API_KEY) return ruleBasedBrief(input);
+
   const evtList = input.events.length > 0
     ? input.events.map((e) => `• ${e.title} (${e.country}, ${e.impact}) — Forecast: ${e.forecast ?? "n/a"} | Prev: ${e.previous ?? "n/a"}`).join("\n")
     : "• No major scheduled events";
@@ -352,9 +403,15 @@ Rules:
 - bias: overall gold bias for the session
 - NEVER promise guaranteed profits. Include risk perspective in strategy section.`;
 
-  const raw = await generateJson<Omit<DailyBrief,"price"|"change"|"changePct"|"generatedAt"|"date">>(
-    prompt, BRIEF_SCHEMA, signal
-  );
+  let raw: Omit<DailyBrief,"price"|"change"|"changePct"|"generatedAt"|"date">;
+  try {
+    raw = await generateJson<Omit<DailyBrief,"price"|"change"|"changePct"|"generatedAt"|"date">>(
+      prompt, BRIEF_SCHEMA, signal
+    );
+  } catch {
+    // Gemini unavailable (overload/rate-limit) — fall back so the Brief page still works
+    return ruleBasedBrief(input);
+  }
 
   return {
     ...raw,

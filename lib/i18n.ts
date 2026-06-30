@@ -191,8 +191,16 @@ const DICT: Record<string, Bilingual> = {
   tierLabel: { th: "แพ็กเกจ", en: "Plan" },
   lockedTitle: { th: "ฟีเจอร์นี้ต้องอัปเกรด", en: "This feature needs an upgrade" },
   lockedBody: {
-    th: "ฟีเจอร์นี้เปิดให้เฉพาะแพ็กเกจที่สูงกว่า ทดลองสลับแพ็กเกจเพื่อดูการทำงาน",
-    en: "This page is available on a higher plan. Switch your plan to preview it.",
+    th: "ฟีเจอร์นี้เปิดให้เฉพาะแพ็กเกจที่สูงกว่าบัญชีของคุณ",
+    en: "This page is available on a higher plan than your account.",
+  },
+  lockedNeedLogin: {
+    th: "ต้องเข้าสู่ระบบก่อนใช้งานฟีเจอร์นี้",
+    en: "Sign in to access this feature.",
+  },
+  lockedNoSelfServe: {
+    th: "ระบบสมัครสมาชิกแบบชำระเงินยังไม่เปิดให้บริการตอนนี้ — ติดต่อ EA Profit Lab หากต้องการทดลองใช้งานแพ็กเกจที่สูงขึ้น",
+    en: "Paid plans aren't open yet — contact EA Profit Lab if you'd like early access to a higher tier.",
   },
   upgradeTo: { th: "อัปเกรดเป็น", en: "Upgrade to" },
   tierPreviewNote: {

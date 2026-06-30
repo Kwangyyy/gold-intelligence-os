@@ -1,30 +1,29 @@
 "use client";
 
+import { useSession } from "next-auth/react";
 import { useI18n } from "@/lib/i18n";
 import { useTier, type Tier } from "@/lib/tier";
 
+const TIER_KEY: Record<Tier, "tierFree" | "tierPremium" | "tierPro"> = {
+  free: "tierFree", premium: "tierPremium", pro: "tierPro",
+};
+
+// Read-only display of the signed-in account's plan. Tier is no longer
+// self-assignable client-side — see lib/userTier.ts for how it's set.
 export function TierToggle() {
-  const { tier, setTier } = useTier();
+  const { tier } = useTier();
+  const { status } = useSession();
   const { t } = useI18n();
-  const opts: { code: Tier; label: string }[] = [
-    { code: "free", label: t("tierFree") },
-    { code: "premium", label: t("tierPremium") },
-    { code: "pro", label: t("tierPro") },
-  ];
+
   return (
-    <div className="inline-flex overflow-hidden rounded-lg border border-base-border bg-base-panel" title={t("tierLabel")}>
-      {opts.map((o) => (
-        <button
-          key={o.code}
-          onClick={() => setTier(o.code)}
-          aria-pressed={tier === o.code}
-          className={`px-2 py-1.5 text-xs font-medium transition-colors ${
-            tier === o.code ? "bg-neon/20 text-neon" : "text-silver/55 hover:text-silver"
-          }`}
-        >
-          {o.label}
-        </button>
-      ))}
+    <div
+      className="inline-flex items-center gap-1.5 rounded-lg border border-base-border bg-base-panel px-2.5 py-1.5 text-xs font-medium text-silver/70"
+      title={t("tierLabel")}
+    >
+      <span className="text-neon">{t(TIER_KEY[tier])}</span>
+      {status !== "authenticated" && (
+        <span className="text-[10px] text-silver/35">({t("tierLabel")})</span>
+      )}
     </div>
   );
 }

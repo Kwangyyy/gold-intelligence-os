@@ -2,9 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { LanguageProvider } from "@/lib/i18n";
 import { ModeProvider } from "@/lib/mode";
-import { TierProvider } from "@/lib/tier";
 import { ShellLayout } from "@/components/ShellLayout";
-import { TierGuard } from "@/components/TierGuard";
 import { SwRegister } from "@/components/SwRegister";
 import { AuthProvider } from "@/components/AuthProvider";
 
@@ -49,11 +47,7 @@ export default function RootLayout({
         <AuthProvider>
           <LanguageProvider>
             <ModeProvider>
-              <TierProvider>
-                <ShellLayout>
-                  <TierGuard>{children}</TierGuard>
-                </ShellLayout>
-              </TierProvider>
+              <ShellLayout>{children}</ShellLayout>
             </ModeProvider>
           </LanguageProvider>
         </AuthProvider>

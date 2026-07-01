@@ -53,6 +53,7 @@ const NAV = [
   { href: "/supply-demand",   icon: "⚖️", key: "navSupplyDemand"     },
   { href: "/roc",             icon: "📉", key: "navRoc"               },
   { href: "/intermarket-heatmap", icon: "🌍", key: "navIntermarketHeatmap" },
+  { href: "/scalp-levels",        icon: "⚡", key: "navScalpLevels"        },
   { href: "/backtest",    icon: "🧪", key: "navBacktest"       },
   { href: "/brief",       icon: "📰", key: "navBrief"          },
   { href: "/scanner",       icon: "📡", key: "navScanner"        },

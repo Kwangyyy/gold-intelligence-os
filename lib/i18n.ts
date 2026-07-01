@@ -653,6 +653,7 @@ const DICT: Record<string, Bilingual> = {
   navSupplyDemand:   { th: "Supply & Demand",      en: "Supply & Demand"       },
   navRoc:                  { th: "Rate of Change (ROC)",  en: "Rate of Change (ROC)"   },
   navIntermarketHeatmap:   { th: "Intermarket Heatmap",  en: "Intermarket Heatmap"    },
+  navScalpLevels:          { th: "Intraday Scalp Levels", en: "Intraday Scalp Levels"  },
   navCot:          { th: "COT Report",         en: "COT Report"         },
   navBroadcast:    { th: "Broadcast Settings", en: "Broadcast Settings" },
   hub_news:        { th: "AI วิเคราะห์ sentiment ข่าวทองคำ real-time", en: "AI gold news sentiment — real-time analysis" },

@@ -19,6 +19,47 @@ import { ModuleHub } from "@/components/ModuleHub";
 import { GoldChart } from "@/components/GoldChart";
 import { Hero } from "@/components/Hero";
 
+// ── AI Model Signal banner (reads cached result from localStorage) ─────────────
+function AiSignalBanner() {
+  const [sig, setSig] = useState<{
+    decision: string; confidence: number; testAcc: number; savedAt: string;
+  } | null>(null);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("gold-ai-model-meta");
+      if (!raw) return;
+      const meta = JSON.parse(raw);
+      if (meta?.signal?.decision) setSig({
+        decision:   meta.signal.decision,
+        confidence: meta.signal.confidence,
+        testAcc:    meta.testAcc,
+        savedAt:    meta.savedAt,
+      });
+    } catch { /* localStorage unavailable */ }
+  }, []);
+
+  if (!sig) return null;
+
+  const color = sig.decision === "BUY" ? "#34d399" : sig.decision === "SELL" ? "#f87171" : "#f5c451";
+  const d = new Date(sig.savedAt);
+  const when = d.toLocaleDateString("th-TH", { day:"2-digit", month:"short" })
+    + " " + d.toLocaleTimeString("th-TH", { hour:"2-digit", minute:"2-digit" });
+
+  return (
+    <a href="/ai-model" className="block no-underline">
+      <div className="flex flex-wrap items-center gap-3 rounded-xl border px-5 py-3 text-sm transition-colors hover:bg-white/[0.02]"
+        style={{ background:`${color}07`, borderColor:`${color}28` }}>
+        <span className="text-[9px] uppercase tracking-widest text-silver/35 shrink-0">🧠 AI Model</span>
+        <span className="text-xl font-black" style={{ color }}>{sig.decision}</span>
+        <span className="font-semibold text-silver/60">{sig.confidence.toFixed(1)}% confidence</span>
+        <span className="text-xs text-silver/30">· test acc {sig.testAcc.toFixed(1)}%</span>
+        <span className="ml-auto text-[10px] text-silver/25">เทรนเมื่อ {when} · คลิกดูรายละเอียด →</span>
+      </div>
+    </a>
+  );
+}
+
 const POLL_MS = 10_000;
 
 export default function DashboardPage() {
@@ -67,6 +108,8 @@ export default function DashboardPage() {
 
           <BeginnerActionCard data={data} />
 
+          <AiSignalBanner />
+
           <GoldChart heightClass="h-[400px]" />
 
           <ModuleHub />
@@ -99,6 +142,8 @@ export default function DashboardPage() {
 
           {/* AI reasoning (full PRD §12 output) */}
           <ReasoningPanel r={data.recommendation} aiSource={data.aiSource} />
+
+          <AiSignalBanner />
 
           <ModuleHub />
 

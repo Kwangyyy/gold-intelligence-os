@@ -168,6 +168,7 @@ export default function AiModelPage() {
   const [savedAt,      setSavedAt]      = useState<string | null>(null);
   const [saving,       setSaving]       = useState(false);
   const [fromCache,    setFromCache]    = useState(false);
+  const [addEpochs,    setAddEpochs]    = useState(40);
 
   const modelRef = useRef<any>(null);
 
@@ -388,6 +389,112 @@ export default function AiModelPage() {
     }
   }, [data, epochs, buildModel, saveToCache]);
 
+  // Continue training from existing model weights (incremental — no reset)
+  const continueTraining = useCallback(async () => {
+    if (!tf || !modelRef.current) return;
+
+    // Auto-load data if not yet loaded
+    let trainData = data;
+    if (!trainData || trainData.features.length === 0) {
+      setDataLoading(true);
+      try {
+        const r = await fetch("/api/ai-model/data", { cache: "no-store" });
+        const d = await r.json();
+        if (d.error) throw new Error(d.error);
+        trainData = d as ModelDataPayload;
+        setData(d);
+        setFromCache(false);
+      } catch (e) { setDataErr(String(e)); return; }
+      finally { setDataLoading(false); }
+    }
+
+    setTraining(true);
+    setCurEpoch(0); setLossCurve([]); setAccCurve([]); setValAccCurve([]);
+
+    const { features, labels, lastFeature, closes } = trainData;
+    const splitI = Math.floor(features.length * 0.8);
+
+    // Same oversampling as train()
+    const rawTrainF = features.slice(0, splitI);
+    const rawTrainL = labels.slice(0, splitI);
+    const classIdxs: number[][] = [[], [], []];
+    for (let i = 0; i < rawTrainL.length; i++) classIdxs[rawTrainL[i]].push(i);
+    const maxN = Math.max(...classIdxs.map(c => c.length));
+    const balF: number[][] = [], balL: number[] = [];
+    for (let c = 0; c < 3; c++) {
+      const idxs = classIdxs[c];
+      for (let i = 0; i < maxN; i++) { balF.push(rawTrainF[idxs[i % idxs.length]]); balL.push(c); }
+    }
+    for (let i = balF.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [balF[i], balF[j]] = [balF[j], balF[i]];
+      [balL[i], balL[j]] = [balL[j], balL[i]];
+    }
+
+    const xTrain = tf.tensor2d(balF);
+    const xTest  = tf.tensor2d(features.slice(splitI));
+    const yTrain = tf.oneHot(tf.tensor1d(balL, "int32"), 3);
+    const yTest  = tf.oneHot(tf.tensor1d(labels.slice(splitI), "int32"), 3);
+
+    try {
+      const model = modelRef.current;
+      const lossH: number[] = [], accH: number[] = [], valAccH: number[] = [];
+
+      await model.fit(xTrain, yTrain, {
+        epochs: addEpochs,
+        batchSize: 32,
+        validationData: [xTest, yTest],
+        shuffle: true,
+        callbacks: {
+          onEpochEnd: (_epoch: number, logs: Record<string, number>) => {
+            lossH.push(+(logs?.loss?.toFixed(4) ?? 0));
+            accH.push(+(logs?.acc?.toFixed(4) ?? 0));
+            valAccH.push(+(logs?.val_acc?.toFixed(4) ?? 0));
+            setCurEpoch(_epoch + 1);
+            setLossCurve([...lossH]);
+            setAccCurve([...accH]);
+            setValAccCurve([...valAccH]);
+          },
+        },
+      });
+
+      const predTensor = model.predict(xTest) as ReturnType<typeof tf.tensor2d>;
+      const predLabels = predTensor.argMax(1).arraySync() as number[];
+      const trueLabels = labels.slice(splitI);
+      const fullPred   = (model.predict(tf.tensor2d(features)) as ReturnType<typeof tf.tensor2d>)
+        .argMax(1).arraySync() as number[];
+      setPredicted(fullPred);
+
+      const cm: number[][] = [[0,0,0],[0,0,0],[0,0,0]];
+      for (let i = 0; i < trueLabels.length; i++) cm[trueLabels[i]][predLabels[i]]++;
+      setConfMatrix(cm);
+      const acc = predLabels.filter((p, i) => p === trueLabels[i]).length / trueLabels.length * 100;
+      setTestAcc(acc);
+
+      const lastTensor = tf.tensor2d([lastFeature]);
+      const lastProbs  = (model.predict(lastTensor) as ReturnType<typeof tf.tensor2d>).arraySync()[0] as number[];
+      const decision = lastProbs[1] > lastProbs[2] && lastProbs[1] > lastProbs[0] ? "BUY"
+                     : lastProbs[2] > lastProbs[1] && lastProbs[2] > lastProbs[0] ? "SELL" : "HOLD";
+      const sig: Signal = { hold: lastProbs[0], buy: lastProbs[1], sell: lastProbs[2],
+                            decision, confidence: Math.max(...lastProbs) * 100 };
+      setSignal(sig);
+
+      await saveToCache(model, {
+        epochs: addEpochs,
+        testAcc: acc, confMatrix: cm, signal: sig,
+        lossCurve: lossH, accCurve: accH, valAccCurve: valAccH,
+        predicted: fullPred, closes: trainData.closes, labels: trainData.labels,
+        n: trainData.n, featureNames: [...trainData.featureNames],
+        labelCounts: trainData.labelCounts, dates: trainData.dates,
+        lastFeature: trainData.lastFeature, priceRange: trainData.priceRange,
+      });
+
+      [xTrain, xTest, yTrain, yTest, predTensor, lastTensor].forEach(t => t.dispose());
+    } finally {
+      setTraining(false);
+    }
+  }, [data, addEpochs, saveToCache]);
+
   const phaseDone = (p: number) => {
     if (p === 1) return !!data;
     if (p === 2) return accCurve.length > 0;
@@ -534,11 +641,30 @@ export default function AiModelPage() {
               {training
                 ? <span className="flex items-center justify-center gap-2">
                     <span className="h-4 w-4 animate-spin rounded-full border-2 border-purple-400/30 border-t-purple-400" />
-                    Epoch {curEpoch}/{epochs}
+                    Epoch {curEpoch}/{training ? (canTrain ? epochs : addEpochs) : epochs}
                   </span>
-                : fromCache ? "🔄 เทรนใหม่ (แทน cache)" : "🚀 เริ่มเทรน"}
+                : fromCache ? "🔄 เทรนใหม่ (รีเซ็ต weights)" : "🚀 เริ่มเทรน"}
             </button>
-            {!canTrain && !training && (
+
+            {/* Continue Training (incremental — keeps existing weights) */}
+            {fromCache && !training && (
+              <div className="mt-2 space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-silver/40 shrink-0">เพิ่ม</span>
+                  <select value={addEpochs} onChange={e => setAddEpochs(+e.target.value)}
+                    className="flex-1 rounded-lg border border-base-border/30 bg-white/[0.03] px-2 py-1 text-xs text-silver/70 outline-none">
+                    {[20, 40, 60, 80, 100].map(v => <option key={v} value={v}>{v} epochs</option>)}
+                  </select>
+                </div>
+                <button onClick={continueTraining} disabled={training || !tfLoaded}
+                  className="w-full rounded-xl py-2.5 text-sm font-bold transition-all disabled:opacity-40"
+                  style={{ background:"rgba(52,211,153,0.12)", border:"1px solid rgba(52,211,153,0.35)", color:"#34d399" }}>
+                  ➕ ต่อเทรนจาก weights เดิม
+                </button>
+              </div>
+            )}
+
+            {!canTrain && !training && !fromCache && (
               <p className="text-[10px] text-silver/30 mt-2 text-center">
                 {!tfLoaded ? "รอ TF.js โหลด…" : "กด โหลดข้อมูล XAUUSD ก่อนเทรน"}
               </p>

@@ -632,6 +632,7 @@ const DICT: Record<string, Bilingual> = {
   navSrIndicator:  { th: "S/R Indicator",       en: "S/R Indicator"      },
   navCmeOi:        { th: "CME Open Interest",   en: "CME Open Interest"  },
   navEaMonitor:    { th: "EA Monitor",           en: "EA Monitor"         },
+  navAiModel:      { th: "AI Model Training",   en: "AI Model Training"  },
   navCot:          { th: "COT Report",         en: "COT Report"         },
   navBroadcast:    { th: "Broadcast Settings", en: "Broadcast Settings" },
   hub_news:        { th: "AI วิเคราะห์ sentiment ข่าวทองคำ real-time", en: "AI gold news sentiment — real-time analysis" },

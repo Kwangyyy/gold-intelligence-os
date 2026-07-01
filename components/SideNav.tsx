@@ -32,6 +32,7 @@ const NAV = [
   { href: "/sr-indicator",  icon: "📐", key: "navSrIndicator"  },
   { href: "/cme-oi",        icon: "🏛", key: "navCmeOi"        },
   { href: "/ea-monitor",    icon: "🔍", key: "navEaMonitor"    },
+  { href: "/ai-model",      icon: "🧠", key: "navAiModel"      },
   { href: "/backtest",    icon: "🧪", key: "navBacktest"       },
   { href: "/brief",       icon: "📰", key: "navBrief"          },
   { href: "/scanner",       icon: "📡", key: "navScanner"        },

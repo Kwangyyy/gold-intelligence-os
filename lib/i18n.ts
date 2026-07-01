@@ -638,6 +638,7 @@ const DICT: Record<string, Bilingual> = {
   navMarketRegime:   { th: "Market Regime",       en: "Market Regime"       },
   navForecast:       { th: "Gold Forecast",       en: "Gold Forecast"       },
   navPatterns:       { th: "Price Action Patterns", en: "Price Action Patterns" },
+  navSessions:       { th: "Session Analysis",      en: "Session Analysis"      },
   navCot:          { th: "COT Report",         en: "COT Report"         },
   navBroadcast:    { th: "Broadcast Settings", en: "Broadcast Settings" },
   hub_news:        { th: "AI วิเคราะห์ sentiment ข่าวทองคำ real-time", en: "AI gold news sentiment — real-time analysis" },

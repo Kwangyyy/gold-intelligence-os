@@ -52,6 +52,7 @@ const NAV = [
   { href: "/market-summary",  icon: "🧭", key: "navMarketSummary"    },
   { href: "/supply-demand",   icon: "⚖️", key: "navSupplyDemand"     },
   { href: "/roc",             icon: "📉", key: "navRoc"               },
+  { href: "/intermarket-heatmap", icon: "🌍", key: "navIntermarketHeatmap" },
   { href: "/backtest",    icon: "🧪", key: "navBacktest"       },
   { href: "/brief",       icon: "📰", key: "navBrief"          },
   { href: "/scanner",       icon: "📡", key: "navScanner"        },

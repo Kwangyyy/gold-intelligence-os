@@ -57,6 +57,7 @@ export const ROUTE_MIN_TIER: Record<string, Tier> = {
   "/weekly-brief":        "premium",
   "/mining-stocks":       "premium",
   "/gold-calendar":       "premium",
+  "/position-calc":       "free",
   "/brief":   "pro",
   "/scanner":     "premium",
   "/seasonality": "pro",

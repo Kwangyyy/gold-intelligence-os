@@ -646,6 +646,7 @@ const DICT: Record<string, Bilingual> = {
   navMomentum:       { th: "Momentum Tracker",     en: "Momentum Tracker"      },
   navTrendStrength:  { th: "Trend Strength (ADX)", en: "Trend Strength (ADX)"  },
   navNewsSentiment:  { th: "News Sentiment",       en: "News Sentiment"        },
+  navPivots:         { th: "Pivot Points",          en: "Pivot Points"          },
   navCot:          { th: "COT Report",         en: "COT Report"         },
   navBroadcast:    { th: "Broadcast Settings", en: "Broadcast Settings" },
   hub_news:        { th: "AI วิเคราะห์ sentiment ข่าวทองคำ real-time", en: "AI gold news sentiment — real-time analysis" },

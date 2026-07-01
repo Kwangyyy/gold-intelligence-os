@@ -54,6 +54,7 @@ const NAV = [
   { href: "/roc",             icon: "📉", key: "navRoc"               },
   { href: "/intermarket-heatmap", icon: "🌍", key: "navIntermarketHeatmap" },
   { href: "/scalp-levels",        icon: "⚡", key: "navScalpLevels"        },
+  { href: "/macro-score",         icon: "🏛️", key: "navMacroScore"          },
   { href: "/backtest",    icon: "🧪", key: "navBacktest"       },
   { href: "/brief",       icon: "📰", key: "navBrief"          },
   { href: "/scanner",       icon: "📡", key: "navScanner"        },

@@ -55,6 +55,7 @@ const NAV = [
   { href: "/intermarket-heatmap", icon: "🌍", key: "navIntermarketHeatmap" },
   { href: "/scalp-levels",        icon: "⚡", key: "navScalpLevels"        },
   { href: "/macro-score",         icon: "🏛️", key: "navMacroScore"          },
+  { href: "/range-forecast",      icon: "🎯", key: "navRangeForecast"       },
   { href: "/backtest",    icon: "🧪", key: "navBacktest"       },
   { href: "/brief",       icon: "📰", key: "navBrief"          },
   { href: "/scanner",       icon: "📡", key: "navScanner"        },

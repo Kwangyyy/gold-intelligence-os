@@ -52,6 +52,7 @@ export const ROUTE_MIN_TIER: Record<string, Tier> = {
   "/intermarket-heatmap":  "premium",
   "/scalp-levels":         "premium",
   "/macro-score":          "premium",
+  "/range-forecast":       "pro",
   "/brief":   "pro",
   "/scanner":     "premium",
   "/seasonality": "pro",

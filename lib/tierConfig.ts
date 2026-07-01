@@ -48,6 +48,7 @@ export const ROUTE_MIN_TIER: Record<string, Tier> = {
   "/fear-greed":      "premium",
   "/market-summary":  "premium",
   "/supply-demand":   "premium",
+  "/roc":             "premium",
   "/brief":   "pro",
   "/scanner":     "premium",
   "/seasonality": "pro",

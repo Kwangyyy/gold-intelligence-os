@@ -51,6 +51,7 @@ const NAV = [
   { href: "/fear-greed",      icon: "😱", key: "navFearGreed"        },
   { href: "/market-summary",  icon: "🧭", key: "navMarketSummary"    },
   { href: "/supply-demand",   icon: "⚖️", key: "navSupplyDemand"     },
+  { href: "/roc",             icon: "📉", key: "navRoc"               },
   { href: "/backtest",    icon: "🧪", key: "navBacktest"       },
   { href: "/brief",       icon: "📰", key: "navBrief"          },
   { href: "/scanner",       icon: "📡", key: "navScanner"        },

@@ -40,6 +40,7 @@ const NAV = [
   { href: "/patterns",        icon: "🕯", key: "navPatterns"       },
   { href: "/sessions",        icon: "🕐", key: "navSessions"       },
   { href: "/volatility",      icon: "📊", key: "navVolatility"     },
+  { href: "/seasonality2",    icon: "📅", key: "navSeasonality2"   },
   { href: "/backtest",    icon: "🧪", key: "navBacktest"       },
   { href: "/brief",       icon: "📰", key: "navBrief"          },
   { href: "/scanner",       icon: "📡", key: "navScanner"        },

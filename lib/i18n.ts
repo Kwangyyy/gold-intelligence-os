@@ -640,6 +640,7 @@ const DICT: Record<string, Bilingual> = {
   navPatterns:       { th: "Price Action Patterns", en: "Price Action Patterns" },
   navSessions:       { th: "Session Analysis",      en: "Session Analysis"      },
   navVolatility:     { th: "Volatility Dashboard",  en: "Volatility Dashboard"  },
+  navSeasonality2:   { th: "Seasonality 10Y",       en: "Seasonality 10Y"       },
   navCot:          { th: "COT Report",         en: "COT Report"         },
   navBroadcast:    { th: "Broadcast Settings", en: "Broadcast Settings" },
   hub_news:        { th: "AI วิเคราะห์ sentiment ข่าวทองคำ real-time", en: "AI gold news sentiment — real-time analysis" },

@@ -37,6 +37,7 @@ export const ROUTE_MIN_TIER: Record<string, Tier> = {
   "/patterns":        "premium",
   "/sessions":        "premium",
   "/volatility":      "premium",
+  "/seasonality2":    "pro",
   "/brief":   "pro",
   "/scanner":     "premium",
   "/seasonality": "pro",

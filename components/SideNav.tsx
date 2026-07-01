@@ -66,6 +66,7 @@ const NAV = [
   { href: "/price-heatmap",       icon: "🌡️", key: "navPriceHeatmap"             },
   { href: "/elliott-wave",        icon: "〰️", key: "navElliottWave"              },
   { href: "/commodity-matrix",    icon: "🌐", key: "navCommodityMatrix"           },
+  { href: "/yield-curve",         icon: "📉", key: "navYieldCurve"                },
   { href: "/backtest",    icon: "🧪", key: "navBacktest"       },
   { href: "/brief",       icon: "📰", key: "navBrief"          },
   { href: "/scanner",       icon: "📡", key: "navScanner"        },

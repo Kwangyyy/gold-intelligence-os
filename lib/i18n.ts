@@ -666,6 +666,7 @@ const DICT: Record<string, Bilingual> = {
   navPriceHeatmap:         { th: "Price Heatmap",        en: "Price Heatmap"          },
   navElliottWave:          { th: "Elliott Wave",         en: "Elliott Wave"           },
   navCommodityMatrix:      { th: "Commodity Matrix",     en: "Commodity Matrix"       },
+  navYieldCurve:           { th: "Yield Curve & Rates",  en: "Yield Curve & Rates"    },
   navCot:          { th: "COT Report",         en: "COT Report"         },
   navBroadcast:    { th: "Broadcast Settings", en: "Broadcast Settings" },
   hub_news:        { th: "AI วิเคราะห์ sentiment ข่าวทองคำ real-time", en: "AI gold news sentiment — real-time analysis" },

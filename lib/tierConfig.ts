@@ -63,6 +63,7 @@ export const ROUTE_MIN_TIER: Record<string, Tier> = {
   "/price-heatmap":       "premium",
   "/elliott-wave":        "pro",
   "/commodity-matrix":    "premium",
+  "/yield-curve":         "premium",
   "/brief":   "pro",
   "/scanner":     "premium",
   "/seasonality": "pro",

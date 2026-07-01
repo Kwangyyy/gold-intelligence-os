@@ -647,6 +647,7 @@ const DICT: Record<string, Bilingual> = {
   navTrendStrength:  { th: "Trend Strength (ADX)", en: "Trend Strength (ADX)"  },
   navNewsSentiment:  { th: "News Sentiment",       en: "News Sentiment"        },
   navPivots:         { th: "Pivot Points",          en: "Pivot Points"          },
+  navDxyCorrelation: { th: "DXY Correlation",       en: "DXY Correlation"       },
   navCot:          { th: "COT Report",         en: "COT Report"         },
   navBroadcast:    { th: "Broadcast Settings", en: "Broadcast Settings" },
   hub_news:        { th: "AI วิเคราะห์ sentiment ข่าวทองคำ real-time", en: "AI gold news sentiment — real-time analysis" },

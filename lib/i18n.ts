@@ -661,6 +661,7 @@ const DICT: Record<string, Bilingual> = {
   navMiningStocks:         { th: "Mining Stocks",         en: "Mining Stocks"          },
   navGoldCalendar:         { th: "Gold Seasonal Calendar",en: "Gold Seasonal Calendar" },
   navPositionCalc:         { th: "Position Calculator",  en: "Position Calculator"    },
+  navBreakoutScanner:      { th: "Breakout Scanner",     en: "Breakout Scanner"       },
   navCot:          { th: "COT Report",         en: "COT Report"         },
   navBroadcast:    { th: "Broadcast Settings", en: "Broadcast Settings" },
   hub_news:        { th: "AI วิเคราะห์ sentiment ข่าวทองคำ real-time", en: "AI gold news sentiment — real-time analysis" },

@@ -644,6 +644,7 @@ const DICT: Record<string, Bilingual> = {
   navFibonacci:      { th: "Fibonacci Auto-Draw",   en: "Fibonacci Auto-Draw"   },
   navEconImpact:     { th: "Economic Impact",       en: "Economic Impact"       },
   navMomentum:       { th: "Momentum Tracker",     en: "Momentum Tracker"      },
+  navTrendStrength:  { th: "Trend Strength (ADX)", en: "Trend Strength (ADX)"  },
   navCot:          { th: "COT Report",         en: "COT Report"         },
   navBroadcast:    { th: "Broadcast Settings", en: "Broadcast Settings" },
   hub_news:        { th: "AI วิเคราะห์ sentiment ข่าวทองคำ real-time", en: "AI gold news sentiment — real-time analysis" },

@@ -59,6 +59,7 @@ const NAV = [
   { href: "/options-flow",        icon: "📊", key: "navOptionsFlow"          },
   { href: "/weekly-brief",        icon: "📰", key: "navWeeklyBrief"           },
   { href: "/mining-stocks",       icon: "⛏", key: "navMiningStocks"           },
+  { href: "/gold-calendar",       icon: "📅", key: "navGoldCalendar"           },
   { href: "/backtest",    icon: "🧪", key: "navBacktest"       },
   { href: "/brief",       icon: "📰", key: "navBrief"          },
   { href: "/scanner",       icon: "📡", key: "navScanner"        },

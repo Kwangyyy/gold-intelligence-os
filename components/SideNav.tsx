@@ -28,6 +28,7 @@ const NAV = [
   { href: "/calendar",    icon: "📅", key: "navCalendar"       },
   { href: "/journal",     icon: "📒", key: "navJournal"        },
   { href: "/ea-builder",  icon: "⚙️", key: "navEaBuilder"      },
+  { href: "/ai-ea",       icon: "🤖", key: "navAiEa"           },
   { href: "/backtest",    icon: "🧪", key: "navBacktest"       },
   { href: "/brief",       icon: "📰", key: "navBrief"          },
   { href: "/scanner",       icon: "📡", key: "navScanner"        },

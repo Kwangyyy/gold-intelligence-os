@@ -25,6 +25,7 @@ export const ROUTE_MIN_TIER: Record<string, Tier> = {
   "/journal": "premium",
   "/ea-builder": "pro",
   "/backtest": "pro",
+  "/ai-ea":    "pro",
   "/brief":   "pro",
   "/scanner":     "premium",
   "/seasonality": "pro",

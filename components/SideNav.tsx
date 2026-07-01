@@ -36,6 +36,7 @@ const NAV = [
   { href: "/ai-model/history", icon: "📜", key: "navAiModelHistory" },
   { href: "/trade-ideas",      icon: "💡", key: "navTradeIdeas"     },
   { href: "/market-regime",   icon: "🎯", key: "navMarketRegime"   },
+  { href: "/forecast",        icon: "🔮", key: "navForecast"       },
   { href: "/backtest",    icon: "🧪", key: "navBacktest"       },
   { href: "/brief",       icon: "📰", key: "navBrief"          },
   { href: "/scanner",       icon: "📡", key: "navScanner"        },

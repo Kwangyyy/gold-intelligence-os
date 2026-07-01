@@ -636,6 +636,7 @@ const DICT: Record<string, Bilingual> = {
   navAiModelHistory: { th: "AI Signal History",   en: "AI Signal History"   },
   navTradeIdeas:     { th: "Trade Ideas (AI)",    en: "Trade Ideas (AI)"    },
   navMarketRegime:   { th: "Market Regime",       en: "Market Regime"       },
+  navForecast:       { th: "Gold Forecast",       en: "Gold Forecast"       },
   navCot:          { th: "COT Report",         en: "COT Report"         },
   navBroadcast:    { th: "Broadcast Settings", en: "Broadcast Settings" },
   hub_news:        { th: "AI วิเคราะห์ sentiment ข่าวทองคำ real-time", en: "AI gold news sentiment — real-time analysis" },

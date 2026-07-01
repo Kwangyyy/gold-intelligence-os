@@ -959,6 +959,185 @@ ${evtStr}
   }
 }
 
+// ── Weekly Gold Forecast ──────────────────────────────────────────────────────
+
+export interface WeeklyForecast {
+  bias: "bullish" | "bearish" | "neutral";
+  biasScore: number;        // 0-100
+  headline: string;
+  headlineTh: string;
+  summary: string;
+  summaryTh: string;
+  priceRangeLow: number;
+  priceRangeMid: number;
+  priceRangeHigh: number;
+  keyLevels: { label: string; labelTh: string; price: number; type: "support" | "resistance" }[];
+  bullScenario: string[];
+  bearScenario: string[];
+  bullScenarioTh: string[];
+  bearScenarioTh: string[];
+  keyEvents: { day: string; event: string; impact: "high" | "medium" }[];
+  riskFactors: string[];
+  riskFactorsTh: string[];
+  generatedAt: string;
+}
+
+export interface WeeklyForecastInput {
+  price: number;
+  weekChange: number;
+  weekChangePct: number;
+  atr: number;
+  rsi: number;
+  adx: number;
+  atrPct: number;
+  regime: string;
+  technicalBias: string;
+  technicalScore: number;
+  aiSignal?: string;
+  aiConfidence?: number;
+  newsSentiment?: string;
+  newsScore?: number;
+  supports: number[];
+  resistances: number[];
+  weekEvents: { day: string; title: string; country: string; impact: string }[];
+}
+
+const FORECAST_SCHEMA: GeminiSchema = {
+  type: "OBJECT",
+  properties: {
+    bias:          { type: "STRING", enum: ["bullish", "bearish", "neutral"] },
+    biasScore:     { type: "NUMBER" },
+    headline:      { type: "STRING" },
+    headlineTh:    { type: "STRING" },
+    summary:       { type: "STRING" },
+    summaryTh:     { type: "STRING" },
+    priceRangeLow: { type: "NUMBER" },
+    priceRangeMid: { type: "NUMBER" },
+    priceRangeHigh:{ type: "NUMBER" },
+    keyLevels: {
+      type: "ARRAY",
+      items: {
+        type: "OBJECT",
+        properties: {
+          label:   { type: "STRING" },
+          labelTh: { type: "STRING" },
+          price:   { type: "NUMBER" },
+          type:    { type: "STRING", enum: ["support", "resistance"] },
+        },
+        required: ["label", "labelTh", "price", "type"],
+      },
+    },
+    bullScenario:   { type: "ARRAY", items: { type: "STRING" } },
+    bearScenario:   { type: "ARRAY", items: { type: "STRING" } },
+    bullScenarioTh: { type: "ARRAY", items: { type: "STRING" } },
+    bearScenarioTh: { type: "ARRAY", items: { type: "STRING" } },
+    keyEvents: {
+      type: "ARRAY",
+      items: {
+        type: "OBJECT",
+        properties: { day: { type: "STRING" }, event: { type: "STRING" }, impact: { type: "STRING" } },
+        required: ["day", "event", "impact"],
+      },
+    },
+    riskFactors:   { type: "ARRAY", items: { type: "STRING" } },
+    riskFactorsTh: { type: "ARRAY", items: { type: "STRING" } },
+  },
+  required: ["bias","biasScore","headline","headlineTh","summary","summaryTh",
+    "priceRangeLow","priceRangeMid","priceRangeHigh","keyLevels",
+    "bullScenario","bearScenario","bullScenarioTh","bearScenarioTh",
+    "keyEvents","riskFactors","riskFactorsTh"],
+};
+
+function ruleBasedForecast(input: WeeklyForecastInput): WeeklyForecast {
+  const { price: p, atr, rsi, regime, technicalBias, aiSignal } = input;
+  const bullish = technicalBias.toLowerCase().includes("bull") && (aiSignal === "BUY" || !aiSignal);
+  const bias: WeeklyForecast["bias"] = bullish ? "bullish" : regime.includes("DOWN") ? "bearish" : "neutral";
+  const biasScore = bias === "bullish" ? 65 : bias === "bearish" ? 35 : 50;
+  const r1 = input.resistances[0] ?? p + atr * 2;
+  const r2 = input.resistances[1] ?? p + atr * 4;
+  const s1 = input.supports[0] ?? p - atr * 2;
+  return {
+    bias, biasScore,
+    headline: `Gold ${bias === "bullish" ? "leans bullish" : bias === "bearish" ? "leans bearish" : "at key decision point"} this week`,
+    headlineTh: `ทองคำ${bias === "bullish" ? "มีแนวโน้มขาขึ้น" : bias === "bearish" ? "มีแนวโน้มขาลง" : "อยู่ที่จุดตัดสินใจสำคัญ"}สัปดาห์นี้`,
+    summary: `Price at $${p.toFixed(2)}, regime: ${regime}. Technical score ${input.technicalScore}/100, RSI ${rsi.toFixed(0)}.`,
+    summaryTh: `ราคา $${p.toFixed(2)}, Regime: ${regime}, Technical Score ${input.technicalScore}/100, RSI ${rsi.toFixed(0)}`,
+    priceRangeLow:  +(p - atr * 2.5).toFixed(2),
+    priceRangeMid:  +(p + (bias === "bullish" ? atr : -atr)).toFixed(2),
+    priceRangeHigh: +(p + atr * 2.5).toFixed(2),
+    keyLevels: [
+      { label: "Resistance 1", labelTh: "แนวต้าน 1", price: +r1.toFixed(2), type: "resistance" },
+      { label: "Resistance 2", labelTh: "แนวต้าน 2", price: +r2.toFixed(2), type: "resistance" },
+      { label: "Support 1", labelTh: "แนวรับ 1", price: +s1.toFixed(2), type: "support" },
+    ],
+    bullScenario:   ["Technical bias turns bullish", "AI Model signals BUY", "News sentiment improves"],
+    bearScenario:   ["Technical bias turns bearish", "AI Model signals SELL", "Negative news catalyst"],
+    bullScenarioTh: ["แนวโน้ม Technical เป็น Bullish", "AI Signal เปลี่ยนเป็น BUY", "Sentiment ข่าวดีขึ้น"],
+    bearScenarioTh: ["แนวโน้ม Technical เป็น Bearish", "AI Signal เปลี่ยนเป็น SELL", "มีปัจจัยลบจากข่าว"],
+    keyEvents: input.weekEvents.slice(0, 3).map(e => ({
+      day: e.day, event: e.title,
+      impact: (e.impact === "High" ? "high" : "medium") as "high" | "medium",
+    })),
+    riskFactors:   ["Unexpected USD strength could pressure gold", "Geopolitical events may cause sudden moves"],
+    riskFactorsTh: ["USD แข็งค่าเกินคาดอาจกดดันทองคำ", "เหตุการณ์ภูมิรัฐศาสตร์อาจทำให้ราคาผันผวนฉับพลัน"],
+    generatedAt: new Date().toISOString(),
+  };
+}
+
+export async function generateWeeklyForecast(input: WeeklyForecastInput): Promise<WeeklyForecast> {
+  if (!API_KEY) return ruleBasedForecast(input);
+
+  const evtStr = input.weekEvents.length
+    ? input.weekEvents.map(e => `• ${e.day} ${e.title} (${e.country}, ${e.impact})`).join("\n")
+    : "• No major scheduled events this week";
+
+  const prompt = `You are the Chief Gold Strategist at a professional trading desk. Generate a structured weekly XAUUSD gold price forecast.
+
+=== CURRENT MARKET DATA ===
+Price          : $${input.price.toFixed(2)}
+Week Change    : ${input.weekChangePct >= 0 ? "+" : ""}${input.weekChangePct.toFixed(2)}% ($${input.weekChange >= 0 ? "+" : ""}${input.weekChange.toFixed(2)})
+ATR(14)        : $${input.atr.toFixed(2)} (${input.atrPct.toFixed(2)}% of price)
+RSI(14)        : ${input.rsi.toFixed(1)}
+ADX(14)        : ${input.adx.toFixed(1)}
+Market Regime  : ${input.regime}
+
+Technical Bias  : ${input.technicalBias} (score ${input.technicalScore}/100)
+AI Model Signal : ${input.aiSignal ?? "not trained"} (${(input.aiConfidence ?? 0).toFixed(1)}% confidence)
+News Sentiment  : ${input.newsSentiment ?? "neutral"} (score ${input.newsScore ?? 50}/100)
+
+Support Levels  : ${input.supports.map(s => "$" + s.toFixed(2)).join(", ") || "—"}
+Resistance Levels: ${input.resistances.map(r => "$" + r.toFixed(2)).join(", ") || "—"}
+
+This Week's Key Events:
+${evtStr}
+
+=== INSTRUCTIONS ===
+Generate a professional weekly XAUUSD forecast:
+- bias: overall weekly directional bias
+- biasScore: 0-100 (0=extremely bearish, 50=neutral, 100=extremely bullish)
+- headline: 1 punchy English headline (max 12 words)
+- headlineTh: same in Thai
+- summary: 3-4 sentence English outlook for the week
+- summaryTh: same in Thai
+- priceRangeLow/Mid/High: expected weekly trading range (realistic, near current $${input.price.toFixed(2)})
+- keyLevels: 4-5 specific price levels with EN/TH labels, support or resistance
+- bullScenario: 3 specific English conditions that would make gold rise this week
+- bearScenario: 3 specific English conditions that would make gold fall this week
+- bullScenarioTh/bearScenarioTh: same in Thai
+- keyEvents: from the events above, pick the 3 most impactful for gold with day (e.g. "Mon", "Wed") and impact level
+- riskFactors: 3 English risk bullets (what could make this forecast wrong)
+- riskFactorsTh: same in Thai
+
+RULES: All prices must be near current $${input.price.toFixed(2)}. NEVER promise guaranteed outcomes. This is analysis, not financial advice.`;
+
+  try {
+    const raw = await generateJson<Omit<WeeklyForecast, "generatedAt">>(prompt, FORECAST_SCHEMA);
+    return { ...raw, generatedAt: new Date().toISOString() };
+  } catch {
+    return ruleBasedForecast(input);
+  }
+}
+
 function ruleBasedJournalAnalysis(s: JournalTradeSummary): JournalAnalysis {
   const pfScore = Math.min(4, (s.profitFactor / 2) * 4);
   const rrScore = Math.min(3, (s.avgRR / 2) * 3);

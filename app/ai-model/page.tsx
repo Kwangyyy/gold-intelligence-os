@@ -5,12 +5,34 @@ import { PageHeader } from "@/components/PageHeader";
 import type { ModelDataPayload } from "@/lib/aiModelTypes";
 
 // TF.js is loaded dynamically (client-only, large bundle)
-
 let tf: any = null;
+
+const MODEL_IDB_KEY = "indexeddb://gold-ai-model";
+const META_LS_KEY   = "gold-ai-model-meta";
 
 type Signal = { hold: number; buy: number; sell: number; decision: "BUY"|"SELL"|"HOLD"; confidence: number };
 
-const LABEL_NAMES = ["HOLD", "BUY", "SELL"];
+interface CachedMeta {
+  savedAt:     string;
+  epochs:      number;
+  testAcc:     number;
+  confMatrix:  number[][];
+  signal:      Signal;
+  lossCurve:   number[];
+  accCurve:    number[];
+  valAccCurve: number[];
+  predicted:   number[];
+  closes:      number[];
+  labels:      number[];
+  n:           number;
+  featureNames: string[];
+  labelCounts: { buy: number; sell: number; hold: number };
+  dates:       string[];
+  lastFeature: number[];
+  priceRange:  { min: number; max: number };
+}
+
+const LABEL_NAMES  = ["HOLD", "BUY", "SELL"];
 const LABEL_COLORS = ["#f5c451", "#34d399", "#f87171"];
 
 // ── Mini SVG line chart ───────────────────────────────────────────────────────
@@ -76,20 +98,19 @@ function ConfMatrix({ cm }: { cm: number[][] }) {
   );
 }
 
-// ── Equity curve backtest from AI signals ────────────────────────────────────
+// ── Equity curve backtest from AI signals ─────────────────────────────────────
 function AiBacktest({ closes, labels, predicted }: { closes: number[]; labels: number[]; predicted: number[] }) {
   if (!predicted.length) return null;
   const N = Math.min(closes.length, predicted.length, labels.length);
 
-  // Simulate: buy when AI says BUY, short when SELL, exit after 5 bars
   let equity = 10000;
   const curve: number[] = [equity];
   for (let i = 0; i < N - 5; i++) {
     const sig = predicted[i];
-    if (sig === 1) { // BUY
+    if (sig === 1) {
       const ret = (closes[i + 5] - closes[i]) / closes[i];
-      equity *= 1 + Math.max(-0.05, Math.min(0.05, ret)); // cap at ±5%
-    } else if (sig === 2) { // SELL
+      equity *= 1 + Math.max(-0.05, Math.min(0.05, ret));
+    } else if (sig === 2) {
       const ret = (closes[i] - closes[i + 5]) / closes[i];
       equity *= 1 + Math.max(-0.05, Math.min(0.05, ret));
     }
@@ -123,32 +144,102 @@ function AiBacktest({ closes, labels, predicted }: { closes: number[]; labels: n
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function AiModelPage() {
-  const [tfLoaded,  setTfLoaded]  = useState(false);
-  const [data,      setData]      = useState<ModelDataPayload | null>(null);
-  const [dataLoading,setDataLoading] = useState(false);
-  const [dataErr,   setDataErr]   = useState("");
+  const [tfLoaded,     setTfLoaded]     = useState(false);
+  const [data,         setData]         = useState<ModelDataPayload | null>(null);
+  const [dataLoading,  setDataLoading]  = useState(false);
+  const [dataErr,      setDataErr]      = useState("");
 
   // Training state
-  const [epochs,    setEpochs]    = useState(80);
-  const [lr,        setLr]        = useState(0.001);
-  const [training,  setTraining]  = useState(false);
-  const [curEpoch,  setCurEpoch]  = useState(0);
-  const [lossCurve, setLossCurve] = useState<number[]>([]);
-  const [accCurve,  setAccCurve]  = useState<number[]>([]);
-  const [valAccCurve,setValAccCurve] = useState<number[]>([]);
+  const [epochs,       setEpochs]       = useState(80);
+  const [lr,           setLr]           = useState(0.001);
+  const [training,     setTraining]     = useState(false);
+  const [curEpoch,     setCurEpoch]     = useState(0);
+  const [lossCurve,    setLossCurve]    = useState<number[]>([]);
+  const [accCurve,     setAccCurve]     = useState<number[]>([]);
+  const [valAccCurve,  setValAccCurve]  = useState<number[]>([]);
 
   // Results
-  const [testAcc,   setTestAcc]   = useState<number | null>(null);
-  const [confMatrix,setConfMatrix]= useState<number[][] | null>(null);
-  const [signal,    setSignal]    = useState<Signal | null>(null);
-  const [predicted, setPredicted] = useState<number[]>([]);
+  const [testAcc,      setTestAcc]      = useState<number | null>(null);
+  const [confMatrix,   setConfMatrix]   = useState<number[][] | null>(null);
+  const [signal,       setSignal]       = useState<Signal | null>(null);
+  const [predicted,    setPredicted]    = useState<number[]>([]);
 
-  
+  // Cache status
+  const [savedAt,      setSavedAt]      = useState<string | null>(null);
+  const [saving,       setSaving]       = useState(false);
+  const [fromCache,    setFromCache]    = useState(false);
+
   const modelRef = useRef<any>(null);
 
-  // Load TF.js
+  // ── Restore saved model + metadata from IndexedDB / localStorage ────────────
+  const tryLoadFromCache = useCallback(async () => {
+    try {
+      const models = await tf.io.listModels();
+      if (!(MODEL_IDB_KEY in models)) return;
+
+      const model = await tf.loadLayersModel(MODEL_IDB_KEY);
+      modelRef.current = model;
+
+      const raw = localStorage.getItem(META_LS_KEY);
+      if (!raw) return;
+      const meta: CachedMeta = JSON.parse(raw);
+
+      setSavedAt(meta.savedAt);
+      setEpochs(meta.epochs ?? 80);
+      setTestAcc(meta.testAcc ?? null);
+      setConfMatrix(meta.confMatrix ?? null);
+      setSignal(meta.signal ?? null);
+      setLossCurve(meta.lossCurve ?? []);
+      setAccCurve(meta.accCurve ?? []);
+      setValAccCurve(meta.valAccCurve ?? []);
+      setPredicted(meta.predicted ?? []);
+      setFromCache(true);
+
+      // Restore minimal data object so backtest chart renders
+      if (meta.closes?.length) {
+        setData({
+          features:    [],
+          labels:      meta.labels ?? [],
+          featureNames: (meta.featureNames ?? []) as readonly string[],
+          labelCounts: meta.labelCounts ?? { buy: 0, sell: 0, hold: 0 },
+          n:           meta.n ?? 0,
+          dates:       meta.dates ?? [],
+          lastFeature: meta.lastFeature ?? [],
+          priceRange:  meta.priceRange ?? { min: 0, max: 0 },
+          closes:      meta.closes,
+        } as ModelDataPayload);
+      }
+    } catch {
+      // No saved model — silent fail, user will train fresh
+    }
+  }, []);
+
+  // Load TF.js, then try restoring cache
   useEffect(() => {
-    import("@tensorflow/tfjs").then(m => { tf = m; setTfLoaded(true); });
+    import("@tensorflow/tfjs").then(async m => {
+      tf = m;
+      setTfLoaded(true);
+      await tryLoadFromCache();
+    });
+  }, [tryLoadFromCache]);
+
+  // ── Auto-save after training ────────────────────────────────────────────────
+  const saveToCache = useCallback(async (
+    model: any,
+    meta: Omit<CachedMeta, "savedAt">
+  ) => {
+    setSaving(true);
+    try {
+      await model.save(MODEL_IDB_KEY);
+      const savedAt = new Date().toISOString();
+      localStorage.setItem(META_LS_KEY, JSON.stringify({ ...meta, savedAt }));
+      setSavedAt(savedAt);
+      setFromCache(false);
+    } catch {
+      // Save failed silently — user can still use results
+    } finally {
+      setSaving(false);
+    }
   }, []);
 
   // Load features from API
@@ -159,6 +250,7 @@ export default function AiModelPage() {
       const d = await r.json();
       if (d.error) throw new Error(d.error);
       setData(d as ModelDataPayload);
+      setFromCache(false);
     } catch (e) { setDataErr(String(e)); }
     finally { setDataLoading(false); }
   }, []);
@@ -183,7 +275,7 @@ export default function AiModelPage() {
 
   // Train
   const train = useCallback(async () => {
-    if (!tf || !data) return;
+    if (!tf || !data || !data.features.length) return;
     setTraining(true);
     setCurEpoch(0); setLossCurve([]); setAccCurve([]); setValAccCurve([]);
     setTestAcc(null); setConfMatrix(null); setSignal(null); setPredicted([]);
@@ -222,9 +314,9 @@ export default function AiModelPage() {
       });
 
       // Evaluate on test set
-      const predTensor    = model.predict(xTest) as ReturnType<typeof tf.tensor2d>;
-      const predLabels    = (predTensor.argMax(1).arraySync() as number[]);
-      const trueLabels    = labels.slice(splitI);
+      const predTensor = model.predict(xTest) as ReturnType<typeof tf.tensor2d>;
+      const predLabels = (predTensor.argMax(1).arraySync() as number[]);
+      const trueLabels = labels.slice(splitI);
 
       // Full prediction for backtest
       const fullPred = (model.predict(tf.tensor2d(features)) as ReturnType<typeof tf.tensor2d>)
@@ -233,27 +325,45 @@ export default function AiModelPage() {
 
       // Confusion matrix
       const cm: number[][] = [[0,0,0],[0,0,0],[0,0,0]];
-      for (let i = 0; i < trueLabels.length; i++) {
-        cm[trueLabels[i]][predLabels[i]]++;
-      }
+      for (let i = 0; i < trueLabels.length; i++) cm[trueLabels[i]][predLabels[i]]++;
       setConfMatrix(cm);
-      setTestAcc(predLabels.filter((p, i) => p === trueLabels[i]).length / trueLabels.length * 100);
+      const acc = predLabels.filter((p, i) => p === trueLabels[i]).length / trueLabels.length * 100;
+      setTestAcc(acc);
 
       // Current signal on latest bar
       const lastTensor = tf.tensor2d([lastFeature]);
-      const lastProbs  = (model.predict(lastTensor) as ReturnType<typeof tf.tensor2d>)
-        .arraySync()[0] as number[];
+      const lastProbs  = (model.predict(lastTensor) as ReturnType<typeof tf.tensor2d>).arraySync()[0] as number[];
       const decision = lastProbs[1] > lastProbs[2] && lastProbs[1] > lastProbs[0] ? "BUY"
                      : lastProbs[2] > lastProbs[1] && lastProbs[2] > lastProbs[0] ? "SELL" : "HOLD";
-      setSignal({ hold: lastProbs[0], buy: lastProbs[1], sell: lastProbs[2],
-                  decision, confidence: Math.max(...lastProbs) * 100 });
+      const sig: Signal = { hold: lastProbs[0], buy: lastProbs[1], sell: lastProbs[2],
+                            decision, confidence: Math.max(...lastProbs) * 100 };
+      setSignal(sig);
 
-      // cleanup
+      // ── Auto-save ──────────────────────────────────────────────────────────
+      await saveToCache(model, {
+        epochs,
+        testAcc:     acc,
+        confMatrix:  cm,
+        signal:      sig,
+        lossCurve:   lossH,
+        accCurve:    accH,
+        valAccCurve: valAccH,
+        predicted:   fullPred,
+        closes:      data.closes,
+        labels:      data.labels,
+        n:           data.n,
+        featureNames: [...data.featureNames],
+        labelCounts: data.labelCounts,
+        dates:       data.dates,
+        lastFeature: data.lastFeature,
+        priceRange:  data.priceRange,
+      });
+
       [xTrain, xTest, yTrain, yTest, predTensor, lastTensor].forEach(t => t.dispose());
     } finally {
       setTraining(false);
     }
-  }, [data, epochs, buildModel]);
+  }, [data, epochs, buildModel, saveToCache]);
 
   const phaseDone = (p: number) => {
     if (p === 1) return !!data;
@@ -262,12 +372,35 @@ export default function AiModelPage() {
     return false;
   };
 
+  const canTrain = !!data && data.features.length > 0 && tfLoaded && !training;
+
+  const formatSavedAt = (iso: string) => {
+    const d = new Date(iso);
+    return d.toLocaleDateString("th-TH", { day:"2-digit", month:"short", year:"numeric" })
+      + " " + d.toLocaleTimeString("th-TH", { hour:"2-digit", minute:"2-digit" });
+  };
+
   return (
     <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
       <PageHeader
         title="AI Model Training 🧠"
         subtitle="Feedforward Neural Network + Ensemble · เทรนบน XAUUSD D1 2 ปี · TensorFlow.js runs in your browser"
       />
+
+      {/* Cache status banner */}
+      {savedAt && (
+        <div className="mb-4 flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs"
+          style={{ background: fromCache ? "rgba(52,211,153,0.08)" : "rgba(96,165,250,0.08)",
+                   border: `1px solid ${fromCache ? "rgba(52,211,153,0.25)" : "rgba(96,165,250,0.25)"}` }}>
+          <span style={{ color: fromCache ? "#34d399" : "#60a5fa" }}>
+            {fromCache ? "✅ โหลด model จาก cache" : saving ? "💾 กำลังบันทึก…" : "💾 บันทึกแล้ว"}
+          </span>
+          <span className="text-silver/40">·</span>
+          <span className="text-silver/50">{fromCache ? "เทรนเมื่อ" : "บันทึกเมื่อ"} {formatSavedAt(savedAt)}</span>
+          <span className="text-silver/40">·</span>
+          <span className="text-silver/40">ข้อมูลต่อเนื่องข้าม session อัตโนมัติ</span>
+        </div>
+      )}
 
       {/* Phase stepper */}
       <div className="flex items-center gap-2 mb-6 text-[10px]">
@@ -293,10 +426,15 @@ export default function AiModelPage() {
             <button onClick={loadData} disabled={dataLoading}
               className="w-full rounded-xl py-2.5 text-sm font-bold transition-all mb-3 disabled:opacity-50"
               style={{ background:"rgba(96,165,250,0.12)", border:"1px solid rgba(96,165,250,0.35)", color:"#60a5fa" }}>
-              {dataLoading ? "⏳ กำลังดึงข้อมูล…" : data ? "🔄 โหลดใหม่" : "📥 โหลดข้อมูล XAUUSD"}
+              {dataLoading ? "⏳ กำลังดึงข้อมูล…" : (data && data.features.length > 0) ? "🔄 โหลดใหม่" : "📥 โหลดข้อมูล XAUUSD"}
             </button>
+            {fromCache && (!data || data.features.length === 0) && (
+              <p className="text-[10px] text-silver/35 mb-2">
+                💡 ใช้ model จาก cache ได้เลย · โหลดข้อมูลใหม่เมื่อต้องการเทรนซ้ำ
+              </p>
+            )}
             {dataErr && <p className="text-xs text-red-400">{dataErr}</p>}
-            {data && (
+            {data && data.n > 0 && (
               <div className="space-y-2 text-xs">
                 <div className="flex justify-between">
                   <span className="text-silver/50">จำนวนตัวอย่าง</span>
@@ -367,7 +505,7 @@ export default function AiModelPage() {
               ))}
             </div>
 
-            <button onClick={train} disabled={!data || !tfLoaded || training}
+            <button onClick={train} disabled={!canTrain}
               className="w-full rounded-xl py-3 text-sm font-bold transition-all disabled:opacity-40"
               style={{ background:"rgba(168,85,247,0.15)", border:"1px solid rgba(168,85,247,0.4)", color:"#c084fc" }}>
               {training
@@ -375,8 +513,13 @@ export default function AiModelPage() {
                     <span className="h-4 w-4 animate-spin rounded-full border-2 border-purple-400/30 border-t-purple-400" />
                     Epoch {curEpoch}/{epochs}
                   </span>
-                : "🚀 เริ่มเทรน"}
+                : fromCache ? "🔄 เทรนใหม่ (แทน cache)" : "🚀 เริ่มเทรน"}
             </button>
+            {!canTrain && !training && (
+              <p className="text-[10px] text-silver/30 mt-2 text-center">
+                {!tfLoaded ? "รอ TF.js โหลด…" : "กด โหลดข้อมูล XAUUSD ก่อนเทรน"}
+              </p>
+            )}
           </div>
         </div>
 
@@ -388,7 +531,11 @@ export default function AiModelPage() {
             <div className="flex items-center justify-between mb-3">
               <div className="text-[10px] uppercase tracking-widest text-silver/35">Training Progress</div>
               {training && <span className="text-[10px] text-purple-400 animate-pulse">● Training…</span>}
-              {testAcc !== null && <span className="text-[10px] text-emerald-400">✓ Done — Test Acc: {testAcc.toFixed(1)}%</span>}
+              {testAcc !== null && !training && (
+                <span className="text-[10px] text-emerald-400">
+                  ✓ {fromCache ? "Cache" : "Done"} — Test Acc: {testAcc.toFixed(1)}%
+                </span>
+              )}
             </div>
             <div className="space-y-3">
               <LineChart data={lossCurve}    color="#f87171"  label="Loss"        maxV={2.2} />
@@ -430,7 +577,9 @@ export default function AiModelPage() {
                 </div>
                 <div>
                   <div className="text-sm font-bold text-silver/70">Confidence: {signal.confidence.toFixed(1)}%</div>
-                  <div className="text-[10px] text-silver/30 mt-0.5">จากโมเดลที่เพิ่งเทรนเสร็จ</div>
+                  <div className="text-[10px] text-silver/30 mt-0.5">
+                    {fromCache ? "จาก model ที่บันทึกไว้" : "จากโมเดลที่เพิ่งเทรนเสร็จ"}
+                  </div>
                 </div>
               </div>
               <div className="space-y-2">

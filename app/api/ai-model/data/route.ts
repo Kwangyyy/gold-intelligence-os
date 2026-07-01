@@ -7,30 +7,13 @@ import {
   calcEMA, calcRSI, calcMACD, calcBB, calcStoch, calcMomentum,
 } from "@/lib/backtest";
 import type { OHLC } from "@/lib/backtest";
+import { FEATURE_NAMES } from "@/lib/aiModelTypes";
+import type { ModelDataPayload } from "@/lib/aiModelTypes";
 
 export const dynamic = "force-dynamic";
 
 let CACHE: { payload: ModelDataPayload; ts: number } | null = null;
 const TTL = 60 * 60_000; // 1 hour
-
-export interface ModelDataPayload {
-  features:     number[][];    // N × FEATURE_NAMES.length
-  labels:       number[];      // N: 0=HOLD, 1=BUY, 2=SELL
-  featureNames: string[];
-  labelCounts:  { buy: number; sell: number; hold: number };
-  n:            number;
-  dates:        string[];
-  lastFeature:  number[];      // latest bar for prediction
-  priceRange:   { min: number; max: number };
-  closes:       number[];      // for backtest replay
-}
-
-export const FEATURE_NAMES = [
-  "RSI14", "MACD_hist", "EMA_diff%", "BB_pctB",
-  "ATR%", "Momentum%", "Stoch_K", "Stoch_D",
-  "Body%", "Return_1", "Return_2", "Return_3",
-  "DayOfWeek", "VolRatio",
-];
 
 const LABEL_HORIZON = 5;   // bars ahead to look for label
 const LABEL_THRESH  = 0.5; // % move to classify as BUY/SELL

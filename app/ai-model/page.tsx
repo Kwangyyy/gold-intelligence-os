@@ -2,10 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
-import type { ModelDataPayload } from "@/app/api/ai-model/data/route";
+import type { ModelDataPayload } from "@/lib/aiModelTypes";
 
 // TF.js is loaded dynamically (client-only, large bundle)
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+
 let tf: any = null;
 
 type Signal = { hold: number; buy: number; sell: number; decision: "BUY"|"SELL"|"HOLD"; confidence: number };
@@ -143,7 +143,7 @@ export default function AiModelPage() {
   const [signal,    setSignal]    = useState<Signal | null>(null);
   const [predicted, setPredicted] = useState<number[]>([]);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  
   const modelRef = useRef<any>(null);
 
   // Load TF.js

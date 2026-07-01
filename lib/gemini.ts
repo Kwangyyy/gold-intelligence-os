@@ -790,6 +790,175 @@ Do NOT promise profits. Focus on process and edge improvement.`;
   }
 }
 
+// ── Trade Ideas (AI-synthesised multi-signal ideas) ──────────────────────────
+
+export interface TradeIdea {
+  direction: "BUY" | "SELL";
+  setup: string;
+  setupTh: string;
+  confidence: "high" | "medium" | "low";
+  confidenceScore: number;
+  entry: number;
+  sl: number;
+  tp1: number;
+  tp2: number;
+  rr1: number;
+  rr2: number;
+  timeframe: string;
+  rationale: string[];
+  rationaleEn: string[];
+  invalidation: string;
+  invalidationEn: string;
+  sources: { aiModel?: string; technical?: string; news?: string };
+}
+
+export interface TradeIdeasInput {
+  price: number;
+  atr: number;
+  rsi: number;
+  ema20: number;
+  ema50: number;
+  macdHist: number;
+  supports: number[];
+  resistances: number[];
+  technicalBias: string;
+  technicalScore: number;
+  aiSignal?: string;
+  aiConfidence?: number;
+  newsSentiment?: string;
+  newsScore?: number;
+  events: { title: string; country: string; impact: string }[];
+}
+
+const TRADE_IDEA_SCHEMA: GeminiSchema = {
+  type: "OBJECT",
+  properties: {
+    ideas: {
+      type: "ARRAY",
+      items: {
+        type: "OBJECT",
+        properties: {
+          direction:       { type: "STRING" },
+          setup:           { type: "STRING" },
+          setupTh:         { type: "STRING" },
+          confidence:      { type: "STRING" },
+          confidenceScore: { type: "NUMBER" },
+          entry:           { type: "NUMBER" },
+          sl:              { type: "NUMBER" },
+          tp1:             { type: "NUMBER" },
+          tp2:             { type: "NUMBER" },
+          rr1:             { type: "NUMBER" },
+          rr2:             { type: "NUMBER" },
+          timeframe:       { type: "STRING" },
+          rationale:       { type: "ARRAY", items: { type: "STRING" } },
+          rationaleEn:     { type: "ARRAY", items: { type: "STRING" } },
+          invalidation:    { type: "STRING" },
+          invalidationEn:  { type: "STRING" },
+        },
+        required: ["direction","setup","setupTh","confidence","confidenceScore","entry","sl","tp1","tp2","rr1","rr2","timeframe","rationale","rationaleEn","invalidation","invalidationEn"],
+      },
+    },
+  },
+  required: ["ideas"],
+};
+
+function ruleBasedTradeIdeas(input: TradeIdeasInput): TradeIdea[] {
+  const { price: p, atr, ema20, ema50, rsi, macdHist, supports, resistances, aiSignal, technicalBias } = input;
+  const bullish = p > ema20 && ema20 > ema50 && macdHist > 0 && (technicalBias ?? "").toLowerCase().includes("bull");
+  const bearish = p < ema20 && ema20 < ema50 && macdHist < 0 && (technicalBias ?? "").toLowerCase().includes("bear");
+  if (!bullish && !bearish) return [];
+
+  const dir = bullish ? "BUY" : "SELL";
+  const slD = atr * 1.5;
+  const sl  = dir === "BUY" ? p - slD : p + slD;
+  const tp1 = dir === "BUY" ? p + slD * 2 : p - slD * 2;
+  const tp2 = dir === "BUY" ? p + slD * 3.5 : p - slD * 3.5;
+  const sup = supports[0] ?? p - atr * 2;
+  const res = resistances[0] ?? p + atr * 2;
+
+  return [{
+    direction: dir,
+    setup:   dir === "BUY" ? "EMA Bullish Trend-Following" : "EMA Bearish Trend-Following",
+    setupTh: dir === "BUY" ? "ตาม Trend ขาขึ้น EMA" : "ตาม Trend ขาลง EMA",
+    confidence: "medium",
+    confidenceScore: 62,
+    entry: +p.toFixed(2), sl: +sl.toFixed(2), tp1: +tp1.toFixed(2), tp2: +tp2.toFixed(2),
+    rr1: +(Math.abs(tp1 - p) / Math.abs(sl - p)).toFixed(2),
+    rr2: +(Math.abs(tp2 - p) / Math.abs(sl - p)).toFixed(2),
+    timeframe: "D1",
+    rationale: [
+      `ราคา $${p.toFixed(2)} อยู่${dir === "BUY" ? "เหนือ" : "ต่ำกว่า"} EMA20 ($${ema20.toFixed(2)}) ยืนยันทิศทาง`,
+      `RSI(14) ${rsi.toFixed(1)} ยังไม่อิ่มตัว มีพื้นที่เคลื่อนที่`,
+      `${dir === "BUY" ? "แนวรับ" : "แนวต้าน"}ใกล้ $${(dir === "BUY" ? sup : res).toFixed(2)}`,
+      aiSignal ? `AI Model Signal: ${aiSignal}` : "เทรดตาม Trend หลักเท่านั้น",
+    ],
+    rationaleEn: [
+      `Price $${p.toFixed(2)} is ${dir === "BUY" ? "above" : "below"} EMA20 ($${ema20.toFixed(2)})`,
+      `RSI(14) ${rsi.toFixed(1)} — momentum not extreme`,
+      `${dir === "BUY" ? "Support" : "Resistance"} near $${(dir === "BUY" ? sup : res).toFixed(2)}`,
+    ],
+    invalidation:   `Setup ล้มเหลวถ้าราคา${dir === "BUY" ? "หลุด" : "เกิน"} $${sl.toFixed(2)}`,
+    invalidationEn: `Invalidated if price ${dir === "BUY" ? "closes below" : "closes above"} $${sl.toFixed(2)}`,
+    sources: { technical: technicalBias, aiModel: aiSignal },
+  }];
+}
+
+export async function generateTradeIdeas(input: TradeIdeasInput): Promise<TradeIdea[]> {
+  if (!API_KEY) return ruleBasedTradeIdeas(input);
+
+  const evtStr = input.events.length
+    ? input.events.map(e => `• ${e.title} (${e.country}, ${e.impact})`).join("\n")
+    : "• No major events today";
+
+  const prompt = `You are a senior XAUUSD gold trading strategist at a professional fund.
+Generate 2 high-quality trade ideas based on ALL signals below.
+Do NOT generate an idea if confidence is below 58% — fewer high-quality ideas beats more low-quality ones.
+
+=== MARKET CONTEXT ===
+Price      : $${input.price.toFixed(2)}
+ATR(14)    : $${input.atr.toFixed(2)}
+EMA20/50   : $${input.ema20.toFixed(2)} / $${input.ema50.toFixed(2)}
+RSI(14)    : ${input.rsi.toFixed(1)}
+MACD Hist  : ${input.macdHist > 0 ? "+" : ""}${input.macdHist.toFixed(3)}
+Support    : ${input.supports.map(s => "$" + s.toFixed(2)).join(", ") || "—"}
+Resistance : ${input.resistances.map(r => "$" + r.toFixed(2)).join(", ") || "—"}
+
+Technical Bias  : ${input.technicalBias} (score ${input.technicalScore}/100)
+AI Model Signal : ${input.aiSignal ?? "none"} (${(input.aiConfidence ?? 0).toFixed(1)}% confidence)
+News Sentiment  : ${input.newsSentiment ?? "neutral"} (score ${input.newsScore ?? 50}/100)
+
+Today's Events:
+${evtStr}
+
+=== RULES ===
+• BUY: sl MUST be strictly below entry; tp1, tp2 MUST be strictly above entry
+• SELL: sl MUST be strictly above entry; tp1, tp2 MUST be strictly below entry
+• sl distance = 1.0–2.0 × ATR, anchored to logical S/R or swing points
+• tp1 = 1.5–2.5× risk; tp2 = 2.5–4.0× risk
+• timeframe: "D1" or "H4" only
+• rationale: 3 concise Thai bullets citing actual prices and signals
+• rationaleEn: same in English
+• confidence: "high" if ≥75%, "medium" if 58–74%, don't generate "low" — skip idea instead
+• NEVER promise profit. This is analysis only, not financial advice.
+• ideas array can have 1–2 elements. Return empty array if truly no clear setup.`;
+
+  try {
+    const raw = await generateJson<{ ideas: (Omit<TradeIdea,"sources">)[] }>(prompt, TRADE_IDEA_SCHEMA);
+    return (raw.ideas ?? []).slice(0, 2).map(idea => ({
+      ...idea,
+      direction: (idea.direction === "SELL" ? "SELL" : "BUY") as "BUY" | "SELL",
+      confidence: (["high","medium","low"].includes(idea.confidence) ? idea.confidence : "medium") as TradeIdea["confidence"],
+      sources: {
+        technical: input.technicalBias,
+        aiModel:   input.aiSignal,
+        news:      input.newsSentiment,
+      },
+    }));
+  } catch {
+    return ruleBasedTradeIdeas(input);
+  }
+}
+
 function ruleBasedJournalAnalysis(s: JournalTradeSummary): JournalAnalysis {
   const pfScore = Math.min(4, (s.profitFactor / 2) * 4);
   const rrScore = Math.min(3, (s.avgRR / 2) * 3);

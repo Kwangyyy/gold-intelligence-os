@@ -45,6 +45,7 @@ const NAV = [
   { href: "/econ-impact",     icon: "⚡", key: "navEconImpact"     },
   { href: "/momentum",        icon: "📡", key: "navMomentum"        },
   { href: "/trend-strength",  icon: "📈", key: "navTrendStrength"   },
+  { href: "/news-sentiment",  icon: "📰", key: "navNewsSentiment"   },
   { href: "/backtest",    icon: "🧪", key: "navBacktest"       },
   { href: "/brief",       icon: "📰", key: "navBrief"          },
   { href: "/scanner",       icon: "📡", key: "navScanner"        },

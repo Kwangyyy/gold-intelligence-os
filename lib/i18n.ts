@@ -664,6 +664,7 @@ const DICT: Record<string, Bilingual> = {
   navBreakoutScanner:      { th: "Breakout Scanner",     en: "Breakout Scanner"       },
   navSilverRatio:          { th: "Gold/Silver Ratio",    en: "Gold/Silver Ratio"      },
   navPriceHeatmap:         { th: "Price Heatmap",        en: "Price Heatmap"          },
+  navElliottWave:          { th: "Elliott Wave",         en: "Elliott Wave"           },
   navCot:          { th: "COT Report",         en: "COT Report"         },
   navBroadcast:    { th: "Broadcast Settings", en: "Broadcast Settings" },
   hub_news:        { th: "AI วิเคราะห์ sentiment ข่าวทองคำ real-time", en: "AI gold news sentiment — real-time analysis" },

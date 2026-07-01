@@ -64,6 +64,7 @@ const NAV = [
   { href: "/breakout-scanner",    icon: "🔍", key: "navBreakoutScanner"         },
   { href: "/silver-ratio",        icon: "⚖️", key: "navSilverRatio"              },
   { href: "/price-heatmap",       icon: "🌡️", key: "navPriceHeatmap"             },
+  { href: "/elliott-wave",        icon: "〰️", key: "navElliottWave"              },
   { href: "/backtest",    icon: "🧪", key: "navBacktest"       },
   { href: "/brief",       icon: "📰", key: "navBrief"          },
   { href: "/scanner",       icon: "📡", key: "navScanner"        },

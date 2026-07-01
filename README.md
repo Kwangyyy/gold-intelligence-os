@@ -27,7 +27,7 @@ via `lib/mode.ts`) addresses the PRD's "too complex for beginners" risk:
 - **Pro** — the full detailed view everywhere.
 
 The Overview page ends with a **Module Hub** (`components/ModuleHub.tsx`) — a grid linking
-every tool with an icon and a one-line description, so all 12 pages are discoverable from
+every tool with an icon and a one-line description, so every page is discoverable from
 the landing page.
 
 ## Subscription tiers (preview)

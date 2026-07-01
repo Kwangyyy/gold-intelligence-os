@@ -8,7 +8,7 @@ full-stack developer; costs are rough monthly figures (USD) at small scale.
 
 ## 1. What's built today (front-end demo)
 
-A complete, navigable Next.js front-end — **12 pages**, TH/EN, Beginner/Pro, and a
+A complete, navigable Next.js front-end — **41 pages**, TH/EN, Beginner/Pro, and a
 Free/Premium/Pro tier preview — running on live gold data with rule-based analytics:
 
 | Area | Status | Data source |

@@ -62,6 +62,7 @@ const NAV = [
   { href: "/gold-calendar",       icon: "📅", key: "navGoldCalendar"           },
   { href: "/position-calc",       icon: "📐", key: "navPositionCalc"           },
   { href: "/breakout-scanner",    icon: "🔍", key: "navBreakoutScanner"         },
+  { href: "/silver-ratio",        icon: "⚖️", key: "navSilverRatio"              },
   { href: "/backtest",    icon: "🧪", key: "navBacktest"       },
   { href: "/brief",       icon: "📰", key: "navBrief"          },
   { href: "/scanner",       icon: "📡", key: "navScanner"        },

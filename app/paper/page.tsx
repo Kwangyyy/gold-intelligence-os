@@ -17,6 +17,39 @@ const STORAGE_KEY    = "gios.paper.v2";
 const TG_STORAGE_KEY = "gios.telegram";
 const POLL_MS        = 5_000;
 
+// ── AI Model Signal hint (reads cached result from localStorage) ──────────────
+function AiSignalHint({ onAutoFill }: { onAutoFill?: (dir: "buy" | "sell") => void }) {
+  const [sig, setSig] = useState<{ decision: string; confidence: number; savedAt: string } | null>(null);
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("gold-ai-model-meta");
+      if (!raw) return;
+      const meta = JSON.parse(raw);
+      if (meta?.signal?.decision) setSig({ decision: meta.signal.decision, confidence: meta.signal.confidence, savedAt: meta.savedAt });
+    } catch {}
+  }, []);
+  if (!sig) return null;
+  const color = sig.decision === "BUY" ? "#34d399" : sig.decision === "SELL" ? "#f87171" : "#f5c451";
+  const when = new Date(sig.savedAt).toLocaleDateString("th-TH", { day:"2-digit", month:"short" })
+    + " " + new Date(sig.savedAt).toLocaleTimeString("th-TH", { hour:"2-digit", minute:"2-digit" });
+  return (
+    <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border px-4 py-3 text-sm"
+      style={{ background:`${color}08`, borderColor:`${color}28` }}>
+      <span className="text-[9px] uppercase tracking-widest text-silver/35 shrink-0">🧠 AI Model</span>
+      <span className="text-xl font-black" style={{ color }}>{sig.decision}</span>
+      <span className="text-silver/55">{sig.confidence.toFixed(1)}% confidence</span>
+      <span className="text-[10px] text-silver/30">· เทรนเมื่อ {when}</span>
+      {onAutoFill && sig.decision !== "HOLD" && (
+        <button onClick={() => onAutoFill(sig.decision === "BUY" ? "buy" : "sell")}
+          className="ml-auto rounded-lg px-3 py-1.5 text-[11px] font-bold transition-all"
+          style={{ background:`${color}18`, border:`1px solid ${color}40`, color }}>
+          📥 นำ Signal มาใช้ ({sig.decision === "BUY" ? "เปิด Long" : "เปิด Short"})
+        </button>
+      )}
+    </div>
+  );
+}
+
 // ── Telegram helpers ──────────────────────────────────────────────────────────
 
 interface TgSettings { chatId: string; enabled: boolean; minConfidence: number }
@@ -558,6 +591,8 @@ export default function PaperPage() {
         title="Paper Trader"
         subtitle="AI วิเคราะห์ตลาด · กราฟแสดงจุด Entry / SL / TP · ฝึกเทรดด้วยเงินจริง $10,000 virtual"
       />
+
+      <AiSignalHint onAutoFill={dir => setTradeType(dir)} />
 
       {/* ── AI Strategy + Chart ────────────────────────────────────────────── */}
       <div className="mb-5">

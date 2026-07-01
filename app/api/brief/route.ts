@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { generateDailyBrief, type BriefInput, type DailyBrief } from "@/lib/gemini";
 import { calcEMA, calcRSI } from "@/lib/backtest";
+import type { AiModelSignalEntry } from "@/app/api/ai-model/signal/route";
 
 export const dynamic = "force-dynamic";
 
@@ -80,9 +81,26 @@ export async function GET() {
   try {
     const [market, events] = await Promise.all([fetchMarketData(), fetchCalendarEvents()]);
 
+    // Fetch latest AI model signal from Redis (non-blocking, silent fail)
+    let aiSignal: AiModelSignalEntry | null = null;
+    try {
+      const sigRes = await fetch(
+        new URL("/api/ai-model/signal?limit=1", process.env.NEXTAUTH_URL ?? "http://localhost:3100").toString(),
+        { cache: "no-store" }
+      );
+      if (sigRes.ok) {
+        const arr: AiModelSignalEntry[] = await sigRes.json();
+        if (arr.length > 0) aiSignal = arr[0];
+      }
+    } catch { /* silent */ }
+
     const date = new Date().toLocaleDateString("en-GB", {
       weekday: "long", year: "numeric", month: "long", day: "numeric",
     });
+
+    const aiSignalNote = aiSignal
+      ? `AI ML Model (TF.js Neural Network trained on XAUUSD D1): Signal = ${aiSignal.decision}, Confidence = ${aiSignal.confidence.toFixed(1)}%, Test Accuracy = ${aiSignal.testAcc.toFixed(1)}%, trained ${Math.round((Date.now() - aiSignal.ts) / 3600000)}h ago`
+      : "AI ML Model: not yet trained";
 
     const input: BriefInput = {
       date,
@@ -98,6 +116,7 @@ export async function GET() {
       events,
       supports:    [market.price - market.atr * 1.5, market.price - market.atr * 3].map((v) => Math.round(v * 10) / 10),
       resistances: [market.price + market.atr * 1.5, market.price + market.atr * 3].map((v) => Math.round(v * 10) / 10),
+      aiSignalNote,
     };
 
     const brief = await generateDailyBrief(input);

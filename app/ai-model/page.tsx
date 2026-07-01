@@ -236,6 +236,19 @@ export default function AiModelPage() {
       localStorage.setItem(META_LS_KEY, JSON.stringify({ ...meta, savedAt }));
       setSavedAt(savedAt);
       setFromCache(false);
+
+      // Persist signal to Redis for cross-device history
+      fetch("/api/ai-model/signal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          decision:   meta.signal.decision,
+          confidence: meta.signal.confidence,
+          testAcc:    meta.testAcc,
+          valAcc:     meta.valAccCurve[meta.valAccCurve.length - 1] ?? 0,
+          epochs:     meta.epochs,
+        }),
+      }).catch(() => {});
     } catch {
       // Save failed silently — user can still use results
     } finally {
@@ -516,6 +529,14 @@ export default function AiModelPage() {
         title="AI Model Training 🧠"
         subtitle="Feedforward Neural Network + Ensemble · เทรนบน XAUUSD D1 2 ปี · TensorFlow.js runs in your browser"
       />
+
+      {/* Nav link to history */}
+      <div className="flex justify-end mb-2">
+        <a href="/ai-model/history"
+          className="text-[10px] text-silver/35 hover:text-silver/60 transition-colors underline">
+          📜 ประวัติ Signal →
+        </a>
+      </div>
 
       {/* Cache status banner */}
       {savedAt && (

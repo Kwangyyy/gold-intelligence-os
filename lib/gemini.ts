@@ -279,6 +279,7 @@ export interface BriefInput {
   events: { title: string; country: string; impact: string; forecast?: string; previous?: string }[];
   supports: number[];
   resistances: number[];
+  aiSignalNote?: string;
 }
 
 const BRIEF_SCHEMA: GeminiSchema = {
@@ -382,7 +383,7 @@ Session    : ${input.session}
 
 Key Support    : ${input.supports.map((s) => "$" + s.toFixed(2)).join(", ") || "—"}
 Key Resistance : ${input.resistances.map((r) => "$" + r.toFixed(2)).join(", ") || "—"}
-
+${input.aiSignalNote ? `\n${input.aiSignalNote}` : ""}
 Today's Events:
 ${evtList}
 

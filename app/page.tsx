@@ -19,6 +19,28 @@ import { ModuleHub } from "@/components/ModuleHub";
 import { GoldChart } from "@/components/GoldChart";
 import { Hero } from "@/components/Hero";
 
+// ── Trade Ideas promo card ────────────────────────────────────────────────────
+function TradeIdeasCard() {
+  return (
+    <a href="/trade-ideas" className="block no-underline group">
+      <div className="flex items-center gap-4 rounded-xl px-5 py-3.5 transition-all hover:bg-white/[0.02]"
+        style={{ background:"rgba(245,196,81,0.04)", border:"1px solid rgba(245,196,81,0.18)" }}>
+        <div className="text-2xl">💡</div>
+        <div className="flex-1 min-w-0">
+          <div className="text-xs font-bold" style={{ color:"#f5c451" }}>Trade Ideas (AI)</div>
+          <div className="text-[10px] mt-0.5 truncate" style={{ color:"rgba(175,185,215,0.45)" }}>
+            Gemini สังเคราะห์ ideas จาก AI Model + Technical Score + News Sentiment
+          </div>
+        </div>
+        <div className="text-[10px] shrink-0 font-bold transition-colors group-hover:text-silver/60"
+          style={{ color:"rgba(175,185,215,0.3)" }}>
+          ดู Ideas →
+        </div>
+      </div>
+    </a>
+  );
+}
+
 // ── AI Model Signal banner (reads cached result from localStorage) ─────────────
 function AiSignalBanner() {
   const [sig, setSig] = useState<{
@@ -109,6 +131,7 @@ export default function DashboardPage() {
           <BeginnerActionCard data={data} />
 
           <AiSignalBanner />
+          <TradeIdeasCard />
 
           <GoldChart heightClass="h-[400px]" />
 
@@ -144,6 +167,7 @@ export default function DashboardPage() {
           <ReasoningPanel r={data.recommendation} aiSource={data.aiSource} />
 
           <AiSignalBanner />
+          <TradeIdeasCard />
 
           <ModuleHub />
 

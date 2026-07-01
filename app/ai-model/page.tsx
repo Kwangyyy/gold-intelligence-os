@@ -284,9 +284,32 @@ export default function AiModelPage() {
     const N      = features.length;
     const splitI = Math.floor(N * 0.8);
 
-    const xTrain = tf.tensor2d(features.slice(0, splitI));
+    // ── Oversample training set so every class is equally represented ─────────
+    const rawTrainF = features.slice(0, splitI);
+    const rawTrainL = labels.slice(0, splitI);
+    const classIdxs: number[][] = [[], [], []];
+    for (let i = 0; i < rawTrainL.length; i++) classIdxs[rawTrainL[i]].push(i);
+    const maxN = Math.max(...classIdxs.map(c => c.length));
+    const balF: number[][] = [];
+    const balL: number[] = [];
+    for (let c = 0; c < 3; c++) {
+      const idxs = classIdxs[c];
+      for (let i = 0; i < maxN; i++) {
+        balF.push(rawTrainF[idxs[i % idxs.length]]);
+        balL.push(c);
+      }
+    }
+    // Fisher-Yates shuffle
+    for (let i = balF.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [balF[i], balF[j]] = [balF[j], balF[i]];
+      [balL[i], balL[j]] = [balL[j], balL[i]];
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
+    const xTrain = tf.tensor2d(balF);
     const xTest  = tf.tensor2d(features.slice(splitI));
-    const yTrain = tf.oneHot(tf.tensor1d(labels.slice(0, splitI), "int32"), 3);
+    const yTrain = tf.oneHot(tf.tensor1d(balL, "int32"), 3);
     const yTest  = tf.oneHot(tf.tensor1d(labels.slice(splitI), "int32"), 3);
 
     try {

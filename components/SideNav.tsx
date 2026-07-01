@@ -43,6 +43,7 @@ const NAV = [
   { href: "/seasonality2",    icon: "📅", key: "navSeasonality2"   },
   { href: "/fibonacci",       icon: "🌀", key: "navFibonacci"      },
   { href: "/econ-impact",     icon: "⚡", key: "navEconImpact"     },
+  { href: "/momentum",        icon: "📡", key: "navMomentum"        },
   { href: "/backtest",    icon: "🧪", key: "navBacktest"       },
   { href: "/brief",       icon: "📰", key: "navBrief"          },
   { href: "/scanner",       icon: "📡", key: "navScanner"        },

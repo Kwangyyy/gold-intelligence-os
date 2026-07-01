@@ -656,6 +656,7 @@ const DICT: Record<string, Bilingual> = {
   navScalpLevels:          { th: "Intraday Scalp Levels", en: "Intraday Scalp Levels"  },
   navMacroScore:           { th: "Macro Score Card",      en: "Macro Score Card"       },
   navRangeForecast:        { th: "Range Forecast",        en: "Range Forecast"         },
+  navOptionsFlow:          { th: "Options Flow & IV",     en: "Options Flow & IV"      },
   navCot:          { th: "COT Report",         en: "COT Report"         },
   navBroadcast:    { th: "Broadcast Settings", en: "Broadcast Settings" },
   hub_news:        { th: "AI วิเคราะห์ sentiment ข่าวทองคำ real-time", en: "AI gold news sentiment — real-time analysis" },

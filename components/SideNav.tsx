@@ -56,6 +56,7 @@ const NAV = [
   { href: "/scalp-levels",        icon: "⚡", key: "navScalpLevels"        },
   { href: "/macro-score",         icon: "🏛️", key: "navMacroScore"          },
   { href: "/range-forecast",      icon: "🎯", key: "navRangeForecast"       },
+  { href: "/options-flow",        icon: "📊", key: "navOptionsFlow"          },
   { href: "/backtest",    icon: "🧪", key: "navBacktest"       },
   { href: "/brief",       icon: "📰", key: "navBrief"          },
   { href: "/scanner",       icon: "📡", key: "navScanner"        },

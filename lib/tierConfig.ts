@@ -53,6 +53,7 @@ export const ROUTE_MIN_TIER: Record<string, Tier> = {
   "/scalp-levels":         "premium",
   "/macro-score":          "premium",
   "/range-forecast":       "pro",
+  "/options-flow":         "pro",
   "/brief":   "pro",
   "/scanner":     "premium",
   "/seasonality": "pro",

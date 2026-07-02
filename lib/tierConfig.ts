@@ -70,6 +70,7 @@ export const ROUTE_MIN_TIER: Record<string, Tier> = {
   "/etf-flows":           "premium",
   "/sentiment-dashboard": "premium",
   "/leaderboard":         "free",
+  "/rate-watch":          "premium",
   "/brief":   "pro",
   "/scanner":     "premium",
   "/seasonality": "pro",

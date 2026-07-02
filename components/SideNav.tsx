@@ -73,6 +73,7 @@ const NAV = [
   { href: "/etf-flows",           icon: "📈", key: "navEtfFlows"                    },
   { href: "/sentiment-dashboard", icon: "🧭", key: "navSentimentDashboard"           },
   { href: "/leaderboard",         icon: "🏆", key: "navLeaderboard"                  },
+  { href: "/rate-watch",          icon: "🏦", key: "navRateWatch"                    },
   { href: "/backtest",    icon: "🧪", key: "navBacktest"       },
   { href: "/brief",       icon: "📰", key: "navBrief"          },
   { href: "/scanner",       icon: "📡", key: "navScanner"        },

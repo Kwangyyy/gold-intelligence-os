@@ -70,6 +70,7 @@ const NAV = [
   { href: "/geo-risk",            icon: "🌍", key: "navGeoRisk"                    },
   { href: "/cb-tracker",          icon: "🏦", key: "navCbTracker"                  },
   { href: "/funding-rates",       icon: "📡", key: "navFundingRates"               },
+  { href: "/etf-flows",           icon: "📈", key: "navEtfFlows"                    },
   { href: "/backtest",    icon: "🧪", key: "navBacktest"       },
   { href: "/brief",       icon: "📰", key: "navBrief"          },
   { href: "/scanner",       icon: "📡", key: "navScanner"        },

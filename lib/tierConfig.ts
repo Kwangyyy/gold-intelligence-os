@@ -67,6 +67,7 @@ export const ROUTE_MIN_TIER: Record<string, Tier> = {
   "/geo-risk":            "premium",
   "/cb-tracker":          "premium",
   "/funding-rates":       "premium",
+  "/etf-flows":           "premium",
   "/brief":   "pro",
   "/scanner":     "premium",
   "/seasonality": "pro",

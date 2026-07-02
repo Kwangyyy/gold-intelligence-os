@@ -82,6 +82,7 @@ const NAV = [
   { href: "/macro-heat",          icon: "🌡️", key: "navMacroHeat"                    },
   { href: "/options-expiry",      icon: "📆", key: "navOptionsExpiry"                },
   { href: "/gold-supply",         icon: "⛏", key: "navGoldSupply"                    },
+  { href: "/dxy-breakdown",       icon: "💱", key: "navDxyBreakdown"                  },
   { href: "/backtest",    icon: "🧪", key: "navBacktest"       },
   { href: "/brief",       icon: "📰", key: "navBrief"          },
   { href: "/scanner",       icon: "📡", key: "navScanner"        },

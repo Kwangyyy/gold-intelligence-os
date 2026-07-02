@@ -682,6 +682,7 @@ const DICT: Record<string, Bilingual> = {
   navMacroHeat:            { th: "Macro Heat Map",        en: "Macro Heat Map"         },
   navOptionsExpiry:        { th: "Options Expiry Cal",   en: "Options Expiry Cal"     },
   navGoldSupply:           { th: "Gold Supply Monitor",  en: "Gold Supply Monitor"    },
+  navDxyBreakdown:         { th: "DXY Breakdown",        en: "DXY Breakdown"          },
   navCot:          { th: "COT Report",         en: "COT Report"         },
   navBroadcast:    { th: "Broadcast Settings", en: "Broadcast Settings" },
   hub_news:        { th: "AI วิเคราะห์ sentiment ข่าวทองคำ real-time", en: "AI gold news sentiment — real-time analysis" },

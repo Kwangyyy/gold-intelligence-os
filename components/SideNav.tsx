@@ -85,6 +85,7 @@ const NAV = [
   { href: "/dxy-breakdown",       icon: "💱", key: "navDxyBreakdown"                  },
   { href: "/trade-flow",          icon: "🌊", key: "navTradeFlow"                     },
   { href: "/crypto-gold",         icon: "₿",  key: "navCryptoGold"                    },
+  { href: "/macro-scenario",      icon: "🎭", key: "navMacroScenario"                 },
   { href: "/backtest",    icon: "🧪", key: "navBacktest"       },
   { href: "/brief",       icon: "📰", key: "navBrief"          },
   { href: "/scanner",       icon: "📡", key: "navScanner"        },

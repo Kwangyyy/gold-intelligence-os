@@ -119,6 +119,8 @@ export const ROUTE_MIN_TIER: Record<string, Tier> = {
   "/market-internals":    "premium",
   "/seasonality-detail":  "premium",
   "/position-heat":       "pro",
+  "/multi-momentum":      "premium",
+  "/drawdown-tracker":    "premium",
   "/admin":               "pro",
   "/brief":   "pro",
   "/scanner":     "premium",

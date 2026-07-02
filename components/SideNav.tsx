@@ -123,6 +123,8 @@ const NAV = [
   { href: "/market-internals",    icon: "🧩", key: "navMarketInternals"              },
   { href: "/seasonality-detail",  icon: "📅", key: "navSeasonalityDetail"            },
   { href: "/position-heat",       icon: "🌡️", key: "navPositionHeat"                 },
+  { href: "/multi-momentum",      icon: "📡", key: "navMultiMomentum"                 },
+  { href: "/drawdown-tracker",    icon: "📉", key: "navDrawdownTracker"               },
   { href: "/admin",               icon: "🔐", key: "navAdmin"                         },
   { href: "/backtest",    icon: "🧪", key: "navBacktest"       },
   { href: "/brief",       icon: "📰", key: "navBrief"          },

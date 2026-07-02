@@ -722,6 +722,8 @@ const DICT: Record<string, Bilingual> = {
   navMarketInternals:      { th: "Market Internals",        en: "Market Internals"        },
   navSeasonalityDetail:    { th: "Gold Seasonality Pro",    en: "Gold Seasonality Pro"    },
   navPositionHeat:         { th: "Position Heat Map",       en: "Position Heat Map"       },
+  navMultiMomentum:        { th: "Multi-Asset Momentum",    en: "Multi-Asset Momentum"    },
+  navDrawdownTracker:      { th: "Drawdown Tracker",        en: "Drawdown Tracker"        },
   navAdmin:                { th: "Admin Panel",            en: "Admin Panel"            },
   navCot:          { th: "COT Report",         en: "COT Report"         },
   navBroadcast:    { th: "Broadcast Settings", en: "Broadcast Settings" },

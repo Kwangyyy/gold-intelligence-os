@@ -680,6 +680,7 @@ const DICT: Record<string, Bilingual> = {
   navMoneySupply:          { th: "Global Money Supply",   en: "Global Money Supply"    },
   navGoldDemand:           { th: "Gold Demand Breakdown", en: "Gold Demand Breakdown"  },
   navMacroHeat:            { th: "Macro Heat Map",        en: "Macro Heat Map"         },
+  navOptionsExpiry:        { th: "Options Expiry Cal",   en: "Options Expiry Cal"     },
   navCot:          { th: "COT Report",         en: "COT Report"         },
   navBroadcast:    { th: "Broadcast Settings", en: "Broadcast Settings" },
   hub_news:        { th: "AI วิเคราะห์ sentiment ข่าวทองคำ real-time", en: "AI gold news sentiment — real-time analysis" },

@@ -80,6 +80,7 @@ const NAV = [
   { href: "/money-supply",        icon: "💵", key: "navMoneySupply"                  },
   { href: "/gold-demand",         icon: "📊", key: "navGoldDemand"                   },
   { href: "/macro-heat",          icon: "🌡️", key: "navMacroHeat"                    },
+  { href: "/options-expiry",      icon: "📆", key: "navOptionsExpiry"                },
   { href: "/backtest",    icon: "🧪", key: "navBacktest"       },
   { href: "/brief",       icon: "📰", key: "navBrief"          },
   { href: "/scanner",       icon: "📡", key: "navScanner"        },

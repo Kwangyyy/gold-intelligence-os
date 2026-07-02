@@ -679,6 +679,7 @@ const DICT: Record<string, Bilingual> = {
   navGoldOilRatio:         { th: "Gold/Oil Ratio",        en: "Gold/Oil Ratio"         },
   navMoneySupply:          { th: "Global Money Supply",   en: "Global Money Supply"    },
   navGoldDemand:           { th: "Gold Demand Breakdown", en: "Gold Demand Breakdown"  },
+  navMacroHeat:            { th: "Macro Heat Map",        en: "Macro Heat Map"         },
   navCot:          { th: "COT Report",         en: "COT Report"         },
   navBroadcast:    { th: "Broadcast Settings", en: "Broadcast Settings" },
   hub_news:        { th: "AI วิเคราะห์ sentiment ข่าวทองคำ real-time", en: "AI gold news sentiment — real-time analysis" },

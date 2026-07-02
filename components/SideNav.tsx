@@ -79,6 +79,7 @@ const NAV = [
   { href: "/gold-oil-ratio",      icon: "⚡", key: "navGoldOilRatio"                },
   { href: "/money-supply",        icon: "💵", key: "navMoneySupply"                  },
   { href: "/gold-demand",         icon: "📊", key: "navGoldDemand"                   },
+  { href: "/macro-heat",          icon: "🌡️", key: "navMacroHeat"                    },
   { href: "/backtest",    icon: "🧪", key: "navBacktest"       },
   { href: "/brief",       icon: "📰", key: "navBrief"          },
   { href: "/scanner",       icon: "📡", key: "navScanner"        },

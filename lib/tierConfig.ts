@@ -76,6 +76,7 @@ export const ROUTE_MIN_TIER: Record<string, Tier> = {
   "/gold-oil-ratio":      "premium",
   "/money-supply":        "premium",
   "/gold-demand":         "premium",
+  "/macro-heat":          "premium",
   "/brief":   "pro",
   "/scanner":     "premium",
   "/seasonality": "pro",

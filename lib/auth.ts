@@ -25,7 +25,7 @@ export const authOptions: NextAuthOptions = {
       if (!email) return token;
 
       const checkedAt = (token.tierCheckedAt as number | undefined) ?? 0;
-      const isFirstSignIn = trigger === "signIn";
+      const isFirstSignIn = trigger === "signIn" || trigger === "update";
       const needsRefresh = isFirstSignIn || Date.now() - checkedAt > TIER_REFRESH_MS;
 
       if (!needsRefresh) return token;

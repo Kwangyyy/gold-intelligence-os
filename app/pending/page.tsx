@@ -1,16 +1,27 @@
 "use client";
 
-import { signOut, useSession } from "next-auth/react";
+import { signIn, signOut, useSession } from "next-auth/react";
+import { useState } from "react";
 
 export default function PendingPage() {
   const { data: session } = useSession();
+  const [checking, setChecking] = useState(false);
+
+  // Force re-login to trigger JWT refresh — if admin approved, user gets correct tier
+  async function checkStatus() {
+    setChecking(true);
+    // signIn with redirect=false can't easily re-check tier in-place,
+    // so we force a full sign-in flow which fires trigger="signIn" in JWT callback,
+    // which re-checks Redis and gives the correct tier if approved.
+    await signIn("google", { callbackUrl: "/" });
+  }
 
   return (
     <div className="flex min-h-screen items-center justify-center px-4"
       style={{ background: "linear-gradient(135deg, #0a0f1e 0%, #0d1526 100%)" }}>
       <div className="w-full max-w-md text-center space-y-6">
 
-        {/* Icon */}
+        {/* Animated icon */}
         <div className="relative mx-auto w-20 h-20">
           <div className="absolute inset-0 rounded-full animate-ping opacity-20"
             style={{ background: "#f5c451" }} />
@@ -30,7 +41,7 @@ export default function PendingPage() {
           </p>
         </div>
 
-        {/* Message box */}
+        {/* User info */}
         <div className="rounded-xl px-6 py-5 text-left space-y-3"
           style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(245,196,81,0.12)" }}>
           {session?.user && (
@@ -53,15 +64,15 @@ export default function PendingPage() {
 
           <p className="text-[11px] leading-relaxed" style={{ color: "rgba(175,185,215,0.5)" }}>
             บัญชีของคุณถูกสร้างแล้ว แต่ยังรอการอนุมัติจากผู้ดูแลระบบ
-            โปรดรอและลองเข้าสู่ระบบอีกครั้งในภายหลัง
+            โปรดรอและตรวจสอบสถานะอีกครั้งในภายหลัง
           </p>
           <p className="text-[11px] leading-relaxed" style={{ color: "rgba(175,185,215,0.35)" }}>
             Your account has been created and is pending admin approval.
-            Please wait and try signing in again later.
+            Please wait and check status again later.
           </p>
         </div>
 
-        {/* Steps */}
+        {/* Progress steps */}
         {[
           { n: 1, label: "สมัครเข้าใช้ด้วย Google", done: true },
           { n: 2, label: "ผู้ดูแลระบบได้รับแจ้งเตือนแล้ว", done: true },
@@ -83,6 +94,27 @@ export default function PendingPage() {
             </span>
           </div>
         ))}
+
+        {/* Check status button — forces re-login to refresh JWT after admin approves */}
+        <button
+          onClick={checkStatus}
+          disabled={checking}
+          className="w-full py-3 rounded-lg text-xs font-black transition-all"
+          style={{
+            background: checking
+              ? "rgba(245,196,81,0.04)"
+              : "rgba(245,196,81,0.12)",
+            border: "1px solid rgba(245,196,81,0.3)",
+            color: "#f5c451",
+            opacity: checking ? 0.6 : 1,
+          }}>
+          {checking ? "⏳ กำลังตรวจสอบ…" : "🔄 ตรวจสอบสถานะ (ถ้า Admin อนุมัติแล้ว)"}
+        </button>
+
+        <div className="text-[10px]" style={{ color: "rgba(175,185,215,0.3)" }}>
+          กดปุ่มด้านบนหลังจากได้รับการแจ้งว่าถูกอนุมัติแล้ว<br />
+          ระบบจะ login ใหม่อัตโนมัติและพาคุณเข้าสู่ระบบ
+        </div>
 
         {/* Sign out */}
         <button onClick={() => signOut({ callbackUrl: "/" })}

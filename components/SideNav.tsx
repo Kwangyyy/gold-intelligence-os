@@ -74,6 +74,7 @@ const NAV = [
   { href: "/sentiment-dashboard", icon: "🧭", key: "navSentimentDashboard"           },
   { href: "/leaderboard",         icon: "🏆", key: "navLeaderboard"                  },
   { href: "/rate-watch",          icon: "🏦", key: "navRateWatch"                    },
+  { href: "/inflation-tracker",   icon: "📊", key: "navInflationTracker"             },
   { href: "/backtest",    icon: "🧪", key: "navBacktest"       },
   { href: "/brief",       icon: "📰", key: "navBrief"          },
   { href: "/scanner",       icon: "📡", key: "navScanner"        },

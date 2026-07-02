@@ -677,6 +677,7 @@ const DICT: Record<string, Bilingual> = {
   navInflationTracker:     { th: "Inflation Tracker",     en: "Inflation Tracker"      },
   navMiningCost:           { th: "Mining Cost (AISC)",    en: "Mining Cost (AISC)"     },
   navGoldOilRatio:         { th: "Gold/Oil Ratio",        en: "Gold/Oil Ratio"         },
+  navMoneySupply:          { th: "Global Money Supply",   en: "Global Money Supply"    },
   navCot:          { th: "COT Report",         en: "COT Report"         },
   navBroadcast:    { th: "Broadcast Settings", en: "Broadcast Settings" },
   hub_news:        { th: "AI วิเคราะห์ sentiment ข่าวทองคำ real-time", en: "AI gold news sentiment — real-time analysis" },

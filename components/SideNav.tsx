@@ -84,6 +84,7 @@ const NAV = [
   { href: "/gold-supply",         icon: "⛏", key: "navGoldSupply"                    },
   { href: "/dxy-breakdown",       icon: "💱", key: "navDxyBreakdown"                  },
   { href: "/trade-flow",          icon: "🌊", key: "navTradeFlow"                     },
+  { href: "/crypto-gold",         icon: "₿",  key: "navCryptoGold"                    },
   { href: "/backtest",    icon: "🧪", key: "navBacktest"       },
   { href: "/brief",       icon: "📰", key: "navBrief"          },
   { href: "/scanner",       icon: "📡", key: "navScanner"        },

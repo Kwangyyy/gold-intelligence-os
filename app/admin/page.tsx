@@ -19,6 +19,13 @@ interface AdminData {
   users:         UserRow[];
 }
 
+interface PendingUser {
+  email:        string;
+  name:         string;
+  picture:      string;
+  registeredAt: string;
+}
+
 const TIER_COLORS: Record<Tier, string> = {
   free:    "#9ca3af",
   premium: "#f5c451",
@@ -53,9 +60,11 @@ export default function AdminPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
 
-  const [data,    setData]    = useState<AdminData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [msg,     setMsg]     = useState({ text: "", ok: true });
+  const [data,         setData]         = useState<AdminData | null>(null);
+  const [pendingUsers, setPendingUsers] = useState<PendingUser[]>([]);
+  const [loading,      setLoading]      = useState(true);
+  const [msg,          setMsg]          = useState({ text: "", ok: true });
+  const [approveTier,  setApproveTier]  = useState<Record<string, Tier>>({});
 
   const addEmailRef  = useRef<HTMLInputElement>(null);
   const userEmailRef = useRef<HTMLInputElement>(null);
@@ -69,14 +78,25 @@ export default function AdminPage() {
     if (!u?.isAdmin) { router.replace("/"); }
   }, [status, session, router]);
 
+  const loadPending = useCallback(async () => {
+    const r = await fetch("/api/admin/pending-users", { cache: "no-store" });
+    if (r.ok) {
+      const j = await r.json();
+      setPendingUsers(j.users ?? []);
+    }
+  }, []);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await fetch("/api/admin/users", { cache: "no-store" });
+      const [r] = await Promise.all([
+        fetch("/api/admin/users", { cache: "no-store" }),
+        loadPending(),
+      ]);
       if (!r.ok) { router.replace("/"); return; }
       setData(await r.json());
     } finally { setLoading(false); }
-  }, [router]);
+  }, [router, loadPending]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -90,6 +110,18 @@ export default function AdminPage() {
     const j = await r.json();
     setMsg({ text: j.message ?? j.error ?? "Done", ok: r.ok });
     if (r.ok) load();
+  }
+
+  async function callPendingApi(body: object) {
+    setMsg({ text: "", ok: true });
+    const r = await fetch("/api/admin/pending-users", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const j = await r.json();
+    setMsg({ text: j.message ?? j.error ?? "Done", ok: r.ok });
+    if (r.ok) { loadPending(); load(); }
   }
 
   if (status === "loading" || loading) {
@@ -116,6 +148,89 @@ export default function AdminPage() {
           <StatusMsg msg={msg.text} ok={msg.ok} />
         </div>
       )}
+
+      {/* ── ส่วนที่ 0: Pending Approval Queue ─────────────────── */}
+      <div className="panel px-5 py-5 space-y-4 mb-5"
+        style={{ border: pendingUsers.length > 0 ? "1px solid rgba(245,196,81,0.25)" : undefined }}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="text-[9px] uppercase tracking-widest" style={{ color: "rgba(175,185,215,0.3)" }}>
+              🔔 รอการอนุมัติ
+            </div>
+            {pendingUsers.length > 0 && (
+              <span className="text-[8px] font-black px-2 py-0.5 rounded-full animate-pulse"
+                style={{ background: "rgba(245,196,81,0.15)", color: "#f5c451", border: "1px solid rgba(245,196,81,0.3)" }}>
+                {pendingUsers.length} รายการ
+              </span>
+            )}
+          </div>
+          <button onClick={loadPending}
+            className="text-[9px] px-3 py-1.5 rounded-lg font-bold"
+            style={{ background: "rgba(255,255,255,0.05)", color: "rgba(175,185,215,0.5)", border: "1px solid rgba(255,255,255,0.08)" }}>
+            🔄
+          </button>
+        </div>
+
+        {pendingUsers.length === 0 ? (
+          <div className="text-center py-6 text-[10px]" style={{ color: "rgba(175,185,215,0.25)" }}>
+            ✓ ไม่มีผู้ใช้รอการอนุมัติ
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {pendingUsers.map(u => {
+              const tierForUser = approveTier[u.email] ?? "free";
+              return (
+                <div key={u.email} className="rounded-xl px-4 py-3 space-y-3"
+                  style={{ background: "rgba(245,196,81,0.04)", border: "1px solid rgba(245,196,81,0.12)" }}>
+                  <div className="flex items-center gap-3">
+                    {u.picture ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={u.picture} alt="" className="w-9 h-9 rounded-full shrink-0" />
+                    ) : (
+                      <div className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 text-lg"
+                        style={{ background: "rgba(245,196,81,0.08)" }}>👤</div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[11px] font-bold truncate" style={{ color: "rgba(255,255,255,0.7)" }}>
+                        {u.name}
+                      </div>
+                      <div className="text-[9px] truncate" style={{ color: "rgba(175,185,215,0.4)" }}>
+                        {u.email}
+                      </div>
+                      <div className="text-[8px]" style={{ color: "rgba(175,185,215,0.25)" }}>
+                        สมัคร: {new Date(u.registeredAt).toLocaleString("th-TH", { timeZone: "Asia/Bangkok" })}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={tierForUser}
+                      onChange={e => setApproveTier(prev => ({ ...prev, [u.email]: e.target.value as Tier }))}
+                      className="rounded-lg px-2 py-1.5 text-[10px] font-bold outline-none"
+                      style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.10)", color: TIER_COLORS[tierForUser] }}>
+                      <option value="free">free</option>
+                      <option value="premium">premium</option>
+                      <option value="pro">pro</option>
+                    </select>
+                    <button
+                      onClick={() => callPendingApi({ action: "approve", email: u.email, tier: tierForUser })}
+                      className="flex-1 py-1.5 rounded-lg text-[10px] font-bold transition-all"
+                      style={{ background: "rgba(52,211,153,0.12)", border: "1px solid rgba(52,211,153,0.3)", color: "#34d399" }}>
+                      ✓ อนุมัติ
+                    </button>
+                    <button
+                      onClick={() => callPendingApi({ action: "reject", email: u.email })}
+                      className="flex-1 py-1.5 rounded-lg text-[10px] font-bold transition-all"
+                      style={{ background: "rgba(248,113,113,0.12)", border: "1px solid rgba(248,113,113,0.3)", color: "#f87171" }}>
+                      ✗ ปฏิเสธ
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
       {/* ── ส่วนที่ 1: Admin list ─────────────────────────────── */}
       <div className="panel px-5 py-5 space-y-4 mb-5">

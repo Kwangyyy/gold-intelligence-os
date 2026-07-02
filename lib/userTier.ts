@@ -5,9 +5,21 @@
 // ADMIN_EMAILS (comma-separated in .env.local / Vercel) = immutable super-admins.
 // Additional admins can be added dynamically via /admin panel → Redis key `admin:list` (Set).
 // All admins (env + Redis) always resolve to tier "pro".
+//
+// Pending / rejected:
+//   pending:set  → Redis Set of emails awaiting approval
+//   pending:{email} → Redis Hash { name, picture, registeredAt }
+//   rejected:set → Redis Set of rejected emails
 
 import { Redis } from "@upstash/redis";
 import type { Tier } from "./tierConfig";
+
+export interface PendingUser {
+  email:        string;
+  name:         string;
+  picture:      string;
+  registeredAt: string; // ISO string
+}
 
 // Root super-admins from env — cannot be removed via UI
 export const SUPER_ADMIN_EMAILS = (process.env.ADMIN_EMAILS ?? "")
@@ -26,9 +38,13 @@ function getRedis(): Redis | null {
 
 declare global {
   // eslint-disable-next-line no-var
-  var __userTiers:  Map<string, Tier>    | undefined;
+  var __userTiers:    Map<string, Tier>        | undefined;
   // eslint-disable-next-line no-var
-  var __adminEmails: Set<string>          | undefined;
+  var __adminEmails:  Set<string>              | undefined;
+  // eslint-disable-next-line no-var
+  var __pendingUsers: Map<string, PendingUser> | undefined;
+  // eslint-disable-next-line no-var
+  var __rejectedEmails: Set<string>            | undefined;
 }
 function memTiers(): Map<string, Tier> {
   if (!globalThis.__userTiers)  globalThis.__userTiers  = new Map();
@@ -37,6 +53,14 @@ function memTiers(): Map<string, Tier> {
 function memAdmins(): Set<string> {
   if (!globalThis.__adminEmails) globalThis.__adminEmails = new Set();
   return globalThis.__adminEmails;
+}
+function memPending(): Map<string, PendingUser> {
+  if (!globalThis.__pendingUsers) globalThis.__pendingUsers = new Map();
+  return globalThis.__pendingUsers;
+}
+function memRejected(): Set<string> {
+  if (!globalThis.__rejectedEmails) globalThis.__rejectedEmails = new Set();
+  return globalThis.__rejectedEmails;
 }
 
 // ─── Admin checks ──────────────────────────────────────────────────────────
@@ -88,6 +112,112 @@ export async function removeAdmin(email: string): Promise<{ ok: boolean; reason?
   if (redis) await redis.srem(REDIS_ADMIN_KEY, lower);
   else memAdmins().delete(lower);
   return { ok: true };
+}
+
+// ─── Pending / Rejected ─────────────────────────────────────────────────────
+
+/** True if email is in the pending queue (not yet approved) */
+export async function isPendingUser(email: string): Promise<boolean> {
+  const lower = email.toLowerCase();
+  const redis = getRedis();
+  if (redis) return !!(await redis.sismember("pending:set", lower));
+  return memPending().has(lower);
+}
+
+/** True if email has been rejected */
+export async function isRejectedUser(email: string): Promise<boolean> {
+  const lower = email.toLowerCase();
+  const redis = getRedis();
+  if (redis) return !!(await redis.sismember("rejected:set", lower));
+  return memRejected().has(lower);
+}
+
+/** True if user has any record (tier, pending, or rejected) — used to detect first login */
+export async function hasAnyRecord(email: string): Promise<boolean> {
+  const lower = email.toLowerCase();
+  const redis = getRedis();
+  if (redis) {
+    const [hasTier, isPending, isRejected] = await Promise.all([
+      redis.exists(`tier:${lower}`),
+      redis.sismember("pending:set", lower),
+      redis.sismember("rejected:set", lower),
+    ]);
+    return !!(hasTier || isPending || isRejected);
+  }
+  return memTiers().has(lower) || memPending().has(lower) || memRejected().has(lower);
+}
+
+/** Add a user to the pending approval queue (called on first login) */
+export async function addPendingUser(user: PendingUser): Promise<void> {
+  const lower = user.email.toLowerCase();
+  const data: PendingUser = { ...user, email: lower };
+  const redis = getRedis();
+  if (redis) {
+    await Promise.all([
+      redis.sadd("pending:set", lower),
+      redis.hset(`pending:${lower}`, data as unknown as Record<string, unknown>),
+    ]);
+  } else {
+    memPending().set(lower, data);
+  }
+}
+
+/** Get all pending users */
+export async function listPendingUsers(): Promise<PendingUser[]> {
+  const redis = getRedis();
+  if (redis) {
+    const emails = await redis.smembers("pending:set") as string[];
+    const users = await Promise.all(
+      emails.map(async (e) => {
+        const h = await redis.hgetall(`pending:${e}`);
+        if (!h) return null;
+        return h as unknown as PendingUser;
+      })
+    );
+    return (users.filter(Boolean) as PendingUser[])
+      .sort((a, b) => a.registeredAt.localeCompare(b.registeredAt));
+  }
+  return Array.from(memPending().values())
+    .sort((a, b) => a.registeredAt.localeCompare(b.registeredAt));
+}
+
+/** Approve a pending user — remove from pending, set their tier */
+export async function approvePendingUser(email: string, tier: Tier = "free"): Promise<void> {
+  const lower = email.toLowerCase();
+  const redis = getRedis();
+  if (redis) {
+    await Promise.all([
+      redis.srem("pending:set", lower),
+      redis.del(`pending:${lower}`),
+      redis.set(`tier:${lower}`, tier),
+    ]);
+  } else {
+    memPending().delete(lower);
+    memTiers().set(lower, tier);
+  }
+}
+
+/** Reject a pending user — remove from pending, add to rejected set */
+export async function rejectPendingUser(email: string): Promise<void> {
+  const lower = email.toLowerCase();
+  const redis = getRedis();
+  if (redis) {
+    await Promise.all([
+      redis.srem("pending:set", lower),
+      redis.del(`pending:${lower}`),
+      redis.sadd("rejected:set", lower),
+    ]);
+  } else {
+    memPending().delete(lower);
+    memRejected().add(lower);
+  }
+}
+
+/** Count pending users (for badge) */
+export async function countPendingUsers(): Promise<number> {
+  const redis = getRedis();
+  if (redis) return await redis.scard("pending:set");
+  return memPending().size;
 }
 
 // ─── Tier management ────────────────────────────────────────────────────────

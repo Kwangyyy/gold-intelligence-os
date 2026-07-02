@@ -65,6 +65,7 @@ export const ROUTE_MIN_TIER: Record<string, Tier> = {
   "/commodity-matrix":    "premium",
   "/yield-curve":         "premium",
   "/geo-risk":            "premium",
+  "/cb-tracker":          "premium",
   "/brief":   "pro",
   "/scanner":     "premium",
   "/seasonality": "pro",

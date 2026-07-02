@@ -671,6 +671,7 @@ const DICT: Record<string, Bilingual> = {
   navCbTracker:            { th: "Central Bank Gold",    en: "Central Bank Gold"      },
   navFundingRates:         { th: "Crypto Funding Rates", en: "Crypto Funding Rates"   },
   navEtfFlows:             { th: "Gold ETF Flows",       en: "Gold ETF Flows"         },
+  navSentimentDashboard:   { th: "Sentiment Dashboard",  en: "Sentiment Dashboard"    },
   navCot:          { th: "COT Report",         en: "COT Report"         },
   navBroadcast:    { th: "Broadcast Settings", en: "Broadcast Settings" },
   hub_news:        { th: "AI วิเคราะห์ sentiment ข่าวทองคำ real-time", en: "AI gold news sentiment — real-time analysis" },

@@ -1,6 +1,6 @@
 import GoogleProvider from "next-auth/providers/google";
 import type { NextAuthOptions } from "next-auth";
-import { getUserTier } from "./userTier";
+import { getUserTier, isAdmin } from "./userTier";
 import type { Tier } from "./tierConfig";
 
 const TIER_REFRESH_MS = 5 * 60_000; // re-check Redis at most every 5 minutes
@@ -18,10 +18,12 @@ export const authOptions: NextAuthOptions = {
     async jwt({ token }) {
       const checkedAt = (token.tierCheckedAt as number | undefined) ?? 0;
       if (token.email && Date.now() - checkedAt > TIER_REFRESH_MS) {
-        token.tier = await getUserTier(token.email as string);
+        token.tier    = await getUserTier(token.email as string);
+        token.isAdmin = await isAdmin(token.email as string);
         token.tierCheckedAt = Date.now();
       }
       if (!token.tier) token.tier = "free" satisfies Tier;
+      if (token.isAdmin === undefined) token.isAdmin = false;
       return token;
     },
     async session({ session, token }) {
@@ -29,7 +31,8 @@ export const authOptions: NextAuthOptions = {
         (session.user as { id?: string }).id = token.sub;
       }
       if (session.user) {
-        (session.user as { tier?: Tier }).tier = (token.tier as Tier) ?? "free";
+        (session.user as { tier?: Tier }).tier       = (token.tier as Tier) ?? "free";
+        (session.user as { isAdmin?: boolean }).isAdmin = (token.isAdmin as boolean) ?? false;
       }
       return session;
     },

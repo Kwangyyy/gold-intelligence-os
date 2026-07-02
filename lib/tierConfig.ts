@@ -83,6 +83,7 @@ export const ROUTE_MIN_TIER: Record<string, Tier> = {
   "/trade-flow":          "premium",
   "/crypto-gold":         "premium",
   "/macro-scenario":      "pro",
+  "/admin":               "pro",
   "/brief":   "pro",
   "/scanner":     "premium",
   "/seasonality": "pro",

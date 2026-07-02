@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { useI18n } from "@/lib/i18n";
 import { canAccess, useTier } from "@/lib/tier";
 import { LanguageToggle } from "./LanguageToggle";
@@ -86,6 +87,7 @@ const NAV = [
   { href: "/trade-flow",          icon: "🌊", key: "navTradeFlow"                     },
   { href: "/crypto-gold",         icon: "₿",  key: "navCryptoGold"                    },
   { href: "/macro-scenario",      icon: "🎭", key: "navMacroScenario"                 },
+  { href: "/admin",               icon: "🔐", key: "navAdmin"                         },
   { href: "/backtest",    icon: "🧪", key: "navBacktest"       },
   { href: "/brief",       icon: "📰", key: "navBrief"          },
   { href: "/scanner",       icon: "📡", key: "navScanner"        },
@@ -114,6 +116,8 @@ export function SideNav({ open, onClose }: Props) {
   const { t } = useI18n();
   const pathname = usePathname();
   const { tier } = useTier();
+  const { data: session } = useSession();
+  const isAdmin = (session?.user as { isAdmin?: boolean } | undefined)?.isAdmin ?? false;
 
   return (
     <aside
@@ -202,7 +206,7 @@ export function SideNav({ open, onClose }: Props) {
 
       {/* ── Navigation ────────────────────────────────────────── */}
       <nav className="relative flex-1 overflow-y-auto px-2.5 py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        {NAV.map((item) => {
+        {NAV.filter(item => item.href !== "/admin" || isAdmin).map((item) => {
           const active = pathname === item.href;
           const locked = !canAccess(tier, item.href);
           return (

@@ -76,6 +76,7 @@ const NAV = [
   { href: "/rate-watch",          icon: "🏦", key: "navRateWatch"                    },
   { href: "/inflation-tracker",   icon: "📊", key: "navInflationTracker"             },
   { href: "/mining-cost",         icon: "⛏️", key: "navMiningCost"                   },
+  { href: "/gold-oil-ratio",      icon: "⚡", key: "navGoldOilRatio"                },
   { href: "/backtest",    icon: "🧪", key: "navBacktest"       },
   { href: "/brief",       icon: "📰", key: "navBrief"          },
   { href: "/scanner",       icon: "📡", key: "navScanner"        },

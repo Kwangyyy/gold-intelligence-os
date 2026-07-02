@@ -73,6 +73,7 @@ export const ROUTE_MIN_TIER: Record<string, Tier> = {
   "/rate-watch":          "premium",
   "/inflation-tracker":   "premium",
   "/mining-cost":         "premium",
+  "/gold-oil-ratio":      "premium",
   "/brief":   "pro",
   "/scanner":     "premium",
   "/seasonality": "pro",

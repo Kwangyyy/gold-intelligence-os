@@ -72,6 +72,7 @@ const NAV = [
   { href: "/funding-rates",       icon: "📡", key: "navFundingRates"               },
   { href: "/etf-flows",           icon: "📈", key: "navEtfFlows"                    },
   { href: "/sentiment-dashboard", icon: "🧭", key: "navSentimentDashboard"           },
+  { href: "/leaderboard",         icon: "🏆", key: "navLeaderboard"                  },
   { href: "/backtest",    icon: "🧪", key: "navBacktest"       },
   { href: "/brief",       icon: "📰", key: "navBrief"          },
   { href: "/scanner",       icon: "📡", key: "navScanner"        },

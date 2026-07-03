@@ -1,135 +1,74 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import Script from "next/script";
 import { PageHeader } from "@/components/PageHeader";
 import type { ElliottWavePayload, ElliottTF } from "@/app/api/elliott-wave/route";
 
 const TFS: { id: ElliottTF; label: string }[] = [
-  { id: "1h", label: "1H" },
-  { id: "4h", label: "4H" },
-  { id: "1d", label: "1D" },
-  { id: "1w", label: "1W" },
+  { id: "15m", label: "15m" },
+  { id: "1h",  label: "1H" },
+  { id: "4h",  label: "4H" },
+  { id: "1d",  label: "1D" },
+  { id: "1w",  label: "1W" },
 ];
 
-// Real candlestick chart with zigzag wave overlay drawn from the actual OHLC series
-function WaveChart({ data }: { data: ElliottWavePayload }) {
-  const { series, zigzag, pivots, goldPrice } = data;
-  const { o, h, l, c } = series;
-  const n = c.length;
-  if (n < 3) return (
-    <div className="text-[10px] py-8 text-center" style={{ color: "rgba(175,185,215,0.3)" }}>
-      ข้อมูลราคาไม่พอสำหรับ Timeframe นี้ — ลองเปลี่ยน TF
-    </div>
-  );
+type IndKey = "ema20" | "ema50" | "ema200" | "bb";
+const INDICATORS: { id: IndKey; label: string; color: string }[] = [
+  { id: "ema20",  label: "EMA 20",  color: "#60a5fa" },
+  { id: "ema50",  label: "EMA 50",  color: "#f5c451" },
+  { id: "ema200", label: "EMA 200", color: "#f87171" },
+  { id: "bb",     label: "Bollinger", color: "#94a3b8" },
+];
 
-  const W = 720, H = 300, padR = 44, padTop = 12, padBot = 16;
-  const plotW = W - padR;
-  const min = Math.min(...l);
-  const max = Math.max(...h);
-  const range = (max - min) || 1;
-
-  // center each candle in its slot
-  const slot = plotW / n;
-  const cw = Math.max(1.2, Math.min(slot * 0.66, 9)); // candle body width
-  const toX = (i: number) => i * slot + slot / 2;
-  const toY = (p: number) => padTop + (1 - (p - min) / range) * (H - padTop - padBot);
-
-  // Zigzag polyline through detected pivots (clamp indices to series bounds)
-  const zz = zigzag.filter(z => z.i >= 0 && z.i < n);
-  const zzPts = zz.map(z => `${toX(z.i).toFixed(1)},${toY(z.price).toFixed(1)}`).join(" ");
-
-  // Labeled wave pivots (0-5-A-B-C) — use seriesIndex
-  const labeled = pivots.filter(p => p.seriesIndex >= 0 && p.seriesIndex < n);
-
-  return (
-    <svg viewBox={`0 0 ${W} ${H}`} width="100%" preserveAspectRatio="xMidYMid meet" style={{ display: "block" }}>
-      {/* Gridlines + price axis */}
-      {[0, 0.25, 0.5, 0.75, 1].map((f, i) => {
-        const price = max - f * range;
-        const y = toY(price);
-        return (
-          <g key={i}>
-            <line x1="0" y1={y} x2={plotW} y2={y} stroke="rgba(255,255,255,0.04)" strokeWidth="1" />
-            <text x={W - 4} y={y + 3} textAnchor="end" fontSize="8" fill="rgba(175,185,215,0.35)">
-              ${Math.round(price).toLocaleString()}
-            </text>
-          </g>
-        );
-      })}
-
-      {/* Candlesticks */}
-      {c.map((close, i) => {
-        const up = close >= o[i];
-        const color = up ? "#22c55e" : "#ef4444";
-        const x = toX(i);
-        const yHi = toY(h[i]), yLo = toY(l[i]);
-        const yO = toY(o[i]), yC = toY(close);
-        const bodyTop = Math.min(yO, yC);
-        const bodyH = Math.max(Math.abs(yC - yO), 0.8);
-        return (
-          <g key={`k${i}`}>
-            <line x1={x} y1={yHi} x2={x} y2={yLo} stroke={color} strokeWidth="0.8" opacity="0.9" />
-            <rect x={x - cw / 2} y={bodyTop} width={cw} height={bodyH} fill={color} opacity="0.9" rx="0.4" />
-          </g>
-        );
-      })}
-
-      {/* Zigzag wave path over the candles */}
-      {zz.length >= 2 && (
-        <polyline points={zzPts} fill="none" stroke="#c084fc" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" opacity="0.95" />
-      )}
-
-      {/* Emphasized path through the labeled (counted) wave pivots */}
-      {labeled.length >= 2 && (
-        <polyline
-          points={labeled.map(p => `${toX(p.seriesIndex).toFixed(1)},${toY(p.price).toFixed(1)}`).join(" ")}
-          fill="none" stroke="#c084fc" strokeWidth="2.6" strokeLinejoin="round" strokeLinecap="round"
-        />
-      )}
-
-      {/* Per-leg % measurement at the midpoint of each labeled wave */}
-      {labeled.map((p, i) => {
-        if (i === 0 || !p.legPct) return null;
-        const prev = labeled[i - 1];
-        const mx = (toX(prev.seriesIndex) + toX(p.seriesIndex)) / 2;
-        const my = (toY(prev.price) + toY(p.price)) / 2;
-        const up = p.legPct >= 0;
-        return (
-          <text key={`m${i}`} x={mx} y={my} textAnchor="middle" fontSize="8" fontWeight="bold"
-            fill={up ? "rgba(52,211,153,0.85)" : "rgba(248,113,113,0.85)"}
-            style={{ paintOrder: "stroke", stroke: "#0a0f1e", strokeWidth: 2.5 }}>
-            {up ? "+" : ""}{p.legPct}%
-          </text>
-        );
-      })}
-
-      {/* Labeled wave points (0-5, A-B-C) with badges */}
-      {labeled.map((p, i) => {
-        const x = toX(p.seriesIndex), y = toY(p.price);
-        const above = p.type === "high";
-        return (
-          <g key={`l${i}`}>
-            <circle cx={x} cy={y} r="5" fill={above ? "#f5c451" : "#34d399"} stroke="#0a0f1e" strokeWidth="1.5" />
-            <text x={x} y={above ? y - 9 : y + 15} textAnchor="middle" fontSize="12" fontWeight="bold"
-              fill={above ? "#f5c451" : "#34d399"}
-              style={{ paintOrder: "stroke", stroke: "#0a0f1e", strokeWidth: 3 }}>{p.label}</text>
-          </g>
-        );
-      })}
-
-      {/* Current price marker */}
-      <line x1="0" y1={toY(goldPrice)} x2={plotW} y2={toY(goldPrice)}
-        stroke="rgba(96,165,250,0.4)" strokeDasharray="4,3" strokeWidth="1" />
-      <circle cx={toX(n - 1)} cy={toY(goldPrice)} r="3" fill="#60a5fa" />
-    </svg>
-  );
+// ── indicator math ────────────────────────────────────────────────────────────
+function ema(vals: number[], period: number): (number | null)[] {
+  const k = 2 / (period + 1);
+  const out: (number | null)[] = [];
+  let prev: number | undefined;
+  for (let i = 0; i < vals.length; i++) {
+    if (i < period - 1) { out.push(null); continue; }
+    if (prev === undefined) {
+      prev = vals.slice(i - period + 1, i + 1).reduce((a, b) => a + b, 0) / period;
+    } else {
+      prev = vals[i] * k + prev * (1 - k);
+    }
+    out.push(prev);
+  }
+  return out;
 }
+function bollinger(vals: number[], period = 20, mult = 2) {
+  const up: (number | null)[] = [], mid: (number | null)[] = [], lo: (number | null)[] = [];
+  for (let i = 0; i < vals.length; i++) {
+    if (i < period - 1) { up.push(null); mid.push(null); lo.push(null); continue; }
+    const w = vals.slice(i - period + 1, i + 1);
+    const m = w.reduce((a, b) => a + b, 0) / period;
+    const sd = Math.sqrt(w.reduce((a, b) => a + (b - m) ** 2, 0) / period);
+    mid.push(m); up.push(m + mult * sd); lo.push(m - mult * sd);
+  }
+  return { up, mid, lo };
+}
+const lineData = (t: number[], vals: (number | null)[]) =>
+  t.map((time, i) => ({ time, value: vals[i] })).filter(d => d.value != null) as { time: number; value: number }[];
+
+const STRUCT_COLOR: Record<string, string> = {
+  impulse: "#34d399", terminal: "#fb923c", zigzag: "#f5c451", flat: "#f5c451",
+  triangle: "#60a5fa", complex: "#c084fc", unclear: "#94a3b8",
+};
 
 export default function ElliottWavePage() {
-  const [data, setData]       = useState<ElliottWavePayload | null>(null);
+  const [data, setData]   = useState<ElliottWavePayload | null>(null);
   const [loading, setLoading] = useState(true);
-  const [err, setErr]         = useState("");
-  const [tf, setTf]           = useState<ElliottTF>("1d");
+  const [err, setErr]     = useState("");
+  const [tf, setTf]       = useState<ElliottTF>("1d");
+  const [libReady, setLibReady] = useState(false);
+  const [inds, setInds]   = useState<Record<IndKey, boolean>>({ ema20: false, ema50: true, ema200: false, bb: false });
+
+  const boxRef = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<any>(null);
+  const candleRef = useRef<any>(null);
+  const zzRef = useRef<any>(null);
+  const indRef = useRef<Partial<Record<string, any>>>({});
 
   const load = useCallback(async (timeframe: ElliottTF) => {
     setLoading(true); setErr("");
@@ -144,159 +83,256 @@ export default function ElliottWavePage() {
 
   useEffect(() => { load(tf); }, [load, tf]);
 
+  // Create the chart once the library + container are ready
+  useEffect(() => {
+    if (!libReady || !boxRef.current || chartRef.current) return;
+    const LWC = (window as any).LightweightCharts;
+    if (!LWC) return;
+    const chart = LWC.createChart(boxRef.current, {
+      height: 460,
+      layout: { background: { type: "solid", color: "transparent" }, textColor: "rgba(175,185,215,0.6)", fontSize: 11 },
+      grid: { vertLines: { color: "rgba(255,255,255,0.04)" }, horzLines: { color: "rgba(255,255,255,0.04)" } },
+      rightPriceScale: { borderColor: "rgba(255,255,255,0.08)" },
+      timeScale: { borderColor: "rgba(255,255,255,0.08)", timeVisible: true, secondsVisible: false },
+      crosshair: { mode: 0 },
+      handleScroll: true, handleScale: true,
+    });
+    const candle = chart.addCandlestickSeries({
+      upColor: "#22c55e", downColor: "#ef4444", borderVisible: false,
+      wickUpColor: "#22c55e", wickDownColor: "#ef4444",
+    });
+    const zz = chart.addLineSeries({ color: "#c084fc", lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+    chartRef.current = chart; candleRef.current = candle; zzRef.current = zz;
+
+    const ro = new ResizeObserver(() => {
+      if (boxRef.current) chart.applyOptions({ width: boxRef.current.clientWidth });
+    });
+    ro.observe(boxRef.current);
+    chart.applyOptions({ width: boxRef.current.clientWidth });
+
+    return () => { ro.disconnect(); chart.remove(); chartRef.current = null; };
+  }, [libReady]);
+
+  // Push data into the chart when it changes
+  useEffect(() => {
+    if (!data || !chartRef.current || !candleRef.current) return;
+    const { series, zigzag, pivots } = data;
+    const candleData = series.t.map((time, i) => ({ time, open: series.o[i], high: series.h[i], low: series.l[i], close: series.c[i] }));
+    candleRef.current.setData(candleData);
+
+    zzRef.current.setData(zigzag.filter(z => z.i >= 0 && z.i < series.t.length).map(z => ({ time: series.t[z.i], value: z.price })));
+
+    // NeoWave labels as candle markers
+    candleRef.current.setMarkers(
+      pivots.filter(p => p.seriesIndex >= 0 && p.seriesIndex < series.t.length).map(p => ({
+        time: series.t[p.seriesIndex],
+        position: p.type === "high" ? "aboveBar" : "belowBar",
+        color: p.type === "high" ? "#f5c451" : "#34d399",
+        shape: p.type === "high" ? "arrowDown" : "arrowUp",
+        text: p.label,
+      }))
+    );
+    chartRef.current.timeScale().fitContent();
+  }, [data]);
+
+  // Sync indicator overlays
+  useEffect(() => {
+    if (!data || !chartRef.current) return;
+    const chart = chartRef.current;
+    const { series } = data;
+    const c = series.c;
+    const ensure = (key: string, color: string, width = 1) => {
+      if (!indRef.current[key]) {
+        indRef.current[key] = chart.addLineSeries({ color, lineWidth: width, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+      }
+      return indRef.current[key];
+    };
+    const drop = (key: string) => { if (indRef.current[key]) { chart.removeSeries(indRef.current[key]); delete indRef.current[key]; } };
+
+    (["ema20", "ema50", "ema200"] as const).forEach(k => {
+      const period = k === "ema20" ? 20 : k === "ema50" ? 50 : 200;
+      const color = INDICATORS.find(i => i.id === k)!.color;
+      if (inds[k]) ensure(k, color).setData(lineData(series.t, ema(c, period)));
+      else drop(k);
+    });
+    if (inds.bb) {
+      const bb = bollinger(c, 20, 2);
+      ensure("bbUp", "rgba(148,163,184,0.5)").setData(lineData(series.t, bb.up));
+      ensure("bbLo", "rgba(148,163,184,0.5)").setData(lineData(series.t, bb.lo));
+      ensure("bbMid", "rgba(148,163,184,0.3)").setData(lineData(series.t, bb.mid));
+    } else { drop("bbUp"); drop("bbLo"); drop("bbMid"); }
+  }, [inds, data]);
+
+  const structColor = data ? (STRUCT_COLOR[data.structure] ?? "#94a3b8") : "#94a3b8";
+
   return (
-    <div className="mx-auto max-w-3xl px-4 py-6 sm:px-6 lg:px-8">
-      <PageHeader
-        title="〰️ Elliott Wave Analyzer"
-        subtitle="ตีเส้นซิกแซกวัดคลื่นจากกราฟจริง — Pivot detection, Fibonacci targets, wave implication"
+    <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6 lg:px-8">
+      <Script
+        src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"
+        strategy="afterInteractive"
+        onReady={() => setLibReady(true)}
+        onLoad={() => setLibReady(true)}
       />
 
-      {/* Timeframe selector */}
-      <div className="mb-4 flex items-center gap-2">
-        <span className="text-[9px] uppercase tracking-widest" style={{ color: "rgba(175,185,215,0.3)" }}>
-          Timeframe
-        </span>
-        <div className="flex gap-1 rounded-xl p-1" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
-          {TFS.map(item => {
-            const active = tf === item.id;
-            return (
-              <button
-                key={item.id}
-                onClick={() => setTf(item.id)}
-                disabled={loading && active}
-                className="rounded-lg px-3 py-1.5 text-[11px] font-bold transition-all"
-                style={active
-                  ? { background: "linear-gradient(90deg, rgba(168,85,247,0.3), rgba(245,196,81,0.12))", color: "#f5c451", boxShadow: "inset 0 0 0 1px rgba(245,196,81,0.3)" }
-                  : { color: "rgba(175,185,215,0.5)" }}
-              >
-                {item.label}
-              </button>
-            );
-          })}
+      <PageHeader
+        title="〰️ NeoWave Analyzer"
+        subtitle="นับคลื่นสาย NeoWave (Glenn Neely) — ตรวจสอบด้วยกฎ ไม่ใช่ Elliott Principle · ซูม/แพน + อินดิเคเตอร์ได้"
+      />
+
+      {/* Controls: timeframe + indicators */}
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-2">
+          <span className="text-[9px] uppercase tracking-widest" style={{ color: "rgba(175,185,215,0.3)" }}>TF</span>
+          <div className="flex gap-1 rounded-xl p-1" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
+            {TFS.map(item => {
+              const active = tf === item.id;
+              return (
+                <button key={item.id} onClick={() => setTf(item.id)}
+                  className="rounded-lg px-3 py-1.5 text-[11px] font-bold transition-all"
+                  style={active
+                    ? { background: "linear-gradient(90deg, rgba(168,85,247,0.3), rgba(245,196,81,0.12))", color: "#f5c451", boxShadow: "inset 0 0 0 1px rgba(245,196,81,0.3)" }
+                    : { color: "rgba(175,185,215,0.5)" }}>
+                  {item.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <span className="text-[9px] uppercase tracking-widest" style={{ color: "rgba(175,185,215,0.3)" }}>Indicators</span>
+          <div className="flex flex-wrap gap-1">
+            {INDICATORS.map(ind => {
+              const on = inds[ind.id];
+              return (
+                <button key={ind.id} onClick={() => setInds(s => ({ ...s, [ind.id]: !s[ind.id] }))}
+                  className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-bold transition-all"
+                  style={on
+                    ? { background: `${ind.color}22`, border: `1px solid ${ind.color}66`, color: ind.color }
+                    : { background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", color: "rgba(175,185,215,0.45)" }}>
+                  <span className="h-2 w-2 rounded-full" style={{ background: on ? ind.color : "rgba(148,163,184,0.3)" }} />
+                  {ind.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
 
-      {loading && (
-        <div className="flex h-48 items-center justify-center">
-          <div className="animate-pulse text-sm" style={{ color: "rgba(175,185,215,0.3)" }}>
-            〰️ กำลังวิเคราะห์ Wave Count…
+      {err && <div className="panel px-5 py-4 text-sm text-red-400 mb-4">{err}</div>}
+
+      {/* Chart */}
+      <div className="panel p-3 mb-5 relative">
+        <div ref={boxRef} style={{ width: "100%", height: 460 }} />
+        {(!libReady || loading) && (
+          <div className="absolute inset-0 flex items-center justify-center rounded-xl" style={{ background: "rgba(6,9,26,0.4)" }}>
+            <div className="animate-pulse text-sm" style={{ color: "rgba(175,185,215,0.4)" }}>〰️ กำลังโหลดกราฟ NeoWave…</div>
           </div>
+        )}
+        <div className="mt-2 flex flex-wrap items-center gap-3 text-[9px]" style={{ color: "rgba(175,185,215,0.4)" }}>
+          <span>🟢 แท่งขึ้น · 🔴 แท่งลง</span>
+          <span style={{ color: "#c084fc" }}>— เส้นม่วง = NeoWave ZigZag</span>
+          <span>ลากเพื่อแพน · สกอร์ลเพื่อซูม · ดับเบิลคลิกรีเซ็ต</span>
         </div>
-      )}
-      {err && <div className="panel px-5 py-4 text-sm text-red-400">{err}</div>}
+      </div>
 
-      {data && !loading && (
+      {data && (
         <div className="space-y-5">
-
-          {/* Hero */}
-          <div className="panel px-5 py-5" style={{ borderLeft: `4px solid ${data.phaseColor}` }}>
-            <div className="flex items-start justify-between gap-4">
+          {/* Structure hero */}
+          <div className="panel px-5 py-5" style={{ borderLeft: `4px solid ${structColor}` }}>
+            <div className="flex items-start justify-between gap-4 flex-wrap">
               <div>
-                <div className="text-[8px] uppercase tracking-widest mb-1" style={{ color: "rgba(175,185,215,0.3)" }}>
-                  Wave Count (Heuristic)
+                <div className="text-[8px] uppercase tracking-widest mb-1 flex items-center gap-2" style={{ color: "rgba(175,185,215,0.3)" }}>
+                  <span className="px-1.5 py-0.5 rounded" style={{ background: "rgba(192,132,252,0.15)", color: "#c084fc" }}>NeoWave</span>
+                  โครงสร้างคลื่น
                 </div>
-                <div className="text-sm font-black mb-1" style={{ color: data.phaseColor }}>
-                  {data.waveCountTh}
+                <div className="text-base font-black mb-1" style={{ color: structColor }}>{data.structureLabelTh}</div>
+                <div className="text-[10px]" style={{ color: "rgba(175,185,215,0.45)" }}>{data.structureLabel}</div>
+                <div className="mt-2 text-xs" style={{ color: "rgba(255,255,255,0.65)" }}>
+                  🎯 ตำแหน่งปัจจุบัน: <span style={{ color: "#f5c451" }}>{data.currentWaveTh}</span>
                 </div>
-                <div className="text-[9px]" style={{ color: "rgba(175,185,215,0.5)" }}>{data.waveCount}</div>
               </div>
               <div className="text-right">
-                <div className="text-[8px] mb-1" style={{ color: "rgba(175,185,215,0.3)" }}>Gold</div>
-                <div className="text-xl font-black" style={{ color: "#f5c451" }}>
-                  ${data.goldPrice.toLocaleString()}
-                </div>
-                <div className="mt-1 text-[9px] px-2 py-1 rounded-lg font-bold"
+                <div className="text-[8px] mb-1" style={{ color: "rgba(175,185,215,0.3)" }}>Gold ({tf.toUpperCase()})</div>
+                <div className="text-xl font-black" style={{ color: "#f5c451" }}>${data.goldPrice.toLocaleString()}</div>
+                <div className="mt-1 text-[9px] px-2 py-1 rounded-lg font-bold inline-block"
                   style={{ background: data.confidenceColor + "22", color: data.confidenceColor }}>
                   Confidence: {data.confidence}
                 </div>
+                {data.extension && (
+                  <div className="mt-1 text-[9px]" style={{ color: "rgba(175,185,215,0.5)" }}>คลื่นยืดตัว: <b style={{ color: "#34d399" }}>{data.extension}</b></div>
+                )}
               </div>
             </div>
           </div>
 
-          {/* Phase */}
-          <div className="panel px-5 py-3 flex items-center gap-3">
-            <div className="w-2 h-2 rounded-full" style={{ background: data.phaseColor }} />
-            <div>
-              <div className="text-xs font-bold" style={{ color: data.phaseColor }}>{data.wavePhaseTh}</div>
-              <div className="text-[9px]" style={{ color: "rgba(175,185,215,0.4)" }}>{data.confidenceTh}</div>
-            </div>
-          </div>
-
-          {/* Wave chart — real price series + zigzag overlay */}
-          <div className="panel px-5 py-4">
-            <div className="flex items-center justify-between mb-3">
-              <div className="text-[9px] uppercase tracking-widest" style={{ color: "rgba(175,185,215,0.3)" }}>
-                Wave Chart ({tf.toUpperCase()}) — แท่งเทียนราคาจริง | เส้นม่วง = Zigzag วัดคลื่น
+          {/* Neely rule checks */}
+          {data.neelyRules.length > 0 && (
+            <div className="panel px-5 py-4">
+              <div className="text-[9px] uppercase tracking-widest mb-3" style={{ color: "rgba(175,185,215,0.3)" }}>
+                กฎ NeoWave (Rule-based verification)
               </div>
-              <div className="flex items-center gap-3 text-[8px]" style={{ color: "rgba(175,185,215,0.4)" }}>
-                <span>🟡 High</span><span>🟢 Low</span>
+              <div className="space-y-2">
+                {data.neelyRules.map((r, i) => {
+                  const c = r.status === "pass" ? "#34d399" : r.status === "fail" ? "#f87171" : "#60a5fa";
+                  const icon = r.status === "pass" ? "✓" : r.status === "fail" ? "✗" : "•";
+                  return (
+                    <div key={i} className="flex items-start gap-2.5">
+                      <span className="mt-0.5 shrink-0 w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-black"
+                        style={{ background: `${c}22`, color: c }}>{icon}</span>
+                      <div className="min-w-0">
+                        <div className="text-[11px] font-bold" style={{ color: "rgba(255,255,255,0.7)" }}>{r.nameTh}</div>
+                        <div className="text-[10px]" style={{ color: "rgba(175,185,215,0.45)" }}>{r.detail}</div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
-            <WaveChart data={data} />
-          </div>
+          )}
 
           {/* Implication */}
           <div className="panel px-5 py-4">
-            <div className="text-[9px] uppercase tracking-widest mb-2" style={{ color: "rgba(175,185,215,0.3)" }}>
-              นัยสำคัญ
-            </div>
-            <p className="text-xs leading-relaxed" style={{ color: "rgba(175,185,215,0.8)" }}>
-              {data.implicationTh}
-            </p>
-            <p className="text-[9px] mt-2 leading-relaxed" style={{ color: "rgba(175,185,215,0.4)" }}>
-              {data.implication}
-            </p>
+            <div className="text-[9px] uppercase tracking-widest mb-2" style={{ color: "rgba(175,185,215,0.3)" }}>นัยสำคัญ</div>
+            <p className="text-xs leading-relaxed" style={{ color: "rgba(175,185,215,0.8)" }}>{data.implicationTh}</p>
+            <p className="text-[9px] mt-2 leading-relaxed" style={{ color: "rgba(175,185,215,0.4)" }}>{data.implication}</p>
           </div>
 
           {/* Projections */}
           {data.projections.length > 0 && (
             <div className="panel px-5 py-4">
               <div className="text-[9px] uppercase tracking-widest mb-3" style={{ color: "rgba(175,185,215,0.3)" }}>
-                เป้าหมายราคา (Fibonacci Projection)
+                เป้าหมายราคา (NeoWave Projection)
               </div>
               <div className="space-y-2">
                 {data.projections.map((p, i) => (
                   <div key={i} className="flex items-center justify-between">
                     <div>
-                      <div className="text-[10px] font-medium" style={{ color: p.type === "target" ? "#34d399" : "#60a5fa" }}>
-                        {p.labelTh}
-                      </div>
+                      <div className="text-[10px] font-medium" style={{ color: p.type === "target" ? "#34d399" : "#60a5fa" }}>{p.labelTh}</div>
                       <div className="text-[8px]" style={{ color: "rgba(175,185,215,0.3)" }}>{p.label}</div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-[8px]" style={{ color: "rgba(175,185,215,0.3)" }}>
-                        ×{p.fibRatio}
-                      </span>
-                      <span className="font-mono font-black text-sm"
-                        style={{ color: p.type === "target" ? "#34d399" : "#60a5fa" }}>
-                        ${p.price.toLocaleString()}
-                      </span>
-                    </div>
+                    <span className="font-mono font-black text-sm" style={{ color: p.type === "target" ? "#34d399" : "#60a5fa" }}>
+                      ${p.price.toLocaleString()}
+                    </span>
                   </div>
                 ))}
               </div>
             </div>
           )}
 
-          {/* Fibonacci retracements */}
+          {/* Fib levels */}
           {data.fibLevels.length > 0 && (
             <div className="panel px-5 py-4">
-              <div className="text-[9px] uppercase tracking-widest mb-3" style={{ color: "rgba(175,185,215,0.3)" }}>
-                Fibonacci Retracements
-              </div>
+              <div className="text-[9px] uppercase tracking-widest mb-3" style={{ color: "rgba(175,185,215,0.3)" }}>Fibonacci Retracements</div>
               <div className="space-y-1.5">
                 {data.fibLevels.map((f, i) => {
-                  const isNearSpot = Math.abs(f.price - data.goldPrice) / data.goldPrice < 0.01;
+                  const near = Math.abs(f.price - data.goldPrice) / data.goldPrice < 0.01;
                   return (
                     <div key={i} className="flex items-center gap-2">
                       <span className="w-10 text-[9px] font-bold" style={{ color: "#c084fc" }}>{f.ratio}</span>
-                      <div className="flex-1 h-0.5 rounded-full" style={{
-                        background: isNearSpot ? "#f5c451" : "rgba(192,132,252,0.15)"
-                      }} />
-                      <span className="font-mono text-[9px] font-bold"
-                        style={{ color: isNearSpot ? "#f5c451" : "rgba(175,185,215,0.6)" }}>
-                        ${f.price.toLocaleString()}
-                        {isNearSpot && " ◀ Now"}
+                      <div className="flex-1 h-0.5 rounded-full" style={{ background: near ? "#f5c451" : "rgba(192,132,252,0.15)" }} />
+                      <span className="font-mono text-[9px] font-bold" style={{ color: near ? "#f5c451" : "rgba(175,185,215,0.6)" }}>
+                        ${f.price.toLocaleString()}{near && " ◀ Now"}
                       </span>
                     </div>
                   );
@@ -307,26 +343,20 @@ export default function ElliottWavePage() {
 
           {/* Disclaimer */}
           <div className="panel px-5 py-4" style={{ background: "rgba(168,85,247,0.03)", border: "1px solid rgba(168,85,247,0.10)" }}>
-            <div className="text-[9px] uppercase tracking-widest mb-2" style={{ color: "rgba(168,85,247,0.4)" }}>
-              ⚠️ ข้อจำกัด Elliott Wave
-            </div>
+            <div className="text-[9px] uppercase tracking-widest mb-2" style={{ color: "rgba(168,85,247,0.4)" }}>⚠️ เกี่ยวกับ NeoWave</div>
             <ul className="space-y-1.5 text-[10px]" style={{ color: "rgba(175,185,215,0.55)" }}>
-              <li>→ Elliott Wave เป็นการตีความ — นักวิเคราะห์ที่ต่างกันอาจนับ wave ต่างกัน</li>
-              <li>→ ระบบนี้ใช้ heuristic อัตโนมัติ ไม่ใช่การวิเคราะห์ระดับผู้เชี่ยวชาญ</li>
-              <li>→ ใช้ร่วมกับ technical indicators และ price action เสมอ</li>
+              <li>→ NeoWave (Glenn Neely) เน้น &ldquo;กฎ&rdquo; — Retracement, non-overlap, extension, Similarity &amp; Balance</li>
+              <li>→ แม่นกว่า Elliott Principle เดิมเพราะตรวจสอบด้วยเงื่อนไข ไม่ใช่เดา pattern</li>
+              <li>→ ระบบนี้เป็น heuristic อัตโนมัติ — count ทางเลือกอื่นอาจ valid ได้</li>
               <li>→ {data.disclaimer}</li>
             </ul>
-          </div>
-
-          <div className="flex justify-between items-center">
-            <p className="text-[10px]" style={{ color: "rgba(175,185,215,0.25)" }}>
-              วิเคราะห์ {new Date(data.generatedAt).toLocaleString("th-TH", { hour: "2-digit", minute: "2-digit" })}
-            </p>
-            <button onClick={() => load(tf)}
-              className="rounded-xl px-4 py-2 text-xs font-bold"
-              style={{ background: "rgba(245,196,81,0.1)", border: "1px solid rgba(245,196,81,0.25)", color: "#f5c451" }}>
-              🔄 วิเคราะห์ใหม่
-            </button>
+            <div className="mt-2 flex justify-end">
+              <button onClick={() => load(tf)}
+                className="rounded-xl px-4 py-2 text-xs font-bold"
+                style={{ background: "rgba(245,196,81,0.1)", border: "1px solid rgba(245,196,81,0.25)", color: "#f5c451" }}>
+                🔄 วิเคราะห์ใหม่
+              </button>
+            </div>
           </div>
         </div>
       )}

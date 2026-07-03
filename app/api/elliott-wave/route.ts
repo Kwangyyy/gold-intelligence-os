@@ -3,7 +3,15 @@ import { NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
-export type ElliottTF = "1h" | "4h" | "1d" | "1w";
+export type ElliottTF = "15m" | "1h" | "4h" | "1d" | "1w";
+
+// A NeoWave (Glenn Neely) rule check — rule-based verification, the core of NeoWave rigor.
+export interface NeelyRule {
+  name: string;
+  nameTh: string;
+  status: "pass" | "fail" | "info";
+  detail: string;
+}
 
 export interface WavePivot {
   index: number;        // index into the full source series
@@ -34,6 +42,14 @@ export interface ElliottWavePayload {
   goldPrice: number;
   series: { t: number[]; o: number[]; h: number[]; l: number[]; c: number[] };  // OHLC candles
   zigzag: ZigzagPoint[];                   // full zigzag turning points (series indices)
+  method: "NeoWave";
+  structure: "impulse" | "terminal" | "zigzag" | "flat" | "triangle" | "complex" | "unclear";
+  structureLabel: string;
+  structureLabelTh: string;
+  currentWave: string;
+  currentWaveTh: string;
+  neelyRules: NeelyRule[];
+  extension: string;         // which wave extended (impulse) or ""
   waveCount: string;
   waveCountTh: string;
   wavePhase: "impulse" | "corrective" | "uncertain";
@@ -54,10 +70,11 @@ export interface ElliottWavePayload {
 // Timeframe → Yahoo query + processing config.
 // `deviation` = min % swing for the ZigZag to register a new wave pivot (bigger TF = bigger swings).
 const TF_CONFIG: Record<ElliottTF, { range: string; interval: string; aggregate: number; deviation: number; maxBars: number }> = {
-  "1h": { range: "1mo", interval: "60m", aggregate: 1, deviation: 1.2, maxBars: 120 },
-  "4h": { range: "3mo", interval: "60m", aggregate: 4, deviation: 2.2, maxBars: 130 },
-  "1d": { range: "1y",  interval: "1d",  aggregate: 1, deviation: 3.5, maxBars: 150 },
-  "1w": { range: "5y",  interval: "1wk", aggregate: 1, deviation: 6.0, maxBars: 160 },
+  "15m":{ range: "5d",  interval: "15m", aggregate: 1, deviation: 0.6, maxBars: 200 },
+  "1h": { range: "1mo", interval: "60m", aggregate: 1, deviation: 1.2, maxBars: 200 },
+  "4h": { range: "3mo", interval: "60m", aggregate: 4, deviation: 2.2, maxBars: 200 },
+  "1d": { range: "1y",  interval: "1d",  aggregate: 1, deviation: 3.5, maxBars: 260 },
+  "1w": { range: "5y",  interval: "1wk", aggregate: 1, deviation: 6.0, maxBars: 260 },
 };
 
 async function fetchGold(tf: ElliottTF) {
@@ -139,91 +156,230 @@ function computeZigzag(hi: number[], lo: number[], ts: number[], pct: number) {
   return piv;
 }
 
-function countWaves(pivots: ReturnType<typeof computeZigzag>, spot: number) {
-  const recent = pivots.slice(-8);
+// ── NeoWave (Glenn Neely) analysis ────────────────────────────────────────────
+// Unlike the classic Elliott Wave Principle (which starts by assuming a 5-3 shape),
+// NeoWave builds up from monowaves and *verifies* structure with strict rules:
+// the Rule of Retracement, non-overlap, "wave 3 never shortest", extension (only one
+// wave extends), and the Rule of Similarity & Balance (adjacent waves alike in price/time).
+type Zig = ReturnType<typeof computeZigzag>[number];
+interface Monowave { from: Zig; to: Zig; move: number; abs: number; absPct: number; bars: number; up: boolean; }
 
-  if (recent.length < 4) {
-    return {
-      waveCount: "Insufficient pivots", waveCountTh: "ข้อมูลไม่เพียงพอสำหรับ Wave count",
-      wavePhase: "uncertain" as const, wavePhaseTh: "ไม่แน่ชัด", phaseColor: "#f5c451",
-      wavePivots: [] as WavePivot[], projections: [] as WaveProjection[], fibLevels: [] as { ratio: string; price: number; label: string }[],
-      implication: "Not enough pivot data",
-      implicationTh: "ต้องการข้อมูลราคาเพิ่มเติม (ลองเปลี่ยน Timeframe)",
-      confidence: "low" as const, confidenceTh: "ต่ำ", confidenceColor: "#f87171",
+function buildMonowaves(pivots: Zig[]): Monowave[] {
+  const m: Monowave[] = [];
+  for (let i = 0; i < pivots.length - 1; i++) {
+    const from = pivots[i], to = pivots[i + 1];
+    const move = to.price - from.price;
+    m.push({ from, to, move, abs: Math.abs(move), absPct: Math.abs(move / from.price * 100), bars: Math.max(1, to.idx - from.idx), up: move > 0 });
+  }
+  return m;
+}
+
+function analyzeNeoWave(pivots: Zig[], spot: number) {
+  const confMap = { high: "สูง — โครงสร้างผ่านกฎ NeoWave ชัดเจน", medium: "ปานกลาง — เข้ากฎบางส่วน", low: "ต่ำ — ยังไม่ครบเงื่อนไข" };
+  const confColorMap = { high: "#34d399", medium: "#f5c451", low: "#f87171" };
+  const pct = (x: number) => `${Math.round(x)}%`;
+
+  const empty = {
+    method: "NeoWave" as const, structure: "unclear" as const,
+    structureLabel: "Insufficient data", structureLabelTh: "ข้อมูลไม่พอวิเคราะห์ NeoWave",
+    currentWave: "-", currentWaveTh: "ต้องการข้อมูลเพิ่ม (ลองเปลี่ยน Timeframe)",
+    neelyRules: [] as NeelyRule[], extension: "",
+    waveCount: "Insufficient pivots", waveCountTh: "ข้อมูลไม่เพียงพอ",
+    wavePhase: "uncertain" as const, wavePhaseTh: "ไม่แน่ชัด", phaseColor: "#f5c451",
+    wavePivots: [] as WavePivot[], projections: [] as WaveProjection[],
+    fibLevels: [] as { ratio: string; price: number; label: string }[],
+    implication: "Not enough monowaves for NeoWave analysis.",
+    implicationTh: "monowave ไม่พอสำหรับวิเคราะห์ NeoWave",
+    confidence: "low" as const, confidenceTh: confMap.low, confidenceColor: confColorMap.low,
+  };
+
+  const mono = buildMonowaves(pivots);
+  if (mono.length < 3) return empty;
+
+  const rules: NeelyRule[] = [];
+  let structure: ElliottWavePayload["structure"] = "unclear";
+  let structureLabel = "", structureLabelTh = "";
+  let phaseColor = "#f5c451", extension = "";
+  let confidence: "high" | "medium" | "low" = "low";
+  let labels: string[] = [];        // labels for the trailing pivots (oldest→newest)
+  let projections: WaveProjection[] = [];
+  let implication = "", implicationTh = "", currentWave = "", currentWaveTh = "";
+
+  // Candidate impulse: last 5 monowaves = 1,2,3,4,5
+  let impulseScore = -1, imp: (Monowave[]) | null = null, terminal = false, impExt = "";
+  if (mono.length >= 5) {
+    const w = mono.slice(-5);
+    const [w1, w2, w3, w4, w5] = w;
+    const dirOK = w1.up === w3.up && w3.up === w5.up && w2.up !== w1.up && w4.up !== w3.up;
+    const r2 = w2.abs / (w1.abs || 1);            // Rule of Retracement (wave 2 of wave 1)
+    const r4 = w4.abs / (w3.abs || 1);
+    const up = w1.up;
+    const overlap = up ? (w4.to.price <= w1.to.price) : (w4.to.price >= w1.to.price);
+    const w3Shortest = w3.abs < w1.abs && w3.abs < w5.abs;
+    const r2ok = r2 > 0 && r2 < 1;
+    if (dirOK && r2ok && !w3Shortest) {
+      terminal = overlap;
+      // score: base + retrace-in-band + clear extension + alternation
+      const extended = Math.max(w1.abs, w3.abs, w5.abs);
+      const extLabel = extended === w3.abs ? "3" : extended === w1.abs ? "1" : "5";
+      const oneExtends = extended >= 1.5 * [w1.abs, w3.abs, w5.abs].filter(x => x !== extended).reduce((a, b) => Math.max(a, b), 0);
+      impulseScore = 2 + (r2 >= 0.382 && r2 <= 0.618 ? 1 : 0) + (oneExtends ? 1 : 0) + (Math.abs(r2 - r4) > 0.15 ? 0.5 : 0) - (overlap ? 1 : 0);
+      imp = w; impExt = extLabel;
+    }
+  }
+
+  // Candidate correction: last 3 monowaves = a,b,c
+  let corrScore = -1, corr: (Monowave[]) | null = null, corrType: ElliottWavePayload["structure"] = "zigzag";
+  if (mono.length >= 3) {
+    const w = mono.slice(-3);
+    const [a, b, c] = w;
+    const dirOK = a.up !== b.up && b.up !== c.up;
+    if (dirOK) {
+      const rb = b.abs / (a.abs || 1);            // b retraces a
+      const rc = c.abs / (a.abs || 1);            // c vs a
+      if (rb >= 0.8 && rb <= 1.20 && rc >= 0.9 && rc <= 1.4) { corrType = "flat"; corrScore = 2.2; }
+      else if (rb <= 0.7 && rc >= 0.9) { corrType = "zigzag"; corrScore = 2; }
+      else { corrType = "complex"; corrScore = 1; }
+      corr = w;
+    }
+    // Triangle: last 5 legs each smaller than the one two-before (converging)
+    if (mono.length >= 5) {
+      const t = mono.slice(-5);
+      if (t[0].abs > t[2].abs && t[2].abs > t[4].abs && t[1].abs > t[3].abs) { corrType = "triangle"; corrScore = Math.max(corrScore, 2.4); corr = t; }
+    }
+  }
+
+  const useImpulse = imp && impulseScore >= corrScore;
+
+  if (useImpulse && imp) {
+    const [w1, w2, w3, w4, w5] = imp;
+    const up = w1.up;
+    extension = impExt;
+    structure = terminal ? "terminal" : "impulse";
+    phaseColor = up ? "#34d399" : "#f87171";
+    structureLabel = terminal ? `Terminal / Diagonal (5-wave, wave ${extension} extended)` : `Impulse (5-wave, wave ${extension} extended)`;
+    structureLabelTh = terminal
+      ? `Terminal/Diagonal — impulse ที่คลื่น 4 ทับคลื่น 1 (${up ? "ขาขึ้น" : "ขาลง"})`
+      : `Impulse 5 คลื่น — คลื่น ${extension} ยืดตัว (${up ? "ขาขึ้น" : "ขาลง"})`;
+    labels = ["0", "1", "2", "3", "4", "5"];
+
+    const r2 = w2.abs / (w1.abs || 1);
+    const r4 = w4.abs / (w3.abs || 1);
+    rules.push({
+      name: "Rule of Retracement", nameTh: "กฎการรีเทรซ (คลื่น 2 ต่อคลื่น 1)",
+      status: r2 > 0 && r2 < 1 ? "pass" : "fail",
+      detail: `Wave 2 retraced ${pct(r2 * 100)} of Wave 1 — ${r2 < 0.382 ? "shallow → strong trend, expect extension" : r2 <= 0.618 ? "healthy impulse (38-62%)" : "deep → weaker impulse / possible correction"}`,
+    });
+    rules.push({
+      name: "Wave 3 never the shortest", nameTh: "คลื่น 3 ต้องไม่สั้นที่สุด",
+      status: (w3.abs >= w1.abs || w3.abs >= w5.abs) ? "pass" : "fail",
+      detail: `W1 ${w1.absPct.toFixed(1)}% · W3 ${w3.absPct.toFixed(1)}% · W5 ${w5.absPct.toFixed(1)}%`,
+    });
+    rules.push({
+      name: "Wave 4 non-overlap with Wave 1", nameTh: "คลื่น 4 ต้องไม่ทับเขตคลื่น 1",
+      status: terminal ? "fail" : "pass",
+      detail: terminal ? "Wave 4 entered Wave 1 territory → Terminal/Diagonal (not a normal impulse)" : "Wave 4 stayed clear of Wave 1 → valid impulse",
+    });
+    rules.push({
+      name: "Rule of Alternation", nameTh: "กฎการสลับ (คลื่น 2 vs 4)",
+      status: "info",
+      detail: `Wave 2 depth ${pct(r2 * 100)} vs Wave 4 depth ${pct(r4 * 100)} — ${Math.abs(r2 - r4) > 0.15 ? "different (healthy alternation)" : "similar (weak alternation)"}`,
+    });
+    rules.push({
+      name: "Extension (only one wave)", nameTh: "การยืดตัว (ยืดเพียงคลื่นเดียว)",
+      status: "info", detail: `Wave ${extension} is the extended wave`,
+    });
+
+    // Current position + NeoWave targets
+    const w3Start = w2.to.price, w1len = w1.abs;
+    const t1 = up ? w3Start + w1len * 1.618 : w3Start - w1len * 1.618;
+    const t2 = up ? w3Start + w1len * 2.618 : w3Start - w1len * 2.618;
+    const w5t = up ? w4.to.price + w1len : w4.to.price - w1len;   // W5 often ≈ W1
+    if (spot >= Math.min(w4.from.price, w4.to.price) && spot <= Math.max(w4.from.price, w4.to.price)) {
+      currentWave = "In Wave 4 (correction) → Wave 5 next"; currentWaveTh = "อยู่ในคลื่น 4 (พักตัว) → รอคลื่น 5";
+    } else {
+      currentWave = "Wave 5 complete → expect A-B-C correction"; currentWaveTh = "คลื่น 5 ใกล้จบ → เตรียมรับ correction A-B-C";
+    }
+    projections = [
+      { label: "Wave 3 ext (1.618×W1)", labelTh: "เป้าคลื่น 3 (1.618×W1)", price: +t1.toFixed(0), fibRatio: 1.618, type: "target" },
+      { label: "Wave 3 ext (2.618×W1)", labelTh: "เป้าคลื่น 3 (2.618×W1)", price: +t2.toFixed(0), fibRatio: 2.618, type: "target" },
+      { label: "Wave 5 ≈ Wave 1", labelTh: "เป้าคลื่น 5 (≈ คลื่น 1)", price: +w5t.toFixed(0), fibRatio: 1.0, type: "target" },
+    ];
+    implication = terminal
+      ? "Terminal/diagonal implies the trend is exhausting — a sharp reversal usually follows the 5th wave."
+      : `Valid NeoWave impulse. Wave ${extension} extension confirms trend strength; watch for a completing 5th wave then reversal.`;
+    implicationTh = terminal
+      ? "Terminal/Diagonal = เทรนด์กำลังหมดแรง มักตามด้วยการกลับตัวแรงหลังจบคลื่น 5"
+      : `Impulse ตามกฎ NeoWave สมบูรณ์ · คลื่น ${extension} ยืดตัวยืนยันความแข็งแรงของเทรนด์ · ระวังจบคลื่น 5 แล้วกลับตัว`;
+    confidence = impulseScore >= 3.5 ? "high" : impulseScore >= 2.5 ? "medium" : "low";
+  } else if (corr) {
+    const isTriangle = corrType === "triangle";
+    const a = corr[0], last = corr[corr.length - 1];
+    const up = last.up;
+    structure = corrType;
+    phaseColor = "#f5c451";
+    const names: Record<string, [string, string]> = {
+      zigzag:  ["Zigzag correction (5-3-5, A-B-C)", "Zigzag correction (A-B-C, ชัน)"],
+      flat:    ["Flat correction (3-3-5, A-B-C)", "Flat correction (A-B-C, แนวราบ)"],
+      triangle:["Triangle (A-B-C-D-E, contracting)", "Triangle 5 ขา (A-B-C-D-E, หดตัว)"],
+      complex: ["Complex correction (combination)", "Complex correction (แบบผสม)"],
     };
-  }
+    [structureLabel, structureLabelTh] = names[corrType] ?? names.complex;
+    labels = isTriangle ? ["0", "A", "B", "C", "D", "E"] : ["0", "A", "B", "C"];
 
-  const last = recent.at(-1)!;
-  const prev = recent.at(-2)!;
-  const prev2 = recent.at(-3)!;
-  const prev3 = recent.at(-4)!;
-
-  const upTrend   = last.type === "high" && last.price > prev2.price && prev.price > prev3.price;
-  const downTrend = last.type === "low"  && last.price < prev2.price && prev.price < prev3.price;
-
-  const wave1Start = recent.at(-5)?.price ?? prev3.price;
-  const wave1End   = prev3.price;
-  const wave2End   = prev2.price;
-  const wave3Start = wave2End;
-
-  const move1 = Math.abs(wave1End - wave1Start);
-  const wave3Target161 = wave3Start + move1 * 1.618;
-  const wave3Target261 = wave3Start + move1 * 2.618;
-  const wave4Support618 = wave3Start + (wave3Target161 - wave3Start) * 0.382;
-
-  let waveCount: string, waveCountTh: string;
-  let wavePhase: "impulse"|"corrective"|"uncertain", wavePhaseTh: string, phaseColor: string;
-  let implication: string, implicationTh: string;
-  let confidence: "high"|"medium"|"low";
-
-  if (upTrend) {
-    wavePhase = "impulse"; wavePhaseTh = "Impulse Wave — แนวโน้มขาขึ้น"; phaseColor = "#34d399";
-    waveCount = "Potential Wave 3 (or 5) — Bullish Impulse";
-    waveCountTh = "Wave 3 หรือ 5 — คลื่น Impulse ขาขึ้น";
-    implication = "Impulse pattern suggests continuation of the bull trend. Wave 3 typically the strongest (1.618-2.618x W1).";
-    implicationTh = "คลื่น Impulse แสดงว่าแนวโน้มขาขึ้นยังดำเนินต่อ Wave 3 มักแข็งแกร่งสุด";
-    confidence = recent.length >= 6 ? "high" : "medium";
-  } else if (downTrend) {
-    wavePhase = "corrective"; wavePhaseTh = "Corrective Wave — ทองพักฐาน/ปรับตัว"; phaseColor = "#f87171";
-    waveCount = "Potential Wave C (or 4) — Bearish Correction";
-    waveCountTh = "Wave C หรือ 4 — คลื่น Corrective ขาลง";
-    implication = "Corrective pattern — expect support at Fibonacci retracements. Wave C often equals Wave A in length.";
-    implicationTh = "คลื่น Corrective — รอ support ที่ Fibonacci retracement Wave C มักเท่ากับ Wave A";
-    confidence = "medium";
+    if (!isTriangle) {
+      const [wa, wb, wc] = corr;
+      const rb = wb.abs / (wa.abs || 1), rc = wc.abs / (wa.abs || 1);
+      rules.push({ name: "Rule of Retracement", nameTh: "กฎการรีเทรซ (B ต่อ A)", status: "info",
+        detail: `Wave B retraced ${pct(rb * 100)} of Wave A — ${corrType === "flat" ? "deep (>80%) → Flat" : "shallow (<70%) → Zigzag"}` });
+      rules.push({ name: "C vs A relationship", nameTh: "ความสัมพันธ์ C ต่อ A", status: "info",
+        detail: `Wave C is ${pct(rc * 100)} of Wave A` });
+      rules.push({ name: "Similarity & Balance", nameTh: "กฎความคล้าย & สมดุล", status: Math.abs(wa.bars - wc.bars) <= Math.max(wa.bars, wc.bars) * 0.5 ? "pass" : "info",
+        detail: `Time A ${wa.bars} bars vs C ${wc.bars} bars` });
+      const cTarget = corrType === "flat" ? wb.to.price + (up ? wa.abs : -wa.abs) : wb.to.price + (up ? wa.abs * 1.618 : -wa.abs * 1.618);
+      projections = [
+        { label: corrType === "flat" ? "Wave C ≈ Wave A" : "Wave C = 1.618×A", labelTh: corrType === "flat" ? "เป้า C ≈ A" : "เป้า C (1.618×A)", price: +cTarget.toFixed(0), fibRatio: corrType === "flat" ? 1.0 : 1.618, type: "support" },
+      ];
+      currentWave = "Wave C forming → correction ending"; currentWaveTh = "กำลังก่อคลื่น C → correction ใกล้จบ";
+      implication = "Corrective structure — the larger trend should resume once C completes.";
+      implicationTh = "โครงสร้าง corrective — เทรนด์ใหญ่มักกลับมาเดินต่อเมื่อคลื่น C จบ";
+    } else {
+      rules.push({ name: "Contracting legs", nameTh: "แต่ละขาหดตัวลง", status: "pass", detail: `A > C > E — converging (triangle = continuation pattern)` });
+      rules.push({ name: "5-leg structure (A-B-C-D-E)", nameTh: "โครงสร้าง 5 ขา", status: "info", detail: "Each leg is a 3 (corrective) sub-structure" });
+      currentWave = "Wave E / thrust out of triangle"; currentWaveTh = "คลื่น E / กำลังจะทะลุออกจาก triangle";
+      implication = "Triangles are continuation patterns — expect a thrust in the pre-triangle trend direction.";
+      implicationTh = "Triangle เป็นรูปแบบต่อเนื่อง — มักทะลุออกไปตามเทรนด์ก่อนหน้า";
+      projections = [{ label: "Triangle thrust ≈ widest leg", labelTh: "เป้า thrust ≈ ขากว้างสุด", price: +(last.to.price + (up ? a.abs : -a.abs)).toFixed(0), fibRatio: 1.0, type: "target" }];
+    }
+    confidence = corrScore >= 2.2 ? "medium" : "low";
   } else {
-    wavePhase = "uncertain"; wavePhaseTh = "ไม่แน่ชัด — กำลัง Consolidate"; phaseColor = "#f5c451";
-    waveCount = "Consolidation / Sideways — Wave 4 or B";
-    waveCountTh = "ทองอยู่ในกรอบ — น่าจะเป็น Wave 4 หรือ B";
-    implication = "No clear impulse or corrective direction. Likely sideways Wave 4 or B consolidation before next move.";
-    implicationTh = "ทิศทางไม่ชัด — น่าจะเป็นช่วงพัก Wave 4/B รอดู breakout";
+    structure = "unclear";
+    structureLabel = "Unclear / consolidation"; structureLabelTh = "โครงสร้างยังไม่ชัด — กำลังสะสม";
+    labels = ["0", "A", "B", "C"];
+    currentWave = "Await a clean monowave series"; currentWaveTh = "รอโครงสร้าง monowave ที่ชัดเจน";
+    implication = "No NeoWave rule set is satisfied yet — treat as consolidation.";
+    implicationTh = "ยังไม่เข้ากฎ NeoWave ชุดใด — ถือเป็นช่วงสะสม";
     confidence = "low";
+    rules.push({ name: "Pattern recognition", nameTh: "การจับรูปแบบ", status: "info", detail: "Monowaves do not yet form a valid impulse or correction" });
   }
 
-  // Label the last up-to-9 significant swings as an Elliott sequence (0-5, A-B-C)
-  const LABELS = ["0","1","2","3","4","5","A","B","C"];
-  const labeledPivots = pivots.slice(-LABELS.length);
-  const wavePivots: WavePivot[] = labeledPivots.map((p, i) => {
-    const prev = labeledPivots[i - 1];
+  // Label the trailing pivots with the chosen sequence
+  const need = labels.length;
+  const tail = pivots.slice(-need);
+  const wavePivots: WavePivot[] = tail.map((p, i) => {
+    const prev = tail[i - 1];
     const legPct = prev ? ((p.price - prev.price) / prev.price) * 100 : 0;
     return {
       index: p.idx, seriesIndex: p.idx, price: +p.price.toFixed(0), date: p.date, type: p.type,
-      label: LABELS[i] ?? String(i),
-      legPct: +legPct.toFixed(1),
+      label: labels[i] ?? String(i), legPct: +legPct.toFixed(1),
     };
   });
 
-  const projections: WaveProjection[] = upTrend ? [
-    { label: "Wave 3 Target (1.618)", labelTh: "เป้า Wave 3 (1.618x)", price: +wave3Target161.toFixed(0), fibRatio: 1.618, type: "target" },
-    { label: "Wave 3 Target (2.618)", labelTh: "เป้า Wave 3 (2.618x)", price: +wave3Target261.toFixed(0), fibRatio: 2.618, type: "target" },
-    { label: "Wave 4 Support (0.382)", labelTh: "Wave 4 Support (38.2%)", price: +wave4Support618.toFixed(0), fibRatio: 0.382, type: "support" },
-  ] : [
-    { label: "Wave C Target (100%)", labelTh: "เป้า Wave C (= Wave A)", price: +prev3.price.toFixed(0), fibRatio: 1.0, type: "support" },
-    { label: "Wave C Target (1.618)", labelTh: "เป้า Wave C (161.8%)", price: +(prev3.price + (prev2.price - prev3.price) * 0.618).toFixed(0), fibRatio: 0.618, type: "support" },
-  ];
-
-  const swingHigh = Math.max(prev2.price, last.price, spot);
-  const swingLow  = Math.min(prev3.price, prev.price);
-  const swingRange = swingHigh - swingLow || 1;
+  // Fib retracements of the last major swing (for the levels list)
+  const lastTwo = pivots.slice(-2);
+  const swingHigh = Math.max(lastTwo[0]?.price ?? spot, lastTwo[1]?.price ?? spot, spot);
+  const swingLow  = Math.min(lastTwo[0]?.price ?? spot, lastTwo[1]?.price ?? spot);
+  const swingRange = (swingHigh - swingLow) || 1;
   const fibLevels = [
     { ratio: "23.6%", price: +(swingHigh - swingRange * 0.236).toFixed(0), label: "Fib 23.6%" },
     { ratio: "38.2%", price: +(swingHigh - swingRange * 0.382).toFixed(0), label: "Fib 38.2%" },
@@ -232,11 +388,15 @@ function countWaves(pivots: ReturnType<typeof computeZigzag>, spot: number) {
     { ratio: "78.6%", price: +(swingHigh - swingRange * 0.786).toFixed(0), label: "Fib 78.6%" },
   ];
 
-  const confMap = { high: "สูง — Pattern ชัดเจน", medium: "ปานกลาง — ตีความได้หลายแบบ", low: "ต่ำ — ต้องยืนยันเพิ่ม" };
-  const confColorMap = { high: "#34d399", medium: "#f5c451", low: "#f87171" };
+  const wavePhase: "impulse" | "corrective" | "uncertain" =
+    structure === "impulse" || structure === "terminal" ? "impulse" :
+    structure === "unclear" ? "uncertain" : "corrective";
 
   return {
-    waveCount, waveCountTh, wavePhase, wavePhaseTh, phaseColor,
+    method: "NeoWave" as const, structure, structureLabel, structureLabelTh,
+    currentWave, currentWaveTh, neelyRules: rules, extension,
+    waveCount: structureLabel, waveCountTh: structureLabelTh,
+    wavePhase, wavePhaseTh: structureLabelTh, phaseColor,
     wavePivots, projections, fibLevels,
     implication, implicationTh,
     confidence, confidenceTh: confMap[confidence], confidenceColor: confColorMap[confidence],
@@ -249,7 +409,7 @@ const TTL = 30 * 60 * 1000; // 30 min
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const tfParam = (url.searchParams.get("tf") ?? "1d") as ElliottTF;
-  const tf: ElliottTF = ["1h","4h","1d","1w"].includes(tfParam) ? tfParam : "1d";
+  const tf: ElliottTF = ["15m","1h","4h","1d","1w"].includes(tfParam) ? tfParam : "1d";
 
   const cached = CACHE[tf];
   if (cached && Date.now() - cached.ts < TTL) return NextResponse.json(cached.data);
@@ -284,7 +444,7 @@ export async function GET(req: Request) {
 
     const pivots = computeZigzag(sHi, sLo, sTs, cfg.deviation);
     const zigzag: ZigzagPoint[] = pivots.map(p => ({ i: p.idx, price: +p.price.toFixed(1), type: p.type }));
-    const waveAnalysis = countWaves(pivots, spot);
+    const waveAnalysis = analyzeNeoWave(pivots, spot);
 
     const { wavePivots, ...rest } = waveAnalysis;
     const data: ElliottWavePayload = {
@@ -300,7 +460,7 @@ export async function GET(req: Request) {
       zigzag,
       ...rest,
       pivots: wavePivots,
-      disclaimer: "Elliott Wave analysis is subjective. Multiple wave counts are often valid simultaneously. This is an automated heuristic, not professional wave analysis.",
+      disclaimer: "NeoWave analysis is rule-based but still probabilistic — alternate counts can be valid. Automated heuristic, not a substitute for a certified NeoWave analyst.",
       generatedAt: new Date().toISOString(),
     };
 

@@ -5,6 +5,18 @@ import type { AiModelSignalEntry } from "@/app/api/ai-model/signal/route";
 import type { MarketRegimePayload } from "@/app/api/market-regime/route";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
+
+// fetch with an abort timeout so one slow upstream can't hang the whole request
+async function fetchT(url: string, opts: RequestInit = {}, ms = 8000): Promise<Response> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  try {
+    return await fetch(url, { ...opts, signal: ctrl.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 interface ForecastResponse {
   forecast: Awaited<ReturnType<typeof generateWeeklyForecast>>;
@@ -24,7 +36,7 @@ function ema(data: number[], period: number): number {
 
 async function fetchMarket() {
   const url = "https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?range=3mo&interval=1d&includePrePost=false";
-  const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" }, cache: "no-store" });
+  const res = await fetchT(url, { headers: { "User-Agent": "Mozilla/5.0" }, cache: "no-store" });
   if (!res.ok) throw new Error(`Yahoo ${res.status}`);
   const json = await res.json();
   const result = json?.chart?.result?.[0];
@@ -62,7 +74,7 @@ async function fetchMarket() {
 async function fetchRegime(): Promise<{ adx: number; regime: string } | null> {
   try {
     const base = process.env.NEXTAUTH_URL ?? "http://localhost:3100";
-    const res = await fetch(`${base}/api/market-regime`, { cache: "no-store" });
+    const res = await fetchT(`${base}/api/market-regime`, { cache: "no-store" });
     if (!res.ok) return null;
     const d: MarketRegimePayload = await res.json();
     return { adx: d.adx, regime: d.regime };
@@ -72,7 +84,7 @@ async function fetchRegime(): Promise<{ adx: number; regime: string } | null> {
 async function fetchTechnical() {
   try {
     const base = process.env.NEXTAUTH_URL ?? "http://localhost:3100";
-    const res = await fetch(`${base}/api/technical/score`, { cache: "no-store" });
+    const res = await fetchT(`${base}/api/technical/score`, { cache: "no-store" });
     if (!res.ok) return null;
     const d = await res.json();
     return { bias: d.overallBias as string, score: d.compositeScore as number };
@@ -82,7 +94,7 @@ async function fetchTechnical() {
 async function fetchAiSignal() {
   try {
     const base = process.env.NEXTAUTH_URL ?? "http://localhost:3100";
-    const res = await fetch(`${base}/api/ai-model/signal?limit=1`, { cache: "no-store" });
+    const res = await fetchT(`${base}/api/ai-model/signal?limit=1`, { cache: "no-store" });
     if (!res.ok) return null;
     const arr: AiModelSignalEntry[] = await res.json();
     return arr[0] ?? null;
@@ -92,7 +104,7 @@ async function fetchAiSignal() {
 async function fetchNewsSentiment() {
   try {
     const base = process.env.NEXTAUTH_URL ?? "http://localhost:3100";
-    const res = await fetch(`${base}/api/news`, { cache: "no-store" });
+    const res = await fetchT(`${base}/api/news`, { cache: "no-store" });
     if (!res.ok) return null;
     const d = await res.json();
     return { sentiment: d.overallSentiment as string, score: d.overallScore as number };
@@ -102,7 +114,7 @@ async function fetchNewsSentiment() {
 async function fetchWeekEvents() {
   try {
     const DAYS = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
-    const res = await fetch("https://nfs.faireconomy.media/ff_calendar_thisweek.json", {
+    const res = await fetchT("https://nfs.faireconomy.media/ff_calendar_thisweek.json", {
       headers: { "User-Agent": "Mozilla/5.0" }, cache: "no-store",
     });
     if (!res.ok) return [];

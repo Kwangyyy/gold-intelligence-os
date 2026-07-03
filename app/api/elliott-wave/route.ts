@@ -1,13 +1,23 @@
 import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 30;
+
+export type ElliottTF = "1h" | "4h" | "1d" | "1w";
 
 export interface WavePivot {
-  index: number;
+  index: number;        // index into the full source series
+  seriesIndex: number;  // index into the returned (downsampled) chart series
   price: number;
   date: string;
   type: "high" | "low";
   label: string;   // "0","1","2","3","4","5","A","B","C"
+}
+
+export interface ZigzagPoint {
+  i: number;            // index into returned chart series
+  price: number;
+  type: "high" | "low";
 }
 
 export interface WaveProjection {
@@ -19,13 +29,16 @@ export interface WaveProjection {
 }
 
 export interface ElliottWavePayload {
+  timeframe: ElliottTF;
   goldPrice: number;
-  waveCount: string;          // "Wave 3 of 5" / "Wave C of ABC" etc.
+  series: { t: number[]; c: number[] };   // chart series: unix seconds + close
+  zigzag: ZigzagPoint[];                   // full zigzag turning points (series indices)
+  waveCount: string;
   waveCountTh: string;
   wavePhase: "impulse" | "corrective" | "uncertain";
   wavePhaseTh: string;
   phaseColor: string;
-  pivots: WavePivot[];
+  pivots: WavePivot[];                     // labeled subset (wave count)
   projections: WaveProjection[];
   fibLevels: { ratio: string; price: number; label: string }[];
   implication: string;
@@ -37,9 +50,18 @@ export interface ElliottWavePayload {
   generatedAt: string;
 }
 
-async function fetchGoldDaily() {
+// Timeframe → Yahoo query + processing config
+const TF_CONFIG: Record<ElliottTF, { range: string; interval: string; aggregate: number; lookback: number; maxBars: number }> = {
+  "1h": { range: "1mo", interval: "60m", aggregate: 1, lookback: 5, maxBars: 160 },
+  "4h": { range: "3mo", interval: "60m", aggregate: 4, lookback: 4, maxBars: 160 },
+  "1d": { range: "1y",  interval: "1d",  aggregate: 1, lookback: 5, maxBars: 200 },
+  "1w": { range: "5y",  interval: "1wk", aggregate: 1, lookback: 5, maxBars: 200 },
+};
+
+async function fetchGold(tf: ElliottTF) {
+  const cfg = TF_CONFIG[tf];
   try {
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?range=1y&interval=1d`;
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?range=${cfg.range}&interval=${cfg.interval}`;
     const r   = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" }, cache: "no-store" });
     if (!r.ok) return null;
     return await r.json();
@@ -56,8 +78,23 @@ type YJ = {
   };
 } | null;
 
-// Zigzag pivot detection
-function findPivots(hi: number[], lo: number[], ts: number[], lookback = 5): { idx: number; price: number; type: "high"|"low"; date: string }[] {
+// Aggregate 1h bars into Nh bars (e.g. 4h): group consecutive N bars.
+function aggregate(hi: number[], lo: number[], cl: number[], ts: number[], n: number) {
+  if (n <= 1) return { hi, lo, cl, ts };
+  const H: number[] = [], L: number[] = [], C: number[] = [], T: number[] = [];
+  for (let i = 0; i < cl.length; i += n) {
+    const hSlice = hi.slice(i, i + n), lSlice = lo.slice(i, i + n), cSlice = cl.slice(i, i + n);
+    if (!cSlice.length) break;
+    H.push(Math.max(...hSlice));
+    L.push(Math.min(...lSlice));
+    C.push(cSlice[cSlice.length - 1]);
+    T.push(ts[i]);
+  }
+  return { hi: H, lo: L, cl: C, ts: T };
+}
+
+// Zigzag pivot detection on the chart series
+function findPivots(hi: number[], lo: number[], ts: number[], lookback: number) {
   const pivots: { idx: number; price: number; type: "high"|"low"; date: string }[] = [];
   for (let i = lookback; i < hi.length - lookback; i++) {
     const isHigh = hi.slice(i - lookback, i).every(h => h <= hi[i]) && hi.slice(i + 1, i + lookback + 1).every(h => h <= hi[i]);
@@ -65,56 +102,39 @@ function findPivots(hi: number[], lo: number[], ts: number[], lookback = 5): { i
     if (isHigh) pivots.push({ idx: i, price: hi[i], type: "high", date: new Date(ts[i] * 1000).toISOString().slice(0, 10) });
     if (isLow)  pivots.push({ idx: i, price: lo[i], type: "low",  date: new Date(ts[i] * 1000).toISOString().slice(0, 10) });
   }
-  // Deduplicate adjacent same-type pivots (keep strongest)
+  // Deduplicate adjacent same-type pivots (keep the strongest)
   const deduped: typeof pivots = [];
   for (const p of pivots) {
     const last = deduped.at(-1);
-    if (!last || last.type !== p.type) {
-      deduped.push(p);
-    } else if (p.type === "high" && p.price > last.price) {
-      deduped[deduped.length - 1] = p;
-    } else if (p.type === "low" && p.price < last.price) {
-      deduped[deduped.length - 1] = p;
-    }
+    if (!last || last.type !== p.type) deduped.push(p);
+    else if (p.type === "high" && p.price > last.price) deduped[deduped.length - 1] = p;
+    else if (p.type === "low"  && p.price < last.price) deduped[deduped.length - 1] = p;
   }
   return deduped;
 }
 
-// Simple Elliott Wave counting heuristic
-// Uses the last 5-6 pivots to guess the wave position
-function countWaves(pivots: ReturnType<typeof findPivots>, spot: number): {
-  waveCount: string; waveCountTh: string;
-  wavePhase: "impulse"|"corrective"|"uncertain"; wavePhaseTh: string; phaseColor: string;
-  wavePivots: WavePivot[];
-  projections: WaveProjection[];
-  fibLevels: { ratio: string; price: number; label: string }[];
-  implication: string; implicationTh: string;
-  confidence: "high"|"medium"|"low"; confidenceTh: string; confidenceColor: string;
-} {
+function countWaves(pivots: ReturnType<typeof findPivots>, spot: number) {
   const recent = pivots.slice(-8);
 
-  // Need at least 5 pivots
   if (recent.length < 4) {
     return {
       waveCount: "Insufficient pivots", waveCountTh: "ข้อมูลไม่เพียงพอสำหรับ Wave count",
-      wavePhase: "uncertain", wavePhaseTh: "ไม่แน่ชัด", phaseColor: "#f5c451",
-      wavePivots: [], projections: [], fibLevels: [],
+      wavePhase: "uncertain" as const, wavePhaseTh: "ไม่แน่ชัด", phaseColor: "#f5c451",
+      wavePivots: [] as WavePivot[], projections: [] as WaveProjection[], fibLevels: [] as { ratio: string; price: number; label: string }[],
       implication: "Not enough pivot data",
-      implicationTh: "ต้องการข้อมูลราคาเพิ่มเติม",
-      confidence: "low", confidenceTh: "ต่ำ", confidenceColor: "#f87171",
+      implicationTh: "ต้องการข้อมูลราคาเพิ่มเติม (ลองเปลี่ยน Timeframe)",
+      confidence: "low" as const, confidenceTh: "ต่ำ", confidenceColor: "#f87171",
     };
   }
 
-  // Check direction of last move
   const last = recent.at(-1)!;
   const prev = recent.at(-2)!;
   const prev2 = recent.at(-3)!;
   const prev3 = recent.at(-4)!;
 
-  const upTrend  = last.type === "high" && last.price > prev2.price && prev.price > prev3.price;
+  const upTrend   = last.type === "high" && last.price > prev2.price && prev.price > prev3.price;
   const downTrend = last.type === "low"  && last.price < prev2.price && prev.price < prev3.price;
 
-  // Fibonacci projections from last three pivots (wave 1-2-3 or A-B-C)
   const wave1Start = recent.at(-5)?.price ?? prev3.price;
   const wave1End   = prev3.price;
   const wave2End   = prev2.price;
@@ -125,13 +145,9 @@ function countWaves(pivots: ReturnType<typeof findPivots>, spot: number): {
   const wave3Target261 = wave3Start + move1 * 2.618;
   const wave4Support618 = wave3Start + (wave3Target161 - wave3Start) * 0.382;
 
-  let waveCount: string;
-  let waveCountTh: string;
-  let wavePhase: "impulse"|"corrective"|"uncertain";
-  let wavePhaseTh: string;
-  let phaseColor: string;
-  let implication: string;
-  let implicationTh: string;
+  let waveCount: string, waveCountTh: string;
+  let wavePhase: "impulse"|"corrective"|"uncertain", wavePhaseTh: string, phaseColor: string;
+  let implication: string, implicationTh: string;
   let confidence: "high"|"medium"|"low";
 
   if (upTrend) {
@@ -158,7 +174,7 @@ function countWaves(pivots: ReturnType<typeof findPivots>, spot: number): {
   }
 
   const wavePivots: WavePivot[] = recent.slice(-6).map((p, i) => ({
-    index: p.idx, price: +p.price.toFixed(0), date: p.date, type: p.type,
+    index: p.idx, seriesIndex: p.idx, price: +p.price.toFixed(0), date: p.date, type: p.type,
     label: ["0","1","2","3","4","5"][i] ?? String(i),
   }));
 
@@ -171,10 +187,9 @@ function countWaves(pivots: ReturnType<typeof findPivots>, spot: number): {
     { label: "Wave C Target (1.618)", labelTh: "เป้า Wave C (161.8%)", price: +(prev3.price + (prev2.price - prev3.price) * 0.618).toFixed(0), fibRatio: 0.618, type: "support" },
   ];
 
-  // Fibonacci retracements from last major move
   const swingHigh = Math.max(prev2.price, last.price, spot);
   const swingLow  = Math.min(prev3.price, prev.price);
-  const swingRange = swingHigh - swingLow;
+  const swingRange = swingHigh - swingLow || 1;
   const fibLevels = [
     { ratio: "23.6%", price: +(swingHigh - swingRange * 0.236).toFixed(0), label: "Fib 23.6%" },
     { ratio: "38.2%", price: +(swingHigh - swingRange * 0.382).toFixed(0), label: "Fib 38.2%" },
@@ -194,34 +209,59 @@ function countWaves(pivots: ReturnType<typeof findPivots>, spot: number): {
   };
 }
 
-let CACHE: { data: ElliottWavePayload; ts: number } | null = null;
-const TTL = 60 * 60 * 1000; // 1h
+const CACHE: Partial<Record<ElliottTF, { data: ElliottWavePayload; ts: number }>> = {};
+const TTL = 30 * 60 * 1000; // 30 min
 
-export async function GET() {
-  if (CACHE && Date.now() - CACHE.ts < TTL) return NextResponse.json(CACHE.data);
+export async function GET(req: Request) {
+  const url = new URL(req.url);
+  const tfParam = (url.searchParams.get("tf") ?? "1d") as ElliottTF;
+  const tf: ElliottTF = ["1h","4h","1d","1w"].includes(tfParam) ? tfParam : "1d";
+
+  const cached = CACHE[tf];
+  if (cached && Date.now() - cached.ts < TTL) return NextResponse.json(cached.data);
 
   try {
-    const j   = await fetchGoldDaily();
+    const cfg = TF_CONFIG[tf];
+    const j   = await fetchGold(tf);
     const obj = j as YJ;
-    const q   = obj?.chart?.result?.[0]?.indicators?.quote?.[0];
-    const hi  = (q?.high  ?? []).filter((c): c is number => c != null);
-    const lo  = (q?.low   ?? []).filter((c): c is number => c != null);
-    const ts  = obj?.chart?.result?.[0]?.timestamp ?? [];
-    const spot = obj?.chart?.result?.[0]?.meta?.regularMarketPrice ?? lo.at(-1) ?? 3200;
+    const res = obj?.chart?.result?.[0];
+    const q   = res?.indicators?.quote?.[0];
 
-    const pivots = findPivots(hi, lo, ts, 5);
+    // Align all arrays by dropping null closes
+    const rawC = q?.close ?? [];
+    const rawH = q?.high  ?? [];
+    const rawL = q?.low   ?? [];
+    const rawT = res?.timestamp ?? [];
+    const hi: number[] = [], lo: number[] = [], cl: number[] = [], ts: number[] = [];
+    for (let i = 0; i < rawC.length; i++) {
+      if (rawC[i] == null || rawH[i] == null || rawL[i] == null) continue;
+      cl.push(rawC[i] as number); hi.push(rawH[i] as number); lo.push(rawL[i] as number); ts.push(rawT[i] ?? 0);
+    }
+
+    // Aggregate (for 4h) then cap to maxBars
+    const agg = aggregate(hi, lo, cl, ts, cfg.aggregate);
+    const start = Math.max(0, agg.cl.length - cfg.maxBars);
+    const sHi = agg.hi.slice(start), sLo = agg.lo.slice(start), sCl = agg.cl.slice(start), sTs = agg.ts.slice(start);
+
+    const spot = res?.meta?.regularMarketPrice ?? sCl.at(-1) ?? 3200;
+
+    const pivots = findPivots(sHi, sLo, sTs, cfg.lookback);
+    const zigzag: ZigzagPoint[] = pivots.map(p => ({ i: p.idx, price: +p.price.toFixed(1), type: p.type }));
     const waveAnalysis = countWaves(pivots, spot);
 
     const { wavePivots, ...rest } = waveAnalysis;
     const data: ElliottWavePayload = {
+      timeframe: tf,
       goldPrice: +spot.toFixed(0),
+      series: { t: sTs, c: sCl.map(v => +v.toFixed(1)) },
+      zigzag,
       ...rest,
       pivots: wavePivots,
       disclaimer: "Elliott Wave analysis is subjective. Multiple wave counts are often valid simultaneously. This is an automated heuristic, not professional wave analysis.",
       generatedAt: new Date().toISOString(),
     };
 
-    CACHE = { data, ts: Date.now() };
+    CACHE[tf] = { data, ts: Date.now() };
     return NextResponse.json(data);
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });

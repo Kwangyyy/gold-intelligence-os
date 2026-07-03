@@ -2,47 +2,102 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
-import type { ElliottWavePayload } from "@/app/api/elliott-wave/route";
+import type { ElliottWavePayload, ElliottTF } from "@/app/api/elliott-wave/route";
 
-function WaveChart({ pivots, projections, spot }: {
-  pivots: ElliottWavePayload["pivots"];
-  projections: ElliottWavePayload["projections"];
-  spot: number;
-}) {
-  if (pivots.length < 2) return null;
-  const allPrices = [...pivots.map(p => p.price), ...projections.map(p => p.price), spot];
-  const min = Math.min(...allPrices) * 0.998;
-  const max = Math.max(...allPrices) * 1.002;
-  const range = max - min || 1;
-  const W = 500, H = 120;
-  const xStep = W / Math.max(pivots.length + 1, 2);
+const TFS: { id: ElliottTF; label: string }[] = [
+  { id: "1h", label: "1H" },
+  { id: "4h", label: "4H" },
+  { id: "1d", label: "1D" },
+  { id: "1w", label: "1W" },
+];
 
-  const toX = (i: number) => (i + 1) * xStep;
-  const toY = (p: number) => H - ((p - min) / range) * H;
+// Real price chart with zigzag wave overlay drawn from the actual series
+function WaveChart({ data }: { data: ElliottWavePayload }) {
+  const { series, zigzag, pivots, goldPrice } = data;
+  const closes = series.c;
+  if (closes.length < 3) return (
+    <div className="text-[10px] py-8 text-center" style={{ color: "rgba(175,185,215,0.3)" }}>
+      ข้อมูลราคาไม่พอสำหรับ Timeframe นี้ — ลองเปลี่ยน TF
+    </div>
+  );
 
-  const pts = pivots.map((p, i) => `${toX(i).toFixed(1)},${toY(p.price).toFixed(1)}`).join(" ");
+  const W = 700, H = 200, padR = 40, padTop = 14, padBot = 18;
+  const plotW = W - padR;
+  const allPrices = [...closes, ...data.projections.map(p => p.price), goldPrice];
+  const min = Math.min(...allPrices);
+  const max = Math.max(...allPrices);
+  const range = (max - min) || 1;
+
+  const toX = (i: number) => (i / Math.max(closes.length - 1, 1)) * plotW;
+  const toY = (p: number) => padTop + (1 - (p - min) / range) * (H - padTop - padBot);
+
+  // Price line
+  const linePts = closes.map((c, i) => `${toX(i).toFixed(1)},${toY(c).toFixed(1)}`).join(" ");
+  // Area under price line
+  const areaPts = `${toX(0)},${H - padBot} ${linePts} ${toX(closes.length - 1)},${H - padBot}`;
+
+  // Zigzag polyline through detected pivots (clamp indices to series bounds)
+  const zz = zigzag.filter(z => z.i >= 0 && z.i < closes.length);
+  const zzPts = zz.map(z => `${toX(z.i).toFixed(1)},${toY(z.price).toFixed(1)}`).join(" ");
+
+  // Labeled wave pivots (0-5) — use seriesIndex
+  const labeled = pivots.filter(p => p.seriesIndex >= 0 && p.seriesIndex < closes.length);
 
   return (
-    <svg viewBox={`0 0 ${W} ${H + 20}`} width="100%" height="110" preserveAspectRatio="none">
-      {/* Wave path */}
-      <polyline points={pts} fill="none" stroke="#c084fc" strokeWidth="2" strokeLinejoin="round" />
-      {/* Pivot labels */}
-      {pivots.map((p, i) => (
-        <g key={i}>
-          <circle cx={toX(i)} cy={toY(p.price)} r="4"
-            fill={p.type === "high" ? "#f5c451" : "#34d399"} />
-          <text x={toX(i)} y={toY(p.price) - 6} textAnchor="middle" fontSize="9"
-            fill={p.type === "high" ? "#f5c451" : "#34d399"} fontWeight="bold">{p.label}</text>
-          <text x={toX(i)} y={H + 15} textAnchor="middle" fontSize="7"
-            fill="rgba(175,185,215,0.3)">${p.price.toLocaleString()}</text>
-        </g>
+    <svg viewBox={`0 0 ${W} ${H}`} width="100%" preserveAspectRatio="xMidYMid meet" style={{ display: "block" }}>
+      <defs>
+        <linearGradient id="ewArea" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="rgba(245,196,81,0.18)" />
+          <stop offset="100%" stopColor="rgba(245,196,81,0)" />
+        </linearGradient>
+      </defs>
+
+      {/* Gridlines + price axis */}
+      {[0, 0.25, 0.5, 0.75, 1].map((f, i) => {
+        const price = max - f * range;
+        const y = toY(price);
+        return (
+          <g key={i}>
+            <line x1="0" y1={y} x2={plotW} y2={y} stroke="rgba(255,255,255,0.04)" strokeWidth="1" />
+            <text x={W - 4} y={y + 3} textAnchor="end" fontSize="8" fill="rgba(175,185,215,0.35)">
+              ${Math.round(price).toLocaleString()}
+            </text>
+          </g>
+        );
+      })}
+
+      {/* Price area + line */}
+      <polygon points={areaPts} fill="url(#ewArea)" />
+      <polyline points={linePts} fill="none" stroke="rgba(245,196,81,0.55)" strokeWidth="1.2" strokeLinejoin="round" />
+
+      {/* Zigzag wave path */}
+      {zz.length >= 2 && (
+        <polyline points={zzPts} fill="none" stroke="#c084fc" strokeWidth="2.2" strokeLinejoin="round" strokeLinecap="round" />
+      )}
+
+      {/* Zigzag pivot dots */}
+      {zz.map((z, i) => (
+        <circle key={`z${i}`} cx={toX(z.i)} cy={toY(z.price)} r="2.4"
+          fill={z.type === "high" ? "#f5c451" : "#34d399"} opacity="0.7" />
       ))}
-      {/* Current price line */}
-      <line x1="0" y1={toY(spot)} x2={W} y2={toY(spot)}
-        stroke="rgba(245,196,81,0.3)" strokeDasharray="3,3" strokeWidth="1" />
-      <text x={W - 4} y={toY(spot) - 3} textAnchor="end" fontSize="7" fill="rgba(245,196,81,0.5)">
-        ${spot}
-      </text>
+
+      {/* Labeled wave points (0-5) with number badges */}
+      {labeled.map((p, i) => {
+        const x = toX(p.seriesIndex), y = toY(p.price);
+        const above = p.type === "high";
+        return (
+          <g key={`l${i}`}>
+            <circle cx={x} cy={y} r="4.5" fill={above ? "#f5c451" : "#34d399"} stroke="#0a0f1e" strokeWidth="1.5" />
+            <text x={x} y={above ? y - 8 : y + 14} textAnchor="middle" fontSize="11" fontWeight="bold"
+              fill={above ? "#f5c451" : "#34d399"}>{p.label}</text>
+          </g>
+        );
+      })}
+
+      {/* Current price marker */}
+      <line x1="0" y1={toY(goldPrice)} x2={plotW} y2={toY(goldPrice)}
+        stroke="rgba(96,165,250,0.4)" strokeDasharray="4,3" strokeWidth="1" />
+      <circle cx={toX(closes.length - 1)} cy={toY(goldPrice)} r="3" fill="#60a5fa" />
     </svg>
   );
 }
@@ -51,11 +106,12 @@ export default function ElliottWavePage() {
   const [data, setData]       = useState<ElliottWavePayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr]         = useState("");
+  const [tf, setTf]           = useState<ElliottTF>("1d");
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (timeframe: ElliottTF) => {
     setLoading(true); setErr("");
     try {
-      const res  = await fetch("/api/elliott-wave", { cache: "no-store" });
+      const res  = await fetch(`/api/elliott-wave?tf=${timeframe}`, { cache: "no-store" });
       const json = await res.json();
       if (json.error) throw new Error(json.error);
       setData(json);
@@ -63,14 +119,39 @@ export default function ElliottWavePage() {
     finally { setLoading(false); }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(tf); }, [load, tf]);
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-6 sm:px-6 lg:px-8">
       <PageHeader
         title="〰️ Elliott Wave Analyzer"
-        subtitle="วิเคราะห์ Elliott Wave count อัตโนมัติ — Pivot detection, Fibonacci targets, wave implication"
+        subtitle="ตีเส้นซิกแซกวัดคลื่นจากกราฟจริง — Pivot detection, Fibonacci targets, wave implication"
       />
+
+      {/* Timeframe selector */}
+      <div className="mb-4 flex items-center gap-2">
+        <span className="text-[9px] uppercase tracking-widest" style={{ color: "rgba(175,185,215,0.3)" }}>
+          Timeframe
+        </span>
+        <div className="flex gap-1 rounded-xl p-1" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
+          {TFS.map(item => {
+            const active = tf === item.id;
+            return (
+              <button
+                key={item.id}
+                onClick={() => setTf(item.id)}
+                disabled={loading && active}
+                className="rounded-lg px-3 py-1.5 text-[11px] font-bold transition-all"
+                style={active
+                  ? { background: "linear-gradient(90deg, rgba(168,85,247,0.3), rgba(245,196,81,0.12))", color: "#f5c451", boxShadow: "inset 0 0 0 1px rgba(245,196,81,0.3)" }
+                  : { color: "rgba(175,185,215,0.5)" }}
+              >
+                {item.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
 
       {loading && (
         <div className="flex h-48 items-center justify-center">
@@ -118,15 +199,18 @@ export default function ElliottWavePage() {
             </div>
           </div>
 
-          {/* Wave chart */}
-          {data.pivots.length >= 2 && (
-            <div className="panel px-5 py-4">
-              <div className="text-[9px] uppercase tracking-widest mb-3" style={{ color: "rgba(175,185,215,0.3)" }}>
-                Wave Pivot Chart — สีทอง = High | สีเขียว = Low
+          {/* Wave chart — real price series + zigzag overlay */}
+          <div className="panel px-5 py-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-[9px] uppercase tracking-widest" style={{ color: "rgba(175,185,215,0.3)" }}>
+                Wave Chart ({tf.toUpperCase()}) — เส้นทอง = ราคาจริง | เส้นม่วง = Zigzag คลื่น
               </div>
-              <WaveChart pivots={data.pivots} projections={data.projections} spot={data.goldPrice} />
+              <div className="flex items-center gap-3 text-[8px]" style={{ color: "rgba(175,185,215,0.4)" }}>
+                <span>🟡 High</span><span>🟢 Low</span>
+              </div>
             </div>
-          )}
+            <WaveChart data={data} />
+          </div>
 
           {/* Implication */}
           <div className="panel px-5 py-4">
@@ -215,7 +299,7 @@ export default function ElliottWavePage() {
             <p className="text-[10px]" style={{ color: "rgba(175,185,215,0.25)" }}>
               วิเคราะห์ {new Date(data.generatedAt).toLocaleString("th-TH", { hour: "2-digit", minute: "2-digit" })}
             </p>
-            <button onClick={load}
+            <button onClick={() => load(tf)}
               className="rounded-xl px-4 py-2 text-xs font-bold"
               style={{ background: "rgba(245,196,81,0.1)", border: "1px solid rgba(245,196,81,0.25)", color: "#f5c451" }}>
               🔄 วิเคราะห์ใหม่

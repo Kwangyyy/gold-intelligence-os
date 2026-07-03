@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 export interface SignalItem {
   module: string;
@@ -31,14 +32,18 @@ export interface MarketSummaryPayload {
 }
 
 async function safeGet(path: string, base: string) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 8000); // fail fast so one slow upstream can't hang the whole request
   try {
     const r = await fetch(`${base}${path}`, {
       headers: { "Cache-Control": "no-cache" },
       cache: "no-store",
+      signal: ctrl.signal,
     });
     if (!r.ok) return null;
     return await r.json();
   } catch { return null; }
+  finally { clearTimeout(timer); }
 }
 
 let CACHE: { data: MarketSummaryPayload; ts: number } | null = null;

@@ -12,6 +12,7 @@ export interface WavePivot {
   date: string;
   type: "high" | "low";
   label: string;   // "0","1","2","3","4","5","A","B","C"
+  legPct: number;  // % move of this wave leg from the previous labeled pivot
 }
 
 export interface ZigzagPoint {
@@ -50,12 +51,13 @@ export interface ElliottWavePayload {
   generatedAt: string;
 }
 
-// Timeframe → Yahoo query + processing config
-const TF_CONFIG: Record<ElliottTF, { range: string; interval: string; aggregate: number; lookback: number; maxBars: number }> = {
-  "1h": { range: "1mo", interval: "60m", aggregate: 1, lookback: 5, maxBars: 160 },
-  "4h": { range: "3mo", interval: "60m", aggregate: 4, lookback: 4, maxBars: 160 },
-  "1d": { range: "1y",  interval: "1d",  aggregate: 1, lookback: 5, maxBars: 200 },
-  "1w": { range: "5y",  interval: "1wk", aggregate: 1, lookback: 5, maxBars: 200 },
+// Timeframe → Yahoo query + processing config.
+// `deviation` = min % swing for the ZigZag to register a new wave pivot (bigger TF = bigger swings).
+const TF_CONFIG: Record<ElliottTF, { range: string; interval: string; aggregate: number; deviation: number; maxBars: number }> = {
+  "1h": { range: "1mo", interval: "60m", aggregate: 1, deviation: 1.2, maxBars: 160 },
+  "4h": { range: "3mo", interval: "60m", aggregate: 4, deviation: 2.2, maxBars: 160 },
+  "1d": { range: "1y",  interval: "1d",  aggregate: 1, deviation: 3.5, maxBars: 220 },
+  "1w": { range: "5y",  interval: "1wk", aggregate: 1, deviation: 6.0, maxBars: 220 },
 };
 
 async function fetchGold(tf: ElliottTF) {
@@ -93,27 +95,50 @@ function aggregate(hi: number[], lo: number[], cl: number[], ts: number[], n: nu
   return { hi: H, lo: L, cl: C, ts: T };
 }
 
-// Zigzag pivot detection on the chart series
-function findPivots(hi: number[], lo: number[], ts: number[], lookback: number) {
-  const pivots: { idx: number; price: number; type: "high"|"low"; date: string }[] = [];
-  for (let i = lookback; i < hi.length - lookback; i++) {
-    const isHigh = hi.slice(i - lookback, i).every(h => h <= hi[i]) && hi.slice(i + 1, i + lookback + 1).every(h => h <= hi[i]);
-    const isLow  = lo.slice(i - lookback, i).every(l => l >= lo[i]) && lo.slice(i + 1, i + lookback + 1).every(l => l >= lo[i]);
-    if (isHigh) pivots.push({ idx: i, price: hi[i], type: "high", date: new Date(ts[i] * 1000).toISOString().slice(0, 10) });
-    if (isLow)  pivots.push({ idx: i, price: lo[i], type: "low",  date: new Date(ts[i] * 1000).toISOString().slice(0, 10) });
+// Percentage-deviation ZigZag on closes — the classic "wave measuring" indicator.
+// Registers a new pivot only when price reverses from the running extreme by >= `pct`.
+// Exactly one state branch runs per bar, so the % filter is respected (no spurious pivots).
+function computeZigzag(closes: number[], ts: number[], pct: number) {
+  const n = closes.length;
+  const piv: { idx: number; price: number; type: "high"|"low"; date: string }[] = [];
+  if (n < 3) return piv;
+  const th = pct / 100;
+  const dt = (i: number) => new Date((ts[i] ?? 0) * 1000).toISOString().slice(0, 10);
+  const push = (idx: number, type: "high"|"low") =>
+    piv.push({ idx, price: +closes[idx].toFixed(1), type, date: dt(idx) });
+
+  let trend: 0 | 1 | -1 = 0;
+  let extIdx = 0, extP = closes[0];          // running extreme once trend is established
+  let hiIdx = 0, hiP = closes[0];            // running max while seeking initial direction
+  let loIdx = 0, loP = closes[0];            // running min while seeking initial direction
+
+  for (let i = 1; i < n; i++) {
+    const c = closes[i];
+    if (trend === 0) {
+      if (c > hiP) { hiP = c; hiIdx = i; }
+      if (c < loP) { loP = c; loIdx = i; }
+      if (c <= hiP * (1 - th)) {              // dropped off the peak → peak was a high
+        push(hiIdx, "high"); trend = -1; extP = c; extIdx = i;
+      } else if (c >= loP * (1 + th)) {       // rose off the trough → trough was a low
+        push(loIdx, "low"); trend = 1; extP = c; extIdx = i;
+      }
+    } else if (trend === 1) {
+      if (c > extP) { extP = c; extIdx = i; }
+      else if (c <= extP * (1 - th)) { push(extIdx, "high"); trend = -1; extP = c; extIdx = i; }
+    } else {
+      if (c < extP) { extP = c; extIdx = i; }
+      else if (c >= extP * (1 + th)) { push(extIdx, "low"); trend = 1; extP = c; extIdx = i; }
+    }
   }
-  // Deduplicate adjacent same-type pivots (keep the strongest)
-  const deduped: typeof pivots = [];
-  for (const p of pivots) {
-    const last = deduped.at(-1);
-    if (!last || last.type !== p.type) deduped.push(p);
-    else if (p.type === "high" && p.price > last.price) deduped[deduped.length - 1] = p;
-    else if (p.type === "low"  && p.price < last.price) deduped[deduped.length - 1] = p;
-  }
-  return deduped;
+  // Commit the final running extreme so the zigzag reaches the latest swing
+  push(extIdx, trend >= 0 ? "high" : "low");
+
+  // Drop a duplicate final pivot if the last two share an index
+  if (piv.length >= 2 && piv[piv.length - 1].idx === piv[piv.length - 2].idx) piv.pop();
+  return piv;
 }
 
-function countWaves(pivots: ReturnType<typeof findPivots>, spot: number) {
+function countWaves(pivots: ReturnType<typeof computeZigzag>, spot: number) {
   const recent = pivots.slice(-8);
 
   if (recent.length < 4) {
@@ -173,10 +198,18 @@ function countWaves(pivots: ReturnType<typeof findPivots>, spot: number) {
     confidence = "low";
   }
 
-  const wavePivots: WavePivot[] = recent.slice(-6).map((p, i) => ({
-    index: p.idx, seriesIndex: p.idx, price: +p.price.toFixed(0), date: p.date, type: p.type,
-    label: ["0","1","2","3","4","5"][i] ?? String(i),
-  }));
+  // Label the last up-to-9 significant swings as an Elliott sequence (0-5, A-B-C)
+  const LABELS = ["0","1","2","3","4","5","A","B","C"];
+  const labeledPivots = pivots.slice(-LABELS.length);
+  const wavePivots: WavePivot[] = labeledPivots.map((p, i) => {
+    const prev = labeledPivots[i - 1];
+    const legPct = prev ? ((p.price - prev.price) / prev.price) * 100 : 0;
+    return {
+      index: p.idx, seriesIndex: p.idx, price: +p.price.toFixed(0), date: p.date, type: p.type,
+      label: LABELS[i] ?? String(i),
+      legPct: +legPct.toFixed(1),
+    };
+  });
 
   const projections: WaveProjection[] = upTrend ? [
     { label: "Wave 3 Target (1.618)", labelTh: "เป้า Wave 3 (1.618x)", price: +wave3Target161.toFixed(0), fibRatio: 1.618, type: "target" },
@@ -241,11 +274,11 @@ export async function GET(req: Request) {
     // Aggregate (for 4h) then cap to maxBars
     const agg = aggregate(hi, lo, cl, ts, cfg.aggregate);
     const start = Math.max(0, agg.cl.length - cfg.maxBars);
-    const sHi = agg.hi.slice(start), sLo = agg.lo.slice(start), sCl = agg.cl.slice(start), sTs = agg.ts.slice(start);
+    const sCl = agg.cl.slice(start), sTs = agg.ts.slice(start);
 
     const spot = res?.meta?.regularMarketPrice ?? sCl.at(-1) ?? 3200;
 
-    const pivots = findPivots(sHi, sLo, sTs, cfg.lookback);
+    const pivots = computeZigzag(sCl, sTs, cfg.deviation);
     const zigzag: ZigzagPoint[] = pivots.map(p => ({ i: p.idx, price: +p.price.toFixed(1), type: p.type }));
     const waveAnalysis = countWaves(pivots, spot);
 

@@ -81,15 +81,40 @@ function WaveChart({ data }: { data: ElliottWavePayload }) {
           fill={z.type === "high" ? "#f5c451" : "#34d399"} opacity="0.7" />
       ))}
 
-      {/* Labeled wave points (0-5) with number badges */}
+      {/* Emphasized path through the labeled (counted) wave pivots */}
+      {labeled.length >= 2 && (
+        <polyline
+          points={labeled.map(p => `${toX(p.seriesIndex).toFixed(1)},${toY(p.price).toFixed(1)}`).join(" ")}
+          fill="none" stroke="#c084fc" strokeWidth="2.6" strokeLinejoin="round" strokeLinecap="round"
+        />
+      )}
+
+      {/* Per-leg % measurement at the midpoint of each labeled wave */}
+      {labeled.map((p, i) => {
+        if (i === 0 || !p.legPct) return null;
+        const prev = labeled[i - 1];
+        const mx = (toX(prev.seriesIndex) + toX(p.seriesIndex)) / 2;
+        const my = (toY(prev.price) + toY(p.price)) / 2;
+        const up = p.legPct >= 0;
+        return (
+          <text key={`m${i}`} x={mx} y={my} textAnchor="middle" fontSize="8" fontWeight="bold"
+            fill={up ? "rgba(52,211,153,0.85)" : "rgba(248,113,113,0.85)"}
+            style={{ paintOrder: "stroke", stroke: "#0a0f1e", strokeWidth: 2.5 }}>
+            {up ? "+" : ""}{p.legPct}%
+          </text>
+        );
+      })}
+
+      {/* Labeled wave points (0-5, A-B-C) with badges */}
       {labeled.map((p, i) => {
         const x = toX(p.seriesIndex), y = toY(p.price);
         const above = p.type === "high";
         return (
           <g key={`l${i}`}>
-            <circle cx={x} cy={y} r="4.5" fill={above ? "#f5c451" : "#34d399"} stroke="#0a0f1e" strokeWidth="1.5" />
-            <text x={x} y={above ? y - 8 : y + 14} textAnchor="middle" fontSize="11" fontWeight="bold"
-              fill={above ? "#f5c451" : "#34d399"}>{p.label}</text>
+            <circle cx={x} cy={y} r="5" fill={above ? "#f5c451" : "#34d399"} stroke="#0a0f1e" strokeWidth="1.5" />
+            <text x={x} y={above ? y - 9 : y + 15} textAnchor="middle" fontSize="12" fontWeight="bold"
+              fill={above ? "#f5c451" : "#34d399"}
+              style={{ paintOrder: "stroke", stroke: "#0a0f1e", strokeWidth: 3 }}>{p.label}</text>
           </g>
         );
       })}

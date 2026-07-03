@@ -80,19 +80,19 @@ const TF_CONFIG: Record<ElliottTF, { range: string; interval: string; aggregate:
 };
 
 // Wave degree per timeframe (Elliott/NeoWave fractal nesting: large → small).
-// Each degree uses its own notation so counts stay consistent across timeframes:
-//   1W Primary ①②③ · 1D Intermediate (1)(2)(3) · 4H Minor 1 2 3 · 1H Minute (i)(ii)(iii) · 15m Minuette i ii iii
+// Each degree uses its own standard notation so counts stay consistent across timeframes:
+//   1W Cycle I-V · 1D Primary ①-⑤ · 4H Intermediate (1)-(5) · 1H Minor 1-5 · 15m Minute (i)-(v)
 const DEGREE: Record<ElliottTF, { name: string; nameTh: string; glyph: Record<string, string> }> = {
-  "1w":  { name: "Primary", nameTh: "Primary (ดีกรีใหญ่สุด)",
+  "1w":  { name: "Cycle", nameTh: "Cycle (ดีกรีใหญ่ — เหนือ Primary)",
+    glyph: { "0":"◦", "1":"I","2":"II","3":"III","4":"IV","5":"V","A":"a","B":"b","C":"c","D":"d","E":"e" } },
+  "1d":  { name: "Primary", nameTh: "Primary",
     glyph: { "0":"◦", "1":"①","2":"②","3":"③","4":"④","5":"⑤","A":"Ⓐ","B":"Ⓑ","C":"Ⓒ","D":"Ⓓ","E":"Ⓔ" } },
-  "1d":  { name: "Intermediate", nameTh: "Intermediate",
+  "4h":  { name: "Intermediate", nameTh: "Intermediate",
     glyph: { "0":"◦", "1":"(1)","2":"(2)","3":"(3)","4":"(4)","5":"(5)","A":"(A)","B":"(B)","C":"(C)","D":"(D)","E":"(E)" } },
-  "4h":  { name: "Minor", nameTh: "Minor",
+  "1h":  { name: "Minor", nameTh: "Minor",
     glyph: { "0":"◦", "1":"1","2":"2","3":"3","4":"4","5":"5","A":"A","B":"B","C":"C","D":"D","E":"E" } },
-  "1h":  { name: "Minute", nameTh: "Minute",
+  "15m": { name: "Minute", nameTh: "Minute (ดีกรีเล็ก)",
     glyph: { "0":"◦", "1":"(i)","2":"(ii)","3":"(iii)","4":"(iv)","5":"(v)","A":"(a)","B":"(b)","C":"(c)","D":"(d)","E":"(e)" } },
-  "15m": { name: "Minuette", nameTh: "Minuette (ดีกรีเล็กสุด)",
-    glyph: { "0":"◦", "1":"i","2":"ii","3":"iii","4":"iv","5":"v","A":"a","B":"b","C":"c","D":"d","E":"e" } },
 };
 
 async function fetchGold(tf: ElliottTF) {
@@ -471,19 +471,26 @@ function analyzeNeoWave(pivots: Zig[], spot: number) {
   };
 }
 
-const CACHE: Partial<Record<ElliottTF, { data: ElliottWavePayload; ts: number }>> = {};
+const CACHE: Record<string, { data: ElliottWavePayload; ts: number }> = {};
 const TTL = 30 * 60 * 1000; // 30 min
+
+// Count sensitivity → multiplier on the ZigZag deviation. Lower = finer (more waves).
+const SENS: Record<string, number> = { fine: 0.6, normal: 1.0, coarse: 1.7 };
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const tfParam = (url.searchParams.get("tf") ?? "1d") as ElliottTF;
   const tf: ElliottTF = ["15m","1h","4h","1d","1w"].includes(tfParam) ? tfParam : "1d";
+  const sensParam = url.searchParams.get("sens") ?? "normal";
+  const sens = SENS[sensParam] ? sensParam : "normal";
 
-  const cached = CACHE[tf];
+  const cacheKey = `${tf}:${sens}`;
+  const cached = CACHE[cacheKey];
   if (cached && Date.now() - cached.ts < TTL) return NextResponse.json(cached.data);
 
   try {
     const cfg = TF_CONFIG[tf];
+    const deviation = cfg.deviation * SENS[sens];
     const j   = await fetchGold(tf);
     const obj = j as YJ;
     const res = obj?.chart?.result?.[0];
@@ -512,7 +519,7 @@ export async function GET(req: Request) {
 
     const spot = res?.meta?.regularMarketPrice ?? sCl.at(-1) ?? 3200;
 
-    const pivots = computeZigzag(sHi, sLo, sTs, cfg.deviation);
+    const pivots = computeZigzag(sHi, sLo, sTs, deviation);
     const zigzag: ZigzagPoint[] = pivots.map(p => ({ i: p.idx, price: +p.price.toFixed(1), type: p.type }));
     const waveAnalysis = analyzeNeoWave(pivots, spot);
 
@@ -541,7 +548,7 @@ export async function GET(req: Request) {
       generatedAt: new Date().toISOString(),
     };
 
-    CACHE[tf] = { data, ts: Date.now() };
+    CACHE[cacheKey] = { data, ts: Date.now() };
     return NextResponse.json(data);
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });

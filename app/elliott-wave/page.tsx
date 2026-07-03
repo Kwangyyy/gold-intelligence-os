@@ -10,7 +10,7 @@ const TFS: { id: ElliottTF; label: string }[] = [
   { id: "1d", label: "1D" }, { id: "1w", label: "1W" },
 ];
 
-type OverlayKey = "ema20" | "ema50" | "ema100" | "ema200" | "sma20" | "sma50" | "sma200" | "bb" | "keltner" | "donchian" | "vwap" | "psar" | "supertrend" | "volume";
+type OverlayKey = "ema20" | "ema50" | "ema100" | "ema200" | "sma20" | "sma50" | "sma200" | "bb" | "keltner" | "donchian" | "ichimoku" | "vwap" | "psar" | "supertrend" | "volume";
 const OVERLAYS: { id: OverlayKey; label: string; color: string }[] = [
   { id: "ema20",  label: "EMA20",  color: "#60a5fa" },
   { id: "ema50",  label: "EMA50",  color: "#f5c451" },
@@ -22,6 +22,7 @@ const OVERLAYS: { id: OverlayKey; label: string; color: string }[] = [
   { id: "bb",     label: "Bollinger", color: "#94a3b8" },
   { id: "keltner", label: "Keltner", color: "#818cf8" },
   { id: "donchian", label: "Donchian", color: "#5eead4" },
+  { id: "ichimoku", label: "Ichimoku", color: "#38bdf8" },
   { id: "vwap",   label: "VWAP",   color: "#e879f9" },
   { id: "psar",   label: "PSAR",   color: "#facc15" },
   { id: "supertrend", label: "SuperTrend", color: "#f97316" },
@@ -200,6 +201,24 @@ function adx(h: number[], l: number[], c: number[], p = 14) {
   for (let i = 2 * p; i < c.length; i++) { if (i === 2 * p) a = dx.slice(p, 2 * p).reduce((x, y) => x + y, 0) / p; else a = (a * (p - 1) + dx[i]) / p; adxL[i] = a; }
   return { adx: adxL, pdi, mdi };
 }
+// Ichimoku — returns ready-to-plot {time,value}[] per line. Senkou spans project 26 bars
+// forward (future timestamps), Chikou plots 26 bars back.
+function ichimoku(t: number[], h: number[], l: number[], c: number[]) {
+  const n = c.length;
+  const mid = (p: number, i: number) => { const hh = Math.max(...h.slice(i - p + 1, i + 1)), ll = Math.min(...l.slice(i - p + 1, i + 1)); return (hh + ll) / 2; };
+  const diffs: number[] = []; for (let i = Math.max(1, n - 10); i < n; i++) { const d = t[i] - t[i - 1]; if (d > 0) diffs.push(d); }
+  const dt = diffs.length ? Math.min(...diffs) : 86400;
+  const ft = (idx: number) => (idx < n ? t[idx] : t[n - 1] + (idx - (n - 1)) * dt);
+  const tenkan: { time: number; value: number }[] = [], kijun: typeof tenkan = [], spanA: typeof tenkan = [], spanB: typeof tenkan = [], chikou: typeof tenkan = [];
+  for (let i = 0; i < n; i++) {
+    if (i >= 8) tenkan.push({ time: t[i], value: mid(9, i) });
+    if (i >= 25) kijun.push({ time: t[i], value: mid(26, i) });
+    if (i >= 25) spanA.push({ time: ft(i + 26), value: (mid(9, i) + mid(26, i)) / 2 });
+    if (i >= 51) spanB.push({ time: ft(i + 26), value: mid(52, i) });
+  }
+  for (let i = 26; i < n; i++) chikou.push({ time: t[i - 26], value: c[i] });
+  return { tenkan, kijun, spanA, spanB, chikou };
+}
 const toLine = (t: number[], v: (number | null)[]) =>
   t.map((time, i) => ({ time, value: v[i] })).filter(x => x.value != null) as { time: number; value: number }[];
 
@@ -216,9 +235,10 @@ export default function ElliottWavePage() {
   const [libReady, setLibReady] = useState(false);
   const [ov, setOv] = useState<Record<OverlayKey, boolean>>({
     ema20: false, ema50: true, ema100: false, ema200: true, sma20: false, sma50: false, sma200: false,
-    bb: false, keltner: false, donchian: false, vwap: false, psar: false, supertrend: false, volume: true,
+    bb: false, keltner: false, donchian: false, ichimoku: false, vwap: false, psar: false, supertrend: false, volume: true,
   });
   const [osc, setOsc] = useState<Osc>("rsi");
+  const [sens, setSens] = useState<"fine" | "normal" | "coarse">("normal");
 
   const boxRef = useRef<HTMLDivElement>(null);
   const oscBoxRef = useRef<HTMLDivElement>(null);
@@ -230,16 +250,16 @@ export default function ElliottWavePage() {
   const oscSeriesRef = useRef<any[]>([]);
   const syncing = useRef(false);
 
-  const load = useCallback(async (timeframe: ElliottTF) => {
+  const load = useCallback(async (timeframe: ElliottTF, sensitivity: string) => {
     setLoading(true); setErr("");
     try {
-      const r = await fetch(`/api/elliott-wave?tf=${timeframe}`, { cache: "no-store" });
+      const r = await fetch(`/api/elliott-wave?tf=${timeframe}&sens=${sensitivity}`, { cache: "no-store" });
       const j = await r.json();
       if (j.error) throw new Error(j.error);
       setData(j);
     } catch (e) { setErr(String(e)); } finally { setLoading(false); }
   }, []);
-  useEffect(() => { load(tf); }, [load, tf]);
+  useEffect(() => { load(tf, sens); }, [load, tf, sens]);
 
   // main chart create (once)
   useEffect(() => {
@@ -303,6 +323,15 @@ export default function ElliottWavePage() {
 
     if (ov.donchian) { const dc = donchian(s.h, s.l); ensure("dU", { color: "rgba(94,234,212,0.5)" }).setData(toLine(s.t, dc.up)); ensure("dL", { color: "rgba(94,234,212,0.5)" }).setData(toLine(s.t, dc.lo)); ensure("dM", { color: "rgba(94,234,212,0.25)" }).setData(toLine(s.t, dc.mid)); }
     else { drop("dU"); drop("dL"); drop("dM"); }
+
+    if (ov.ichimoku) {
+      const ic = ichimoku(s.t, s.h, s.l, s.c);
+      ensure("ichTen", { color: "#38bdf8", lineWidth: 1 }).setData(ic.tenkan);
+      ensure("ichKij", { color: "#fb7185", lineWidth: 1 }).setData(ic.kijun);
+      ensure("ichA", { color: "rgba(34,197,94,0.7)", lineWidth: 1 }).setData(ic.spanA);
+      ensure("ichB", { color: "rgba(239,68,68,0.7)", lineWidth: 1 }).setData(ic.spanB);
+      ensure("ichChi", { color: "rgba(148,163,184,0.7)", lineWidth: 1 }).setData(ic.chikou);
+    } else { ["ichTen", "ichKij", "ichA", "ichB", "ichChi"].forEach(drop); }
 
     if (ov.psar) ensure("psar", { color: "#facc15", lineWidth: 1, lineVisible: false, pointMarkersVisible: true, pointMarkersRadius: 1.5 }).setData(toLine(s.t, psar(s.h, s.l))); else drop("psar");
     if (ov.supertrend) ensure("st", { color: "#f97316", lineWidth: 2 }).setData(toLine(s.t, supertrend(s.h, s.l, s.c))); else drop("st");
@@ -417,6 +446,16 @@ export default function ElliottWavePage() {
           {data && <span className="text-[9px] px-2 py-1 rounded-lg" style={{ background: "rgba(192,132,252,0.12)", color: "#c084fc" }}>ดีกรี: {data.degree}</span>}
         </div>
         <div className="flex items-center gap-2">
+          <span className="text-[9px] uppercase tracking-widest" style={{ color: "rgba(175,185,215,0.3)" }}>ความไว</span>
+          <div className="flex gap-1 rounded-xl p-1" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
+            {([["fine", "ละเอียด"], ["normal", "ปกติ"], ["coarse", "หยาบ"]] as const).map(([id, lb]) => {
+              const a = sens === id;
+              return <button key={id} onClick={() => setSens(id)} className="rounded-lg px-2.5 py-1.5 text-[11px] font-bold transition-all"
+                style={a ? { background: "rgba(52,211,153,0.18)", color: "#34d399", boxShadow: "inset 0 0 0 1px rgba(52,211,153,0.4)" } : { color: "rgba(175,185,215,0.5)" }}>{lb}</button>;
+            })}
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
           <span className="text-[9px] uppercase tracking-widest" style={{ color: "rgba(175,185,215,0.3)" }}>Osc</span>
           <div className="flex gap-1 rounded-xl p-1" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
             {OSCS.map(o => {
@@ -528,7 +567,7 @@ export default function ElliottWavePage() {
               <li>→ {data.disclaimer}</li>
             </ul>
             <div className="mt-2 flex justify-end">
-              <button onClick={() => load(tf)} className="rounded-xl px-4 py-2 text-xs font-bold" style={{ background: "rgba(245,196,81,0.1)", border: "1px solid rgba(245,196,81,0.25)", color: "#f5c451" }}>🔄 วิเคราะห์ใหม่</button>
+              <button onClick={() => load(tf, sens)} className="rounded-xl px-4 py-2 text-xs font-bold" style={{ background: "rgba(245,196,81,0.1)", border: "1px solid rgba(245,196,81,0.25)", color: "#f5c451" }}>🔄 วิเคราะห์ใหม่</button>
             </div>
           </div>
         </div>

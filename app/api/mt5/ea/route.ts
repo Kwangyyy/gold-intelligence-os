@@ -5,7 +5,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 
-function buildEACode(serverUrl: string): string {
+function buildEACode(serverUrl: string, token: string): string {
   return `//+------------------------------------------------------------------+
 //|  GoldIntelligenceOS_Bridge.mq5                                   |
 //|  Auto-pushes MT5 account + positions + history to GIOS           |
@@ -16,9 +16,9 @@ function buildEACode(serverUrl: string): string {
 #property strict
 
 //── Inputs ────────────────────────────────────────────────────────────────────
-input string InpServerUrl    = "${serverUrl}/api/mt5/push"; // GIOS Server URL
-input string InpApiKey       = "mt5-bridge-key";            // API Key
-input int    InpIntervalSec  = 15;                          // Push interval (sec)
+input string InpServerUrl      = "${serverUrl}/api/mt5/push";     // GIOS Server URL
+input string InpAccountToken   = "${token}"; // Account Token (จากหน้า MT5 Bridge)
+input int    InpIntervalSec    = 15;                             // Push interval (sec)
 input int    InpHistoryDays  = 30;                          // Days of trade history
 input int    InpMaxHistory   = 50;                          // Max closed trades to send
 input bool   InpDebugLog     = false;                       // Debug log
@@ -195,7 +195,7 @@ void PushData()
    );
 
    // ── HTTP POST ─────────────────────────────────────────────────
-   string headers = "Content-Type: application/json\\r\\nAuthorization: Bearer " + InpApiKey;
+   string headers = "Content-Type: application/json\\r\\nAuthorization: Bearer " + InpAccountToken;
    char   reqData[], resData[];
    string resHeaders;
    StringToCharArray(body, reqData, 0, StringLen(body));
@@ -231,8 +231,10 @@ void PushData()
 }
 
 export async function GET(req: NextRequest) {
-  const origin = new URL(req.url).origin;
-  const code = buildEACode(origin);
+  const url    = new URL(req.url);
+  const origin = url.origin;
+  const token  = url.searchParams.get("token") ?? "PASTE_YOUR_ACCOUNT_TOKEN_HERE";
+  const code   = buildEACode(origin, token);
 
   return new NextResponse(code, {
     headers: {

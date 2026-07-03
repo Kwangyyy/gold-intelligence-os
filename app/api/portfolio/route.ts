@@ -1,19 +1,26 @@
 import { NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 import { buildPortfolio } from "@/lib/portfolio";
-import { getMT5Data } from "@/lib/mt5Store";
+import { getUserLiveData } from "@/lib/mt5Store";
 import { getMarketSnapshot } from "@/lib/marketSnapshot";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: Request) {
   let price = 4000;
   try {
     const m = await getMarketSnapshot();
     if (m?.price) price = m.price;
   } catch { /* use fallback */ }
 
-  // Prefer live MT5 data if fresh
-  const mt5 = await getMT5Data();
+  // Prefer live MT5 data for the logged-in user's selected account (or their first)
+  const session = await getServerSession(authOptions);
+  const email   = session?.user?.email;
+  const accountId = new URL(req.url).searchParams.get("account") ?? undefined;
+  const live = email ? await getUserLiveData(email, accountId) : null;
+  const mt5 = live?.data ?? null;
   if (mt5) {
     const floating = mt5.positions.reduce((s, p) => s + p.profit + p.swap, 0);
     return NextResponse.json({

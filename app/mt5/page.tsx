@@ -2,70 +2,46 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { PageHeader } from "@/components/PageHeader";
-import type { MT5Account, MT5Position } from "@/lib/mt5Store";
+import type { MT5Account, MT5AccountMeta } from "@/lib/mt5Store";
 
-const fmt  = (n: number, d = 2) => n.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
-const ago  = (ms: number) => {
+const fmt = (n: number, d = 2) => n.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
+const ago = (ms: number) => {
   const s = Math.floor((Date.now() - ms) / 1000);
-  if (s < 60)  return `${s}s ago`;
+  if (s < 60) return `${s}s ago`;
   if (s < 3600) return `${Math.floor(s / 60)}m ago`;
   return `${Math.floor(s / 3600)}h ago`;
 };
-const openDur = (unixSec: number) => {
-  const s = Math.floor(Date.now() / 1000) - unixSec;
-  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
-  return h > 0 ? `${h}h ${m}m` : `${m}m`;
-};
 
-type AccountData = (MT5Account & { connected: true }) | { connected: false };
-
-function StatCard({ label, value, sub, color }: { label: string; value: string; sub?: string; color?: string }) {
-  return (
-    <div className="panel p-4">
-      <div className="text-[9px] uppercase tracking-widest text-silver/35 mb-1">{label}</div>
-      <div className="font-mono text-xl font-black" style={{ color: color ?? "#e2e8f0" }}>{value}</div>
-      {sub && <div className="mt-0.5 text-[10px] text-silver/30">{sub}</div>}
-    </div>
-  );
+interface AccountRow extends MT5AccountMeta {
+  connected: boolean;
+  data: MT5Account | null;
+}
+interface AccountsResponse {
+  tier: string;
+  isAdmin: boolean;
+  limit: number;
+  used: number;
+  accounts: AccountRow[];
 }
 
-function PositionRow({ p }: { p: MT5Position }) {
-  const pnlColor = p.profit >= 0 ? "#34d399" : "#f87171";
-  const isBuy    = p.type === "buy";
-  return (
-    <tr className="border-b border-base-border/10 hover:bg-white/[0.015] transition-colors">
-      <td className="px-3 py-2.5 font-bold text-silver/80">{p.symbol}</td>
-      <td className="px-3 py-2.5">
-        <span className="rounded px-1.5 py-0.5 text-[10px] font-black"
-          style={isBuy
-            ? { background: "rgba(52,211,153,0.15)", border: "1px solid rgba(52,211,153,0.4)", color: "#34d399" }
-            : { background: "rgba(248,113,113,0.15)", border: "1px solid rgba(248,113,113,0.4)", color: "#f87171" }}>
-          {isBuy ? "▲ BUY" : "▼ SELL"}
-        </span>
-      </td>
-      <td className="px-3 py-2.5 font-mono text-silver/60">{p.lots}</td>
-      <td className="px-3 py-2.5 font-mono text-silver/60">{fmt(p.openPrice, 5)}</td>
-      <td className="px-3 py-2.5 font-mono text-silver/80">{fmt(p.currentPrice, 5)}</td>
-      <td className="px-3 py-2.5 font-mono text-red-400/60">{p.sl > 0 ? fmt(p.sl, 5) : "—"}</td>
-      <td className="px-3 py-2.5 font-mono text-emerald-400/60">{p.tp > 0 ? fmt(p.tp, 5) : "—"}</td>
-      <td className="px-3 py-2.5 font-mono font-black" style={{ color: pnlColor }}>
-        {p.profit >= 0 ? "+" : ""}{fmt(p.profit)}
-      </td>
-      <td className="px-3 py-2.5 text-silver/35 text-[10px]">{openDur(p.openTime)}</td>
-      {p.comment && <td className="px-3 py-2.5 text-silver/30 text-[10px] max-w-[100px] truncate">{p.comment}</td>}
-    </tr>
-  );
-}
+const TIER_LABEL: Record<string, string> = { free: "Free", premium: "Premium", pro: "Pro" };
 
 export default function MT5Page() {
-  const [data, setData]       = useState<AccountData | null>(null);
+  const [resp, setResp]       = useState<AccountsResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [busy, setBusy]       = useState<string | null>(null);
+  const [newLabel, setNewLabel] = useState("");
+  const [adding, setAdding]   = useState(false);
+  const [reveal, setReveal]   = useState<Record<string, boolean>>({});
+  const [copied, setCopied]   = useState<string | null>(null);
+  const [toast, setToast]     = useState<{ msg: string; ok: boolean } | null>(null);
+
+  const flash = (msg: string, ok: boolean) => { setToast({ msg, ok }); setTimeout(() => setToast(null), 3000); };
 
   const load = useCallback(async () => {
     try {
-      const r  = await fetch("/api/mt5/account");
-      const d  = await r.json();
-      setData(d);
+      const r = await fetch("/api/mt5/accounts", { cache: "no-store" });
+      if (r.ok) setResp(await r.json());
     } catch { /* silent */ } finally { setLoading(false); }
   }, []);
 
@@ -75,150 +51,248 @@ export default function MT5Page() {
     return () => clearInterval(t);
   }, [load]);
 
-  const connected  = data?.connected === true;
-  const acc        = connected ? (data as MT5Account & { connected: true }) : null;
-  const positions  = acc?.positions ?? [];
-  const totalProfit = positions.reduce((s, p) => s + p.profit, 0);
-  const marginLvl  = acc?.marginLevel ?? 0;
-  const mlColor    = marginLvl === 0 ? "#475569" : marginLvl > 1000 ? "#34d399" : marginLvl > 300 ? "#f5c451" : "#f87171";
+  const addAccount = async () => {
+    setBusy("add");
+    const r = await fetch("/api/mt5/accounts", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ label: newLabel.trim() }),
+    });
+    const j = await r.json();
+    setBusy(null);
+    if (j.ok) { setNewLabel(""); setAdding(false); flash("เพิ่มพอร์ตแล้ว ✓", true); await load(); }
+    else flash(j.error ?? "เพิ่มพอร์ตไม่สำเร็จ", false);
+  };
+
+  const removeAccount = async (id: string, label: string) => {
+    if (!confirm(`ลบพอร์ต "${label}"? EA ที่ใช้ token นี้จะหยุดส่งข้อมูล`)) return;
+    setBusy(id);
+    const r = await fetch(`/api/mt5/accounts?id=${id}`, { method: "DELETE" });
+    setBusy(null);
+    if (r.ok) { flash("ลบพอร์ตแล้ว", true); await load(); }
+  };
+
+  const regen = async (id: string) => {
+    if (!confirm("สร้าง token ใหม่? token เดิมจะใช้ไม่ได้ทันที — ต้องอัปเดตใน EA")) return;
+    setBusy(id);
+    const r = await fetch("/api/mt5/accounts", {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "regenerate", id }),
+    });
+    setBusy(null);
+    if (r.ok) { flash("สร้าง token ใหม่แล้ว", true); await load(); }
+  };
+
+  const copy = (text: string, key: string) => {
+    navigator.clipboard?.writeText(text);
+    setCopied(key); setTimeout(() => setCopied(null), 1500);
+  };
+
+  const atLimit = resp ? resp.used >= resp.limit : false;
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
-      <div className="flex items-start justify-between mb-1">
+    <div className="mx-auto max-w-4xl px-4 py-6 sm:px-6 lg:px-8">
+      {toast && (
+        <div className="fixed top-4 right-4 z-50 rounded-xl px-5 py-3 text-sm font-bold shadow-xl"
+          style={toast.ok
+            ? { background: "rgba(16,60,40,0.95)", border: "1px solid rgba(52,211,153,0.4)", color: "#34d399" }
+            : { background: "rgba(70,20,20,0.95)", border: "1px solid rgba(248,113,113,0.4)", color: "#f87171" }}>
+          {toast.msg}
+        </div>
+      )}
+
+      <div className="flex items-start justify-between">
         <PageHeader title="MT5 Bridge 🔌"
-          subtitle="ข้อมูล account + positions จาก MetaTrader 5 แบบ real-time" />
-        {acc && (
-          <div className="mt-1 flex items-center gap-2">
-            <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="text-[11px] text-emerald-400/80">Connected</span>
-            <span className="text-[10px] text-silver/30">{ago(acc.lastUpdate)}</span>
+          subtitle="เชื่อมต่อหลายพอร์ต MetaTrader 5 — ข้อมูลของคุณแยกเฉพาะบัญชีคุณ ไม่ปนกับคนอื่น" />
+        {resp && (
+          <div className="mt-1 text-right shrink-0">
+            <div className="text-[9px] uppercase tracking-widest" style={{ color: "rgba(175,185,215,0.35)" }}>
+              {TIER_LABEL[resp.tier] ?? resp.tier} Plan
+            </div>
+            <div className="text-lg font-black" style={{ color: atLimit ? "#f5c451" : "#34d399" }}>
+              {resp.used}/{resp.limit} <span className="text-[10px] font-normal" style={{ color: "rgba(175,185,215,0.4)" }}>พอร์ต</span>
+            </div>
           </div>
         )}
       </div>
 
-      {/* ── Not connected state ─────────────────────────────────── */}
-      {!loading && !connected && (
-        <div className="mt-6 panel p-8 text-center">
-          <div className="text-4xl mb-4 opacity-30">🔌</div>
-          <div className="text-lg font-bold text-silver/50 mb-2">ยังไม่ได้เชื่อมต่อ MT5</div>
-          <p className="text-sm text-silver/30 mb-6 max-w-md mx-auto">
-            ติดตั้ง EA Bridge บน MetaTrader 5 เพื่อส่งข้อมูล account + positions มาแสดงที่นี่แบบ real-time
-          </p>
-          <div className="flex flex-col items-center gap-3">
-            <a href="/api/mt5/ea"
-              className="inline-flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-bold transition-all"
-              style={{ background: "rgba(245,196,81,0.15)", border: "1px solid rgba(245,196,81,0.4)", color: "#f5c451" }}>
-              ⬇ ดาวน์โหลด GoldIntelligenceOS_Bridge.mq5
-            </a>
-            <div className="rounded-xl border border-base-border/20 p-4 text-left text-xs text-silver/40 max-w-sm">
-              <div className="font-bold text-silver/60 mb-2">วิธีติดตั้ง:</div>
-              <ol className="list-decimal list-inside space-y-1">
-                <li>ดาวน์โหลด .mq5 file ด้านบน</li>
-                <li>ใส่ใน MT5 → File → Open Data Folder → MQL5/Experts</li>
-                <li>Compile ใน MetaEditor (F7)</li>
-                <li>Drag EA ไปบนชาร์ตใดก็ได้</li>
-                <li>ตรวจสอบว่า WebRequest อนุญาต URL นี้ใน MT5 Options</li>
-              </ol>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Loading ─────────────────────────────────────────────── */}
       {loading && (
-        <div className="mt-12 flex flex-col items-center gap-3 text-silver/30">
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-gold/30 border-t-gold" />
-          <span className="text-sm">กำลังเชื่อมต่อ…</span>
+        <div className="mt-12 flex flex-col items-center gap-3" style={{ color: "rgba(175,185,215,0.3)" }}>
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-t-transparent" style={{ borderColor: "rgba(245,196,81,0.3)", borderTopColor: "transparent" }} />
+          <span className="text-sm">กำลังโหลดพอร์ต…</span>
         </div>
       )}
 
-      {/* ── Account stats ────────────────────────────────────────── */}
-      {connected && acc && (
-        <>
-          <div className="mb-3 flex items-center gap-3 text-[11px] text-silver/40">
-            <span className="font-bold text-silver/60">{acc.server}</span>
-            <span>·</span>
-            <span>#{acc.account}</span>
-            <span>·</span>
-            <span>1:{acc.leverage}</span>
-            <span>·</span>
-            <span>{acc.currency}</span>
-          </div>
-
-          <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6">
-            <StatCard label="Balance" value={`${acc.currency} ${fmt(acc.balance)}`} color="#e2e8f0" />
-            <StatCard label="Equity" value={`${acc.currency} ${fmt(acc.equity)}`}
-              color={acc.equity >= acc.balance ? "#34d399" : "#f87171"} />
-            <StatCard label="Floating P/L" value={`${totalProfit >= 0 ? "+" : ""}${fmt(totalProfit)}`}
-              color={totalProfit >= 0 ? "#34d399" : "#f87171"}
-              sub={`${positions.length} open position${positions.length !== 1 ? "s" : ""}`} />
-            <StatCard label="Margin" value={fmt(acc.margin)} sub="used" />
-            <StatCard label="Free Margin" value={fmt(acc.freeMargin)} color="#60a5fa" />
-            <StatCard label="Margin Level" value={marginLvl > 0 ? `${fmt(marginLvl, 0)}%` : "—"}
-              color={mlColor}
-              sub={marginLvl === 0 ? "no positions" : marginLvl > 1000 ? "safe" : marginLvl > 300 ? "caution" : "⚠ low!"} />
-          </div>
-
-          {/* ── Equity vs Balance bar ─────────────────────────────── */}
-          <div className="mb-5 panel p-4">
-            <div className="mb-2 flex justify-between text-[10px] text-silver/40">
-              <span>Equity vs Balance</span>
-              <span style={{ color: totalProfit >= 0 ? "#34d399" : "#f87171" }}>
-                {totalProfit >= 0 ? "+" : ""}{fmt(totalProfit)} ({fmt(acc.balance > 0 ? (totalProfit / acc.balance) * 100 : 0)}%)
-              </span>
+      {resp && !loading && (
+        <div className="mt-5 space-y-4">
+          {/* Tier limit banner */}
+          <div className="rounded-xl px-4 py-3 flex items-center justify-between flex-wrap gap-2"
+            style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)" }}>
+            <div className="text-[11px]" style={{ color: "rgba(175,185,215,0.5)" }}>
+              📊 โควตาพอร์ตตามแพ็กเกจ: <span style={{ color: "#9ca3af" }}>Free 1</span> ·
+              <span style={{ color: "#f5c451" }}> Premium 5</span> ·
+              <span style={{ color: "#c084fc" }}> Pro 10</span>
             </div>
-            <div className="relative h-3 w-full overflow-hidden rounded-full bg-white/5">
-              <div className="h-full rounded-full transition-all"
-                style={{
-                  width: `${Math.min(100, Math.abs((acc.equity / acc.balance) * 100))}%`,
-                  background: acc.equity >= acc.balance ? "#34d399" : "#f87171",
-                }} />
-              <div className="absolute inset-y-0 left-0 w-px bg-white/20"
-                style={{ left: `${Math.min(100, (acc.balance / Math.max(acc.balance, acc.equity)) * 100)}%` }} />
-            </div>
-          </div>
-
-          {/* ── Positions table ───────────────────────────────────── */}
-          <div className="panel overflow-hidden">
-            <div className="px-4 pt-3 pb-2 flex items-center justify-between border-b border-base-border/20">
-              <span className="text-[11px] font-bold text-silver/60">Open Positions ({positions.length})</span>
-              <button onClick={load} className="text-[10px] text-silver/30 hover:text-silver/60 transition-colors">↻</button>
-            </div>
-            {positions.length === 0 ? (
-              <div className="py-10 text-center text-sm text-silver/30">ไม่มี open positions</div>
+            {!atLimit ? (
+              <button onClick={() => setAdding(a => !a)}
+                className="rounded-lg px-4 py-1.5 text-xs font-bold"
+                style={{ background: "rgba(52,211,153,0.12)", border: "1px solid rgba(52,211,153,0.35)", color: "#34d399" }}>
+                + เพิ่มพอร์ต
+              </button>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="border-b border-base-border/20 text-[10px] uppercase tracking-widest text-silver/30">
-                      {["Symbol","Type","Lots","Open","Current","SL","TP","P/L","Duration"].map(h => (
-                        <th key={h} className="px-3 pb-2 pt-3 text-left whitespace-nowrap">{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {positions.map(p => <PositionRow key={p.ticket} p={p} />)}
-                  </tbody>
-                  <tfoot>
-                    <tr className="border-t border-base-border/30">
-                      <td colSpan={7} className="px-3 py-2.5 text-[10px] text-silver/30 font-bold">Total</td>
-                      <td className="px-3 py-2.5 font-mono font-black text-xs"
-                        style={{ color: totalProfit >= 0 ? "#34d399" : "#f87171" }}>
-                        {totalProfit >= 0 ? "+" : ""}{fmt(totalProfit)}
-                      </td>
-                      <td />
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
+              <span className="text-[11px] font-bold" style={{ color: "#f5c451" }}>
+                ⚡ เต็มโควตาแล้ว — อัปเกรดเพื่อเพิ่มพอร์ต
+              </span>
             )}
           </div>
 
-          <div className="mt-3 text-center text-[10px] text-silver/20">
-            อัปเดตอัตโนมัติทุก 15 วินาที · ข้อมูลล่าสุด: {ago(acc.lastUpdate)} · หมดอายุหลัง 5 นาที
+          {/* Add account form */}
+          {adding && !atLimit && (
+            <div className="rounded-xl px-4 py-4 space-y-3"
+              style={{ background: "rgba(52,211,153,0.04)", border: "1px solid rgba(52,211,153,0.2)" }}>
+              <div className="text-[10px] uppercase tracking-widest" style={{ color: "rgba(175,185,215,0.4)" }}>
+                ตั้งชื่อพอร์ตใหม่
+              </div>
+              <div className="flex gap-2">
+                <input
+                  value={newLabel}
+                  onChange={e => setNewLabel(e.target.value)}
+                  placeholder='เช่น "พอร์ตหลัก" หรือ "Prop Firm 1"'
+                  maxLength={40}
+                  className="flex-1 rounded-lg px-3 py-2 text-sm outline-none"
+                  style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#e2e8f0" }}
+                />
+                <button onClick={addAccount} disabled={busy === "add"}
+                  className="rounded-lg px-4 py-2 text-xs font-bold shrink-0"
+                  style={{ background: "rgba(52,211,153,0.15)", border: "1px solid rgba(52,211,153,0.4)", color: "#34d399", opacity: busy === "add" ? 0.5 : 1 }}>
+                  {busy === "add" ? "…" : "สร้างพอร์ต"}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* No accounts yet */}
+          {resp.accounts.length === 0 && (
+            <div className="rounded-xl px-6 py-10 text-center"
+              style={{ background: "rgba(255,255,255,0.02)", border: "1px dashed rgba(255,255,255,0.1)" }}>
+              <div className="text-4xl mb-3 opacity-30">🔌</div>
+              <div className="text-sm font-bold mb-1" style={{ color: "rgba(175,185,215,0.5)" }}>ยังไม่มีพอร์ตที่เชื่อมต่อ</div>
+              <div className="text-[11px]" style={{ color: "rgba(175,185,215,0.3)" }}>
+                กด &quot;+ เพิ่มพอร์ต&quot; ด้านบนเพื่อสร้าง token แล้วนำไปใส่ใน EA บน MT5
+              </div>
+            </div>
+          )}
+
+          {/* Account cards */}
+          {resp.accounts.map((acc, idx) => {
+            const d = acc.data;
+            const connected = acc.connected && !!d;
+            const shown = reveal[acc.id];
+            const maskedToken = shown ? acc.token : `${acc.token.slice(0, 9)}${"•".repeat(18)}`;
+            return (
+              <div key={acc.id} className="rounded-xl overflow-hidden"
+                style={{ background: "rgba(255,255,255,0.02)", border: `1px solid ${connected ? "rgba(52,211,153,0.2)" : "rgba(255,255,255,0.07)"}` }}>
+                {/* Header */}
+                <div className="px-5 py-3 flex items-center justify-between gap-3 flex-wrap"
+                  style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+                  <div className="flex items-center gap-2.5">
+                    <span className="h-2.5 w-2.5 rounded-full" style={{
+                      background: connected ? "#34d399" : "#475569",
+                      boxShadow: connected ? "0 0 8px rgba(52,211,153,0.6)" : "none",
+                      animation: connected ? "pulse 2s infinite" : "none",
+                    }} />
+                    <span className="text-sm font-bold" style={{ color: "#e2e8f0" }}>{acc.label}</span>
+                    <span className="text-[9px] px-1.5 py-0.5 rounded" style={{ background: "rgba(255,255,255,0.05)", color: "rgba(175,185,215,0.4)" }}>
+                      #{idx + 1}
+                    </span>
+                    {connected
+                      ? <span className="text-[10px]" style={{ color: "rgba(52,211,153,0.8)" }}>● เชื่อมต่อ · {ago(d!.lastUpdate)}</span>
+                      : <span className="text-[10px]" style={{ color: "rgba(175,185,215,0.35)" }}>○ รอ EA ส่งข้อมูล</span>}
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <a href={`/api/mt5/ea?token=${acc.token}`}
+                      className="rounded-lg px-2.5 py-1 text-[10px] font-bold"
+                      style={{ background: "rgba(245,196,81,0.1)", border: "1px solid rgba(245,196,81,0.3)", color: "#f5c451" }}>
+                      ⬇ EA
+                    </a>
+                    <button onClick={() => regen(acc.id)} disabled={busy === acc.id}
+                      className="rounded-lg px-2.5 py-1 text-[10px] font-bold"
+                      style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "rgba(175,185,215,0.5)" }}>
+                      ↻ Token
+                    </button>
+                    <button onClick={() => removeAccount(acc.id, acc.label)} disabled={busy === acc.id}
+                      className="rounded-lg px-2.5 py-1 text-[10px] font-bold"
+                      style={{ background: "rgba(248,113,113,0.1)", border: "1px solid rgba(248,113,113,0.3)", color: "#f87171" }}>
+                      🗑
+                    </button>
+                  </div>
+                </div>
+
+                {/* Live stats (if connected) */}
+                {connected && d && (
+                  <div className="px-5 py-3">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-2">
+                      <Stat label="Balance" value={`${d.currency} ${fmt(d.balance)}`} />
+                      <Stat label="Equity" value={`${d.currency} ${fmt(d.equity)}`} color={d.equity >= d.balance ? "#34d399" : "#f87171"} />
+                      <Stat label="Floating P/L" value={`${d.floating >= 0 ? "+" : ""}${fmt(d.floating)}`} color={d.floating >= 0 ? "#34d399" : "#f87171"} />
+                      <Stat label="Positions" value={String(d.positions.length)} sub={`${d.server} · #${d.account}`} />
+                    </div>
+                  </div>
+                )}
+
+                {/* Token + setup */}
+                <div className="px-5 py-3" style={{ background: "rgba(0,0,0,0.15)" }}>
+                  <div className="text-[9px] uppercase tracking-widest mb-1.5" style={{ color: "rgba(175,185,215,0.3)" }}>
+                    Account Token (ใส่ในช่อง InpAccountToken ของ EA)
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <code className="flex-1 rounded-lg px-3 py-2 text-[11px] font-mono truncate"
+                      style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", color: "#c084fc" }}>
+                      {maskedToken}
+                    </code>
+                    <button onClick={() => setReveal(r => ({ ...r, [acc.id]: !r[acc.id] }))}
+                      className="rounded-lg px-2.5 py-2 text-[10px]" style={{ background: "rgba(255,255,255,0.04)", color: "rgba(175,185,215,0.5)" }}>
+                      {shown ? "🙈" : "👁"}
+                    </button>
+                    <button onClick={() => copy(acc.token, acc.id)}
+                      className="rounded-lg px-3 py-2 text-[10px] font-bold"
+                      style={{ background: "rgba(192,132,252,0.12)", border: "1px solid rgba(192,132,252,0.3)", color: "#c084fc" }}>
+                      {copied === acc.id ? "✓ คัดลอกแล้ว" : "คัดลอก"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+
+          {/* Setup instructions */}
+          <div className="rounded-xl px-5 py-4 text-[11px]"
+            style={{ background: "rgba(168,85,247,0.03)", border: "1px solid rgba(168,85,247,0.12)" }}>
+            <div className="font-bold mb-2" style={{ color: "rgba(192,132,252,0.7)" }}>📖 วิธีเชื่อมต่อแต่ละพอร์ต</div>
+            <ol className="list-decimal list-inside space-y-1" style={{ color: "rgba(175,185,215,0.5)" }}>
+              <li>กด <strong style={{ color: "#34d399" }}>+ เพิ่มพอร์ต</strong> ตั้งชื่อ → ระบบสร้าง token เฉพาะพอร์ตนั้น</li>
+              <li>กด <strong style={{ color: "#f5c451" }}>⬇ EA</strong> ของพอร์ตนั้น — ไฟล์ .mq5 จะฝัง token ให้อัตโนมัติ</li>
+              <li>ใน MT5 → File → Open Data Folder → MQL5/Experts วางไฟล์ แล้ว Compile (F7)</li>
+              <li>MT5 → Tools → Options → Expert Advisors → เปิด &quot;Allow WebRequest&quot; แล้วเพิ่ม URL: <code style={{ color: "#c084fc" }}>{typeof window !== "undefined" ? window.location.origin : ""}/api/mt5/push</code></li>
+              <li>ลาก EA ลงชาร์ตใดก็ได้ของพอร์ตนั้น → ข้อมูลจะขึ้นที่นี่ภายใน ~15 วิ</li>
+            </ol>
+            <div className="mt-2 pt-2 text-[10px]" style={{ borderTop: "1px solid rgba(255,255,255,0.06)", color: "rgba(175,185,215,0.35)" }}>
+              💡 มีหลายพอร์ต? เปิด MT5 หลาย instance หรือใส่ EA แต่ละพอร์ตด้วย token ของพอร์ตนั้น — ข้อมูลจะแยกกันชัดเจน
+            </div>
           </div>
-        </>
+        </div>
       )}
+
+      <style jsx>{`@keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: 0.4 } }`}</style>
+    </div>
+  );
+}
+
+function Stat({ label, value, sub, color }: { label: string; value: string; sub?: string; color?: string }) {
+  return (
+    <div>
+      <div className="text-[9px] uppercase tracking-widest mb-0.5" style={{ color: "rgba(175,185,215,0.35)" }}>{label}</div>
+      <div className="font-mono text-sm font-black" style={{ color: color ?? "#e2e8f0" }}>{value}</div>
+      {sub && <div className="text-[9px] mt-0.5" style={{ color: "rgba(175,185,215,0.3)" }}>{sub}</div>}
     </div>
   );
 }

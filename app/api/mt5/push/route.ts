@@ -1,47 +1,45 @@
 // MT5 Bridge — accepts POST from a MetaTrader 5 Expert Advisor.
-// The EA should send account + position data every 10–30 seconds.
+// Auth is per-account: the EA sends its account token (created in the web app)
+// in the Authorization header. The token maps to { email, accountId }, so each
+// user's account data stays isolated.
 //
-// Example MQL5 snippet (WebRequest):
-//   string url = "http://YOUR_HOST:3100/api/mt5/push";
-//   string headers = "Content-Type: application/json\r\nAuthorization: Bearer " + ApiKey;
-//   string body = "{\"balance\":"+DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE),2)+...}";
-//   int res = WebRequest("POST", url, headers, 5000, body, result, resultHeaders);
+// Example MQL5 (WebRequest):
+//   string headers = "Content-Type: application/json\r\nAuthorization: Bearer " + InpAccountToken;
 
 import { NextResponse } from "next/server";
-import { setMT5Data, clearMT5Data, type MT5Account } from "@/lib/mt5Store";
+import { resolveToken, setLiveData, clearLiveData, type MT5Account } from "@/lib/mt5Store";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const API_KEY = process.env.MT5_API_KEY || "mt5-bridge-key";
+function extractToken(req: Request): string {
+  const auth = req.headers.get("authorization") ?? "";
+  return auth.startsWith("Bearer ") ? auth.slice(7).trim() : auth.trim();
+}
 
 export async function POST(req: Request) {
-  // Auth
-  const auth = req.headers.get("authorization") ?? "";
-  const token = auth.startsWith("Bearer ") ? auth.slice(7) : auth;
-  if (token !== API_KEY) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const token = extractToken(req);
+  const owner = await resolveToken(token);
+  if (!owner) {
+    return NextResponse.json({ error: "Invalid account token" }, { status: 401 });
   }
 
   try {
     const body = await req.json() as Omit<MT5Account, "lastUpdate">;
-
     if (typeof body.balance !== "number" || typeof body.equity !== "number") {
       return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
     }
-
-    await setMT5Data(body);
-    return NextResponse.json({ ok: true, ts: Date.now() });
+    await setLiveData(owner.email, owner.accountId, body);
+    return NextResponse.json({ ok: true, accountId: owner.accountId, ts: Date.now() });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });
   }
 }
 
 export async function DELETE(req: Request) {
-  const auth = req.headers.get("authorization") ?? "";
-  const token = auth.startsWith("Bearer ") ? auth.slice(7) : auth;
-  if (token !== API_KEY) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  await clearMT5Data();
+  const token = extractToken(req);
+  const owner = await resolveToken(token);
+  if (!owner) return NextResponse.json({ error: "Invalid account token" }, { status: 401 });
+  await clearLiveData(owner.email, owner.accountId);
   return NextResponse.json({ ok: true });
 }

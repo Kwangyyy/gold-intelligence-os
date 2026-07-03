@@ -1,9 +1,12 @@
 // Converts MT5 closed trades (stored in Redis) into TradeEntry format
 // for merging into the client-side Journal (localStorage).
 import { NextResponse } from "next/server";
-import { getMT5Data, type MT5ClosedTrade } from "@/lib/mt5Store";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import { getUserLiveData, type MT5ClosedTrade } from "@/lib/mt5Store";
 import type { TradeEntry, TradeSetup } from "@/lib/journal";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 function guessSetup(comment: string): TradeSetup {
@@ -42,8 +45,14 @@ function toTradeEntry(t: MT5ClosedTrade): TradeEntry {
   };
 }
 
-export async function GET() {
-  const acc = await getMT5Data();
+export async function GET(req: Request) {
+  const session = await getServerSession(authOptions);
+  const email   = session?.user?.email;
+  if (!email) return NextResponse.json({ trades: [], message: "Not signed in" });
+
+  const accountId = new URL(req.url).searchParams.get("account") ?? undefined;
+  const live = await getUserLiveData(email, accountId);
+  const acc  = live?.data;
   if (!acc || !acc.closedTrades?.length) {
     return NextResponse.json({ trades: [], message: "No closed trades from MT5 bridge" });
   }

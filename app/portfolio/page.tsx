@@ -20,15 +20,20 @@ import {
 } from "@/components/PortfolioView";
 import { PageHeader } from "@/components/PageHeader";
 
+interface AccountTab { id: string; label: string; connected: boolean; }
+
 export default function PortfolioPage() {
   const { t, lang } = useI18n();
   const [data, setData] = useState<PortfolioData | null>(null);
   const [error, setError] = useState(false);
+  const [accounts, setAccounts] = useState<AccountTab[]>([]);
+  const [accountId, setAccountId] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (id: string | null) => {
     try {
-      const res = await fetch("/api/portfolio", { cache: "no-store" });
+      const qs = id ? `?account=${id}` : "";
+      const res = await fetch(`/api/portfolio${qs}`, { cache: "no-store" });
       if (!res.ok) throw new Error();
       setData(await res.json() as PortfolioData);
       setError(false);
@@ -37,13 +42,26 @@ export default function PortfolioPage() {
     }
   }, []);
 
+  // Load the user's linked accounts once (for the switcher tabs)
   useEffect(() => {
-    load();
-    timer.current = setInterval(load, 15_000);
+    fetch("/api/mt5/accounts", { cache: "no-store" })
+      .then(r => r.ok ? r.json() : null)
+      .then(j => {
+        if (!j?.accounts) return;
+        const tabs: AccountTab[] = j.accounts.map((a: { id: string; label: string; connected: boolean }) => ({ id: a.id, label: a.label, connected: a.connected }));
+        setAccounts(tabs);
+        setAccountId(prev => prev ?? tabs[0]?.id ?? null);
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    load(accountId);
+    timer.current = setInterval(() => load(accountId), 15_000);
     return () => {
       if (timer.current) clearInterval(timer.current);
     };
-  }, [load]);
+  }, [load, accountId]);
 
   const updated = data ? new Date(data.timestamp).toLocaleTimeString(lang === "th" ? "th-TH" : "en-US") : "—";
 
@@ -54,6 +72,31 @@ export default function PortfolioPage() {
         subtitle={t("pfSubtitle")}
         right={<span className="text-xs text-silver/50">{t("lastUpdated")} {updated}</span>}
       />
+
+      {/* Account switcher (multi-account) */}
+      {accounts.length > 1 && (
+        <div className="mb-4 flex items-center gap-2 flex-wrap">
+          <span className="text-[10px] uppercase tracking-widest text-silver/35">พอร์ต</span>
+          <div className="flex gap-1 rounded-xl p-1 flex-wrap" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
+            {accounts.map(a => {
+              const active = a.id === accountId;
+              return (
+                <button
+                  key={a.id}
+                  onClick={() => setAccountId(a.id)}
+                  className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[11px] font-bold transition-all"
+                  style={active
+                    ? { background: "linear-gradient(90deg, rgba(168,85,247,0.3), rgba(245,196,81,0.12))", color: "#f5c451", boxShadow: "inset 0 0 0 1px rgba(245,196,81,0.3)" }
+                    : { color: "rgba(175,185,215,0.5)" }}
+                >
+                  <span className="h-1.5 w-1.5 rounded-full" style={{ background: a.connected ? "#34d399" : "#475569" }} />
+                  {a.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* MT5 Connection status */}
       {data ? (
@@ -79,21 +122,17 @@ export default function PortfolioPage() {
               <div className="flex items-center justify-between mb-2">
                 <div className="font-semibold text-silver/70">{t("pfMT5HowTo")}</div>
                 <a
-                  href="/api/mt5/ea"
-                  download="GoldIntelligenceOS_Bridge.mq5"
+                  href="/mt5"
                   className="rounded-lg border border-gold/40 bg-gold/10 px-3 py-1.5 text-[11px] font-semibold text-gold hover:bg-gold/20 transition-colors"
                 >
-                  ⬇ Download EA (.mq5)
+                  🔌 จัดการพอร์ต MT5
                 </a>
               </div>
-              <p>1. เปิด MetaTrader 5 → Tools → Options → Expert Advisors → เปิด &ldquo;Allow WebRequest&rdquo;</p>
-              <p>2. เพิ่ม URL: <span className="font-mono text-gold/80">{typeof window !== "undefined" ? window.location.origin : "http://localhost:3100"}/api/mt5/push</span></p>
-              <p>3. Download EA ด้านบน → วางใน MQL5\Experts → กด F7 เพื่อ Compile</p>
-              <p>4. ตั้งค่า API Key = <span className="font-mono text-gold/80">mt5-bridge-key</span> (หรือค่าจาก .env.local MT5_API_KEY)</p>
-              <p>5. EA จะ push ข้อมูลทุก 15 วินาที — หน้านี้อัพเดตอัตโนมัติ</p>
-              <div className="mt-2 font-mono text-[10px] bg-base-black/60 rounded p-2 border border-base-border/30 text-silver/40">
-                {`POST /api/mt5/push  ·  Authorization: Bearer <MT5_API_KEY>\n{ "balance":10000, "equity":10250, "positions":[...] }`}
-              </div>
+              <p>1. ไปหน้า <span className="font-mono text-gold/80">MT5 Bridge</span> → กด &ldquo;+ เพิ่มพอร์ต&rdquo; ตั้งชื่อ → ระบบสร้าง token เฉพาะพอร์ตนั้น</p>
+              <p>2. กด &ldquo;⬇ EA&rdquo; ของพอร์ตนั้น — ไฟล์ .mq5 จะฝัง token ให้อัตโนมัติ</p>
+              <p>3. ใน MT5 → Tools → Options → Expert Advisors → เปิด &ldquo;Allow WebRequest&rdquo; และเพิ่ม URL: <span className="font-mono text-gold/80">{typeof window !== "undefined" ? window.location.origin : "http://localhost:3100"}/api/mt5/push</span></p>
+              <p>4. วาง .mq5 ใน MQL5\Experts → กด F7 Compile → ลาก EA ลงชาร์ต</p>
+              <p>5. EA จะ push ข้อมูลทุก 15 วินาที — หน้านี้อัพเดตอัตโนมัติ · หลายพอร์ตเลือกดูได้จากแท็บด้านบน</p>
             </div>
           </>
         )

@@ -172,7 +172,7 @@ export default function EconImpactPage() {
           {data.events.filter(e => e.isToday).length > 0 && (
             <div>
               <div className="text-[9px] uppercase tracking-widest mb-2" style={{ color: "rgba(175,185,215,0.3)" }}>
-                Today's Events
+                Today&apos;s Events
               </div>
               <div className="space-y-2">
                 {data.events.filter(e => e.isToday).map((e, i) => (

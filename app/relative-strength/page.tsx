@@ -178,7 +178,7 @@ export default function RelativeStrengthPage() {
           );
         })}
         <div className="text-[7px] pt-2" style={{ color: "rgba(175,185,215,0.2)", borderTop: "1px solid rgba(255,255,255,0.04)" }}>
-          "vs Gold 1M" column shows how much gold OUTPERFORMS that asset (+ = gold better). Highlighted row = Gold.
+          &quot;vs Gold 1M&quot; column shows how much gold OUTPERFORMS that asset (+ = gold better). Highlighted row = Gold.
         </div>
       </div>
 

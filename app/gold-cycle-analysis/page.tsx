@@ -222,7 +222,7 @@ export default function GoldCycleAnalysisPage() {
 
       {/* Disclaimer */}
       <div className="bg-amber-900/20 border border-amber-600/30 rounded-xl p-4 text-xs text-slate-400">
-        <strong className="text-amber-400">Cycle Analysis Disclaimer:</strong> Historical cycles do not repeat exactly. The "average" cycle is an approximation. Real cycles are driven by fundamentals (inflation, USD policy, geopolitics) not just time. This is a historical reference tool — not a price target or financial advice. Updated: {new Date(data.timestamp).toLocaleString()}
+        <strong className="text-amber-400">Cycle Analysis Disclaimer:</strong> Historical cycles do not repeat exactly. The &quot;average&quot; cycle is an approximation. Real cycles are driven by fundamentals (inflation, USD policy, geopolitics) not just time. This is a historical reference tool — not a price target or financial advice. Updated: {new Date(data.timestamp).toLocaleString()}
       </div>
     </div>
   );

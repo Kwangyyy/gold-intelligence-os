@@ -201,7 +201,7 @@ export default function SilverRatioPage() {
               <li>→ Ratio &lt; 50 = Silver แพงเกิน → อาจถึงเวลา take profit silver, หันมาทอง</li>
               <li>→ Ratio ค่าเฉลี่ยระยะยาวอยู่ที่ ~70 (post-1970s) | ยุคทองโบราณ 15:1</li>
               <li>→ ในช่วง Risk-off: ทองมักแข็งค่ากว่า → Ratio สูงขึ้น</li>
-              <li>→ Ratio ใช้ "trade the spread" ไม่ใช่ signal เดี่ยว ต้องดู macro ด้วย</li>
+              <li>→ Ratio ใช้ &quot;trade the spread&quot; ไม่ใช่ signal เดี่ยว ต้องดู macro ด้วย</li>
             </ul>
           </div>
 

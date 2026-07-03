@@ -192,7 +192,7 @@ export default function DollarMilkshakePage() {
           <div className="space-y-3">
             <div className="text-slate-300 font-semibold">Brent Johnson&apos;s Core Thesis:</div>
             <div className="space-y-2 text-slate-400">
-              <p>1. <span className="text-white">The USD is like a straw</span> that "sucks" global capital into the US financial system via higher rates, stronger yield differentials, and safe-haven demand.</p>
+              <p>1. <span className="text-white">The USD is like a straw</span> that &quot;sucks&quot; global capital into the US financial system via higher rates, stronger yield differentials, and safe-haven demand.</p>
               <p>2. <span className="text-white">Emerging markets</span> suffer: their debt is often USD-denominated, their currencies weaken, and capital flees to the US — creating EM crises.</p>
               <p>3. Eventually <span className="text-white">the system breaks</span> — too much EM stress, too much US debt, or a Fed pivot — and the dollar reverses sharply.</p>
               <p>4. <span className="text-white">Gold supercharges</span> in the reversal: as the dollar falls, gold captures all the stranded EM capital, fiscal debasement concerns, and safe-haven demand.</p>

@@ -191,7 +191,7 @@ export default function GoldCalendarPage() {
             <ul className="space-y-1.5 text-[10px]" style={{ color: "rgba(175,185,215,0.55)" }}>
               <li>→ ฤดูกาลไม่ใช่ตัวบ่งชี้เดียว — ใช้ร่วมกับ trend, momentum, และ fundamental</li>
               <li>→ เดือนที่ win rate สูง (&gt;60%) คือโอกาสที่ทองมักปิดบวก ไม่ใช่การันตี</li>
-              <li>→ Aug-Oct คือ "Gold Season" — อินเดีย + ตะวันออกกลางซื้อทองสูงสุด</li>
+              <li>→ Aug-Oct คือ &quot;Gold Season&quot; — อินเดีย + ตะวันออกกลางซื้อทองสูงสุด</li>
               <li>→ May-Jun มักอ่อน — hedge fund rebalancing ช่วงครึ่งปี</li>
             </ul>
           </div>

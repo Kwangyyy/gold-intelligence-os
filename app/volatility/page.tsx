@@ -183,7 +183,7 @@ export default function VolatilityPage() {
 
             <div className="panel px-5 py-4">
               <div className="text-[9px] uppercase tracking-widest mb-3" style={{ color: "rgba(175,185,215,0.3)" }}>
-                Today's Intraday Range (1h bars)
+                Today&apos;s Intraday Range (1h bars)
               </div>
               <IntradayChart bars={data.intraday} />
               <div className="mt-1 flex justify-between text-[8px]" style={{ color: "rgba(175,185,215,0.2)" }}>

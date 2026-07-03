@@ -750,6 +750,20 @@ const DICT: Record<string, Bilingual> = {
   navBroadcast:    { th: "Broadcast Settings", en: "Broadcast Settings" },
   hub_news:        { th: "AI วิเคราะห์ sentiment ข่าวทองคำ real-time", en: "AI gold news sentiment — real-time analysis" },
 
+  // ─── Sidebar category groups ───────────────────────────────
+  navGrpOverview:      { th: "ภาพรวม",              en: "Overview"              },
+  navGrpTechnical:     { th: "วิเคราะห์เทคนิค",       en: "Technical Analysis"    },
+  navGrpScanners:      { th: "สแกนเนอร์",            en: "Scanners"              },
+  navGrpSmartMoney:    { th: "Smart Money & COT",   en: "Smart Money & COT"     },
+  navGrpMacro:         { th: "Macro & ดอกเบี้ย",     en: "Macro & Rates"         },
+  navGrpFundamentals:  { th: "ปัจจัยพื้นฐาน",         en: "Fundamentals"          },
+  navGrpCorrelation:   { th: "Correlation & Sentiment", en: "Correlation & Sentiment" },
+  navGrpCycle:         { th: "วัฏจักร & ฤดูกาล",      en: "Cycle & Seasonality"   },
+  navGrpTools:         { th: "เครื่องมือเทรด",        en: "Trading Tools"         },
+  navGrpPortfolio:     { th: "พอร์ต & EA",           en: "Portfolio & EA"        },
+  navGrpAiNews:        { th: "AI, ข่าว & ปฏิทิน",     en: "AI, News & Calendar"   },
+  navGrpSystem:        { th: "แจ้งเตือน & ระบบ",      en: "Alerts & System"       },
+
   // shared error / loading
   loadingError: { th: "โหลดข้อมูลไม่ได้ ลองใหม่อีกครั้ง", en: "Failed to load. Please try again." },
 

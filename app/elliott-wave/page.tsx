@@ -10,21 +10,28 @@ const TFS: { id: ElliottTF; label: string }[] = [
   { id: "1d", label: "1D" }, { id: "1w", label: "1W" },
 ];
 
-type OverlayKey = "ema20" | "ema50" | "ema100" | "ema200" | "sma50" | "sma200" | "bb" | "vwap" | "volume";
+type OverlayKey = "ema20" | "ema50" | "ema100" | "ema200" | "sma20" | "sma50" | "sma200" | "bb" | "keltner" | "donchian" | "vwap" | "psar" | "supertrend" | "volume";
 const OVERLAYS: { id: OverlayKey; label: string; color: string }[] = [
   { id: "ema20",  label: "EMA20",  color: "#60a5fa" },
   { id: "ema50",  label: "EMA50",  color: "#f5c451" },
   { id: "ema100", label: "EMA100", color: "#22d3ee" },
   { id: "ema200", label: "EMA200", color: "#f87171" },
+  { id: "sma20",  label: "SMA20",  color: "#93c5fd" },
   { id: "sma50",  label: "SMA50",  color: "#a3e635" },
   { id: "sma200", label: "SMA200", color: "#fb923c" },
   { id: "bb",     label: "Bollinger", color: "#94a3b8" },
+  { id: "keltner", label: "Keltner", color: "#818cf8" },
+  { id: "donchian", label: "Donchian", color: "#5eead4" },
   { id: "vwap",   label: "VWAP",   color: "#e879f9" },
+  { id: "psar",   label: "PSAR",   color: "#facc15" },
+  { id: "supertrend", label: "SuperTrend", color: "#f97316" },
   { id: "volume", label: "Volume", color: "#64748b" },
 ];
-type Osc = "none" | "rsi" | "macd" | "stoch";
+type Osc = "none" | "rsi" | "macd" | "stoch" | "cci" | "adx" | "atr" | "willr" | "roc" | "obv";
 const OSCS: { id: Osc; label: string }[] = [
-  { id: "none", label: "ไม่มี" }, { id: "rsi", label: "RSI" }, { id: "macd", label: "MACD" }, { id: "stoch", label: "Stochastic" },
+  { id: "none", label: "ไม่มี" }, { id: "rsi", label: "RSI" }, { id: "macd", label: "MACD" }, { id: "stoch", label: "Stoch" },
+  { id: "cci", label: "CCI" }, { id: "adx", label: "ADX" }, { id: "atr", label: "ATR" }, { id: "willr", label: "W%R" },
+  { id: "roc", label: "ROC" }, { id: "obv", label: "OBV" },
 ];
 
 // ── indicator math ────────────────────────────────────────────────────────────
@@ -89,6 +96,110 @@ function stoch(h: number[], l: number[], c: number[], p = 14, d = 3) {
   const dl = sma(kv, d).map((x, i) => (k[i] == null ? null : x));
   return { k, d: dl };
 }
+function atr(h: number[], l: number[], c: number[], p = 14): (number | null)[] {
+  const tr: number[] = [];
+  for (let i = 0; i < c.length; i++) tr.push(i === 0 ? h[i] - l[i] : Math.max(h[i] - l[i], Math.abs(h[i] - c[i - 1]), Math.abs(l[i] - c[i - 1])));
+  const out: (number | null)[] = Array(c.length).fill(null); let a = 0;
+  for (let i = 0; i < c.length; i++) {
+    if (i < p - 1) continue;
+    if (i === p - 1) a = tr.slice(0, p).reduce((x, y) => x + y, 0) / p;
+    else a = (a * (p - 1) + tr[i]) / p;
+    out[i] = a;
+  }
+  return out;
+}
+function donchian(h: number[], l: number[], p = 20) {
+  const up: (number | null)[] = [], mid: (number | null)[] = [], lo: (number | null)[] = [];
+  for (let i = 0; i < h.length; i++) {
+    if (i < p - 1) { up.push(null); mid.push(null); lo.push(null); continue; }
+    const hh = Math.max(...h.slice(i - p + 1, i + 1)), ll = Math.min(...l.slice(i - p + 1, i + 1));
+    up.push(hh); lo.push(ll); mid.push((hh + ll) / 2);
+  }
+  return { up, mid, lo };
+}
+function keltner(h: number[], l: number[], c: number[], p = 20, m = 2) {
+  const mid = ema(c, p), a = atr(h, l, c, p);
+  const up = mid.map((x, i) => (x != null && a[i] != null ? x + m * (a[i] as number) : null));
+  const lo = mid.map((x, i) => (x != null && a[i] != null ? x - m * (a[i] as number) : null));
+  return { up, mid, lo };
+}
+function psar(h: number[], l: number[], step = 0.02, max = 0.2): (number | null)[] {
+  const out: (number | null)[] = Array(h.length).fill(null);
+  if (h.length < 2) return out;
+  let bull = true, af = step, ep = h[0], sar = l[0];
+  for (let i = 1; i < h.length; i++) {
+    sar = sar + af * (ep - sar);
+    if (bull) {
+      if (l[i] < sar) { bull = false; sar = ep; ep = l[i]; af = step; }
+      else { if (h[i] > ep) { ep = h[i]; af = Math.min(max, af + step); } sar = Math.min(sar, l[i - 1], i >= 2 ? l[i - 2] : l[i - 1]); }
+    } else {
+      if (h[i] > sar) { bull = true; sar = ep; ep = h[i]; af = step; }
+      else { if (l[i] < ep) { ep = l[i]; af = Math.min(max, af + step); } sar = Math.max(sar, h[i - 1], i >= 2 ? h[i - 2] : h[i - 1]); }
+    }
+    out[i] = sar;
+  }
+  return out;
+}
+function supertrend(h: number[], l: number[], c: number[], p = 10, m = 3): (number | null)[] {
+  const a = atr(h, l, c, p); const out: (number | null)[] = Array(c.length).fill(null);
+  let up = 0, dn = 0, trend = 1, prevUp = 0, prevDn = 0;
+  for (let i = 0; i < c.length; i++) {
+    if (a[i] == null) continue;
+    const mid = (h[i] + l[i]) / 2, band = m * (a[i] as number);
+    let bu = mid + band, bl = mid - band;
+    bu = (i > 0 && c[i - 1] > prevUp) ? Math.max(bu, prevUp) : bu;
+    bl = (i > 0 && c[i - 1] < prevDn) ? Math.min(bl, prevDn) : bl;
+    if (c[i] > (trend === -1 ? up : bu)) trend = 1; else if (c[i] < (trend === 1 ? dn : bl)) trend = -1;
+    up = bu; dn = bl; prevUp = bu; prevDn = bl;
+    out[i] = trend === 1 ? bl : bu;
+  }
+  return out;
+}
+function cci(h: number[], l: number[], c: number[], p = 20): (number | null)[] {
+  const out: (number | null)[] = Array(c.length).fill(null);
+  const tp = c.map((_, i) => (h[i] + l[i] + c[i]) / 3);
+  for (let i = p - 1; i < c.length; i++) {
+    const w = tp.slice(i - p + 1, i + 1); const ma = w.reduce((a, b) => a + b, 0) / p;
+    const md = w.reduce((a, b) => a + Math.abs(b - ma), 0) / p;
+    out[i] = md === 0 ? 0 : (tp[i] - ma) / (0.015 * md);
+  }
+  return out;
+}
+function williamsR(h: number[], l: number[], c: number[], p = 14): (number | null)[] {
+  const out: (number | null)[] = Array(c.length).fill(null);
+  for (let i = p - 1; i < c.length; i++) {
+    const hh = Math.max(...h.slice(i - p + 1, i + 1)), ll = Math.min(...l.slice(i - p + 1, i + 1));
+    out[i] = hh === ll ? -50 : (-100 * (hh - c[i])) / (hh - ll);
+  }
+  return out;
+}
+function roc(c: number[], p = 12): (number | null)[] {
+  return c.map((v, i) => (i < p ? null : ((v - c[i - p]) / c[i - p]) * 100));
+}
+function obv(c: number[], v: number[]): (number | null)[] {
+  const out: (number | null)[] = [0];
+  for (let i = 1; i < c.length; i++) out.push((out[i - 1] as number) + (c[i] > c[i - 1] ? v[i] : c[i] < c[i - 1] ? -v[i] : 0));
+  return out;
+}
+function adx(h: number[], l: number[], c: number[], p = 14) {
+  const plus: number[] = [0], minus: number[] = [0], tr: number[] = [0];
+  for (let i = 1; i < c.length; i++) {
+    const up = h[i] - h[i - 1], dn = l[i - 1] - l[i];
+    plus.push(up > dn && up > 0 ? up : 0); minus.push(dn > up && dn > 0 ? dn : 0);
+    tr.push(Math.max(h[i] - l[i], Math.abs(h[i] - c[i - 1]), Math.abs(l[i] - c[i - 1])));
+  }
+  const sm = (arr: number[]) => { const o: number[] = Array(arr.length).fill(0); let s = 0; for (let i = 1; i < arr.length; i++) { if (i < p) { s += arr[i]; o[i] = s; } else if (i === p) { o[i] = s + arr[i]; } else { o[i] = o[i - 1] - o[i - 1] / p + arr[i]; } } return o; };
+  const strP = sm(plus), strM = sm(minus), strTR = sm(tr);
+  const pdi: (number | null)[] = Array(c.length).fill(null), mdi: (number | null)[] = Array(c.length).fill(null), adxL: (number | null)[] = Array(c.length).fill(null);
+  const dx: number[] = Array(c.length).fill(0);
+  for (let i = p; i < c.length; i++) {
+    const pd = strTR[i] === 0 ? 0 : (100 * strP[i]) / strTR[i], md = strTR[i] === 0 ? 0 : (100 * strM[i]) / strTR[i];
+    pdi[i] = pd; mdi[i] = md; dx[i] = pd + md === 0 ? 0 : (100 * Math.abs(pd - md)) / (pd + md);
+  }
+  let a = 0;
+  for (let i = 2 * p; i < c.length; i++) { if (i === 2 * p) a = dx.slice(p, 2 * p).reduce((x, y) => x + y, 0) / p; else a = (a * (p - 1) + dx[i]) / p; adxL[i] = a; }
+  return { adx: adxL, pdi, mdi };
+}
 const toLine = (t: number[], v: (number | null)[]) =>
   t.map((time, i) => ({ time, value: v[i] })).filter(x => x.value != null) as { time: number; value: number }[];
 
@@ -104,7 +215,8 @@ export default function ElliottWavePage() {
   const [tf, setTf] = useState<ElliottTF>("1d");
   const [libReady, setLibReady] = useState(false);
   const [ov, setOv] = useState<Record<OverlayKey, boolean>>({
-    ema20: false, ema50: true, ema100: false, ema200: true, sma50: false, sma200: false, bb: false, vwap: false, volume: true,
+    ema20: false, ema50: true, ema100: false, ema200: true, sma20: false, sma50: false, sma200: false,
+    bb: false, keltner: false, donchian: false, vwap: false, psar: false, supertrend: false, volume: true,
   });
   const [osc, setOsc] = useState<Osc>("rsi");
 
@@ -179,12 +291,21 @@ export default function ElliottWavePage() {
     const cfg: [OverlayKey, () => (number | null)[], string, number][] = [
       ["ema20", () => ema(s.c, 20), "#60a5fa", 1], ["ema50", () => ema(s.c, 50), "#f5c451", 1],
       ["ema100", () => ema(s.c, 100), "#22d3ee", 1], ["ema200", () => ema(s.c, 200), "#f87171", 2],
-      ["sma50", () => sma(s.c, 50), "#a3e635", 1], ["sma200", () => sma(s.c, 200), "#fb923c", 2],
+      ["sma20", () => sma(s.c, 20), "#93c5fd", 1], ["sma50", () => sma(s.c, 50), "#a3e635", 1], ["sma200", () => sma(s.c, 200), "#fb923c", 2],
     ];
     cfg.forEach(([k, fn, color, w]) => { if (ov[k]) ensure(k, { color, lineWidth: w }).setData(toLine(s.t, fn())); else drop(k); });
 
     if (ov.bb) { const b = bollinger(s.c); ensure("bbU", { color: "rgba(148,163,184,0.5)" }).setData(toLine(s.t, b.up)); ensure("bbL", { color: "rgba(148,163,184,0.5)" }).setData(toLine(s.t, b.lo)); ensure("bbM", { color: "rgba(148,163,184,0.3)" }).setData(toLine(s.t, b.mid)); }
     else { drop("bbU"); drop("bbL"); drop("bbM"); }
+
+    if (ov.keltner) { const k = keltner(s.h, s.l, s.c); ensure("kU", { color: "rgba(129,140,248,0.5)" }).setData(toLine(s.t, k.up)); ensure("kL", { color: "rgba(129,140,248,0.5)" }).setData(toLine(s.t, k.lo)); ensure("kM", { color: "rgba(129,140,248,0.3)" }).setData(toLine(s.t, k.mid)); }
+    else { drop("kU"); drop("kL"); drop("kM"); }
+
+    if (ov.donchian) { const dc = donchian(s.h, s.l); ensure("dU", { color: "rgba(94,234,212,0.5)" }).setData(toLine(s.t, dc.up)); ensure("dL", { color: "rgba(94,234,212,0.5)" }).setData(toLine(s.t, dc.lo)); ensure("dM", { color: "rgba(94,234,212,0.25)" }).setData(toLine(s.t, dc.mid)); }
+    else { drop("dU"); drop("dL"); drop("dM"); }
+
+    if (ov.psar) ensure("psar", { color: "#facc15", lineWidth: 1, lineVisible: false, pointMarkersVisible: true, pointMarkersRadius: 1.5 }).setData(toLine(s.t, psar(s.h, s.l))); else drop("psar");
+    if (ov.supertrend) ensure("st", { color: "#f97316", lineWidth: 2 }).setData(toLine(s.t, supertrend(s.h, s.l, s.c))); else drop("st");
 
     if (ov.vwap && s.v.some(x => x > 0)) ensure("vwap", { color: "#e879f9", lineWidth: 2 }).setData(toLine(s.t, vwap(s.h, s.l, s.c, s.v))); else drop("vwap");
 
@@ -247,6 +368,27 @@ export default function ElliottWavePage() {
       addLine({ color: "#f5c451", lineWidth: 1 }).setData(toLine(s.t, st.d));
       sr.createPriceLine({ price: 80, color: "rgba(248,113,113,0.4)", lineWidth: 1, lineStyle: 2 });
       sr.createPriceLine({ price: 20, color: "rgba(52,211,153,0.4)", lineWidth: 1, lineStyle: 2 });
+    } else if (osc === "cci") {
+      const sr = addLine({ color: "#22d3ee", lineWidth: 2 }); sr.setData(toLine(s.t, cci(s.h, s.l, s.c)));
+      sr.createPriceLine({ price: 100, color: "rgba(248,113,113,0.4)", lineWidth: 1, lineStyle: 2 });
+      sr.createPriceLine({ price: -100, color: "rgba(52,211,153,0.4)", lineWidth: 1, lineStyle: 2 });
+    } else if (osc === "adx") {
+      const a = adx(s.h, s.l, s.c);
+      const sr = addLine({ color: "#f5c451", lineWidth: 2 }); sr.setData(toLine(s.t, a.adx));
+      addLine({ color: "#34d399", lineWidth: 1 }).setData(toLine(s.t, a.pdi));
+      addLine({ color: "#f87171", lineWidth: 1 }).setData(toLine(s.t, a.mdi));
+      sr.createPriceLine({ price: 25, color: "rgba(148,163,184,0.4)", lineWidth: 1, lineStyle: 2 });
+    } else if (osc === "atr") {
+      addLine({ color: "#c084fc", lineWidth: 2 }).setData(toLine(s.t, atr(s.h, s.l, s.c)));
+    } else if (osc === "willr") {
+      const sr = addLine({ color: "#e879f9", lineWidth: 2 }); sr.setData(toLine(s.t, williamsR(s.h, s.l, s.c)));
+      sr.createPriceLine({ price: -20, color: "rgba(248,113,113,0.4)", lineWidth: 1, lineStyle: 2 });
+      sr.createPriceLine({ price: -80, color: "rgba(52,211,153,0.4)", lineWidth: 1, lineStyle: 2 });
+    } else if (osc === "roc") {
+      const sr = addLine({ color: "#60a5fa", lineWidth: 2 }); sr.setData(toLine(s.t, roc(s.c)));
+      sr.createPriceLine({ price: 0, color: "rgba(148,163,184,0.4)", lineWidth: 1, lineStyle: 2 });
+    } else if (osc === "obv") {
+      addLine({ color: "#a3e635", lineWidth: 2 }).setData(toLine(s.t, obv(s.c, s.v)));
     }
     if (chartRef.current) { const r = chartRef.current.timeScale().getVisibleLogicalRange(); if (r) chart.timeScale().setVisibleLogicalRange(r); }
   }, [osc, data, libReady]);

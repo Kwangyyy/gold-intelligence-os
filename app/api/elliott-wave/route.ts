@@ -193,6 +193,35 @@ function buildMonowaves(pivots: Zig[]): Monowave[] {
   return m;
 }
 
+// Verify a 5-monowave window as a NeoWave impulse (1-2-3-4-5)
+function checkImpulse(w: Monowave[]): { terminal: boolean; ext: string; score: number } | null {
+  if (w.length !== 5) return null;
+  const [w1, w2, w3, w4, w5] = w;
+  const dirOK = w1.up === w3.up && w3.up === w5.up && w2.up !== w1.up && w4.up !== w3.up;
+  const r2 = w2.abs / (w1.abs || 1), r4 = w4.abs / (w3.abs || 1);
+  const up = w1.up;
+  const overlap = up ? (w4.to.price <= w1.to.price) : (w4.to.price >= w1.to.price);
+  const w3Shortest = w3.abs < w1.abs && w3.abs < w5.abs;
+  if (!(dirOK && r2 > 0 && r2 < 1 && !w3Shortest)) return null;
+  const extended = Math.max(w1.abs, w3.abs, w5.abs);
+  const ext = extended === w3.abs ? "3" : extended === w1.abs ? "1" : "5";
+  const others = [w1.abs, w3.abs, w5.abs].filter(x => x !== extended).reduce((a, b) => Math.max(a, b), 0);
+  const oneExtends = extended >= 1.5 * others;
+  const score = 2 + (r2 >= 0.382 && r2 <= 0.618 ? 1 : 0) + (oneExtends ? 1 : 0) + (Math.abs(r2 - r4) > 0.15 ? 0.5 : 0) - (overlap ? 1 : 0);
+  return { terminal: overlap, ext, score };
+}
+
+// Verify a 3-monowave window as a correction (A-B-C)
+function checkCorr3(w: Monowave[]): { type: "zigzag" | "flat" | "complex"; score: number } | null {
+  if (w.length !== 3) return null;
+  const [a, b, c] = w;
+  if (!(a.up !== b.up && b.up !== c.up)) return null;
+  const rb = b.abs / (a.abs || 1), rc = c.abs / (a.abs || 1);
+  if (rb >= 0.8 && rb <= 1.2 && rc >= 0.9 && rc <= 1.4) return { type: "flat", score: 2.2 };
+  if (rb <= 0.7 && rc >= 0.9) return { type: "zigzag", score: 2 };
+  return { type: "complex", score: 1 };
+}
+
 function analyzeNeoWave(pivots: Zig[], spot: number) {
   const confMap = { high: "สูง — โครงสร้างผ่านกฎ NeoWave ชัดเจน", medium: "ปานกลาง — เข้ากฎบางส่วน", low: "ต่ำ — ยังไม่ครบเงื่อนไข" };
   const confColorMap = { high: "#34d399", medium: "#f5c451", low: "#f87171" };
@@ -224,53 +253,73 @@ function analyzeNeoWave(pivots: Zig[], spot: number) {
   let projections: WaveProjection[] = [];
   let implication = "", implicationTh = "", currentWave = "", currentWaveTh = "";
 
-  // Candidate impulse: last 5 monowaves = 1,2,3,4,5
-  let impulseScore = -1, imp: (Monowave[]) | null = null, terminal = false, impExt = "";
-  if (mono.length >= 5) {
-    const w = mono.slice(-5);
-    const [w1, w2, w3, w4, w5] = w;
-    const dirOK = w1.up === w3.up && w3.up === w5.up && w2.up !== w1.up && w4.up !== w3.up;
-    const r2 = w2.abs / (w1.abs || 1);            // Rule of Retracement (wave 2 of wave 1)
-    const r4 = w4.abs / (w3.abs || 1);
-    const up = w1.up;
-    const overlap = up ? (w4.to.price <= w1.to.price) : (w4.to.price >= w1.to.price);
-    const w3Shortest = w3.abs < w1.abs && w3.abs < w5.abs;
-    const r2ok = r2 > 0 && r2 < 1;
-    if (dirOK && r2ok && !w3Shortest) {
-      terminal = overlap;
-      // score: base + retrace-in-band + clear extension + alternation
-      const extended = Math.max(w1.abs, w3.abs, w5.abs);
-      const extLabel = extended === w3.abs ? "3" : extended === w1.abs ? "1" : "5";
-      const oneExtends = extended >= 1.5 * [w1.abs, w3.abs, w5.abs].filter(x => x !== extended).reduce((a, b) => Math.max(a, b), 0);
-      impulseScore = 2 + (r2 >= 0.382 && r2 <= 0.618 ? 1 : 0) + (oneExtends ? 1 : 0) + (Math.abs(r2 - r4) > 0.15 ? 0.5 : 0) - (overlap ? 1 : 0);
-      imp = w; impExt = extLabel;
-    }
-  }
+  // Candidate 0 — COMBINED: a 5-wave impulse (legs −8..−4) followed by an A-B-C correction
+  // (legs −3..−1). This is the fullest, most cross-timeframe-consistent read: it shows the
+  // trend impulse AND the correction that follows, instead of only the last 3 legs.
+  const comb = (() => {
+    if (mono.length < 8) return null;
+    const impW = mono.slice(-8, -3), abcW = mono.slice(-3);
+    // impulse must run opposite to the correction that follows
+    if (impW[0].up === abcW[0].up) return null;
+    const ci = checkImpulse(impW), cc = checkCorr3(abcW);
+    if (!ci || !cc) return null;
+    return { imp: impW, abc: abcW, ci, cc };
+  })();
 
-  // Candidate correction: last 3 monowaves = a,b,c
+  // Candidate impulse: last 5 monowaves = 1,2,3,4,5
+  const imp: Monowave[] | null = mono.length >= 5 ? mono.slice(-5) : null;
+  const ci = imp ? checkImpulse(imp) : null;
+  const impulseScore = ci ? ci.score : -1;
+  let terminal = ci?.terminal ?? false, impExt = ci?.ext ?? "";
+
+  // Candidate correction: last 3 monowaves = a,b,c (or 5-leg triangle)
   let corrScore = -1, corr: (Monowave[]) | null = null, corrType: ElliottWavePayload["structure"] = "zigzag";
   if (mono.length >= 3) {
-    const w = mono.slice(-3);
-    const [a, b, c] = w;
-    const dirOK = a.up !== b.up && b.up !== c.up;
-    if (dirOK) {
-      const rb = b.abs / (a.abs || 1);            // b retraces a
-      const rc = c.abs / (a.abs || 1);            // c vs a
-      if (rb >= 0.8 && rb <= 1.20 && rc >= 0.9 && rc <= 1.4) { corrType = "flat"; corrScore = 2.2; }
-      else if (rb <= 0.7 && rc >= 0.9) { corrType = "zigzag"; corrScore = 2; }
-      else { corrType = "complex"; corrScore = 1; }
-      corr = w;
-    }
-    // Triangle: last 5 legs each smaller than the one two-before (converging)
+    const cc = checkCorr3(mono.slice(-3));
+    if (cc) { corrType = cc.type; corrScore = cc.score; corr = mono.slice(-3); }
     if (mono.length >= 5) {
       const t = mono.slice(-5);
       if (t[0].abs > t[2].abs && t[2].abs > t[4].abs && t[1].abs > t[3].abs) { corrType = "triangle"; corrScore = Math.max(corrScore, 2.4); corr = t; }
     }
   }
 
-  const useImpulse = imp && impulseScore >= corrScore;
+  const useImpulse = ci && imp && impulseScore >= corrScore;
 
-  if (useImpulse && imp) {
+  if (comb) {
+    // 5-wave impulse + A-B-C correction
+    const [w1, w2, w3, w4, w5] = comb.imp;
+    const [a, b, c] = comb.abc;
+    const up = w1.up;
+    terminal = comb.ci.terminal; extension = comb.ci.ext;
+    structure = terminal ? "terminal" : "impulse";
+    phaseColor = up ? "#34d399" : "#f87171";
+    structureLabel = `5-wave impulse (${up ? "up" : "down"}) + A-B-C correction · wave ${extension} extended`;
+    structureLabelTh = `Impulse 5 คลื่น (${up ? "ขาขึ้น" : "ขาลง"}) แล้วตามด้วย correction A-B-C · คลื่น ${extension} ยืดตัว`;
+    labels = ["0", "1", "2", "3", "4", "5", "A", "B", "C"];
+
+    const r2 = w2.abs / (w1.abs || 1), r4 = w4.abs / (w3.abs || 1);
+    rules.push({ name: "Rule of Retracement", nameTh: "กฎการรีเทรซ (คลื่น 2 ต่อ 1)", status: r2 > 0 && r2 < 1 ? "pass" : "fail",
+      detail: `Wave 2 retraced ${pct(r2 * 100)} of Wave 1 — ${r2 < 0.382 ? "shallow, strong trend" : r2 <= 0.618 ? "healthy (38-62%)" : "deep"}` });
+    rules.push({ name: "Wave 3 never the shortest", nameTh: "คลื่น 3 ต้องไม่สั้นที่สุด", status: (w3.abs >= w1.abs || w3.abs >= w5.abs) ? "pass" : "fail",
+      detail: `W1 ${w1.absPct.toFixed(1)}% · W3 ${w3.absPct.toFixed(1)}% · W5 ${w5.absPct.toFixed(1)}%` });
+    rules.push({ name: "Wave 4 non-overlap", nameTh: "คลื่น 4 ไม่ทับเขตคลื่น 1", status: terminal ? "fail" : "pass",
+      detail: terminal ? "Overlap → Terminal/Diagonal" : "No overlap → valid impulse" });
+    rules.push({ name: "Correction after impulse", nameTh: "correction ต่อจาก impulse", status: "pass",
+      detail: `A-B-C (${comb.cc.type}) — B retraced ${pct((b.abs / (a.abs || 1)) * 100)} of A, C is ${pct((c.abs / (a.abs || 1)) * 100)} of A` });
+    rules.push({ name: "Extension (one wave)", nameTh: "การยืดตัว (คลื่นเดียว)", status: "info", detail: `Wave ${extension} extended` });
+
+    const bEnd = b.to.price, mult = comb.cc.type === "flat" ? 1.0 : 1.618;
+    const cTarget = c.up ? bEnd + a.abs * mult : bEnd - a.abs * mult;
+    projections = [
+      { label: `Correction C (${comb.cc.type === "flat" ? "≈A" : "1.618×A"})`, labelTh: `เป้า C (${comb.cc.type === "flat" ? "≈A" : "1.618×A"})`, price: +cTarget.toFixed(0), fibRatio: mult, type: "support" },
+      { label: "Resume trend → retest wave-5", labelTh: "เทรนด์กลับมา → รีเทสต์ปลายคลื่น 5", price: +w5.to.price.toFixed(0), fibRatio: 1.0, type: "target" },
+    ];
+    currentWave = `Wave C of the correction — after C, the larger ${up ? "up" : "down"}trend may resume`;
+    currentWaveTh = `อยู่ในคลื่น C ของ correction — จบ C แล้วเทรนด์ใหญ่ (${up ? "ขาขึ้น" : "ขาลง"}) อาจกลับมาเดินต่อ`;
+    implication = "A completed 5-wave impulse followed by an A-B-C correction — a classic nested count. The correction is countertrend; the primary trend resumes once C ends.";
+    implicationTh = "Impulse 5 คลื่นจบแล้วตามด้วย correction A-B-C (โครงสร้างซ้อนคลาสสิก) · correction เป็นการสวนเทรนด์ เทรนด์หลักจะกลับมาเมื่อคลื่น C จบ";
+    confidence = comb.ci.score >= 3 ? "high" : "medium";
+  } else if (useImpulse && imp) {
     const [w1, w2, w3, w4, w5] = imp;
     const up = w1.up;
     extension = impExt;

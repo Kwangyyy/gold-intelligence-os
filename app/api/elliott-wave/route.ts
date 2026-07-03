@@ -32,7 +32,7 @@ export interface WaveProjection {
 export interface ElliottWavePayload {
   timeframe: ElliottTF;
   goldPrice: number;
-  series: { t: number[]; c: number[] };   // chart series: unix seconds + close
+  series: { t: number[]; o: number[]; h: number[]; l: number[]; c: number[] };  // OHLC candles
   zigzag: ZigzagPoint[];                   // full zigzag turning points (series indices)
   waveCount: string;
   waveCountTh: string;
@@ -54,10 +54,10 @@ export interface ElliottWavePayload {
 // Timeframe → Yahoo query + processing config.
 // `deviation` = min % swing for the ZigZag to register a new wave pivot (bigger TF = bigger swings).
 const TF_CONFIG: Record<ElliottTF, { range: string; interval: string; aggregate: number; deviation: number; maxBars: number }> = {
-  "1h": { range: "1mo", interval: "60m", aggregate: 1, deviation: 1.2, maxBars: 160 },
-  "4h": { range: "3mo", interval: "60m", aggregate: 4, deviation: 2.2, maxBars: 160 },
-  "1d": { range: "1y",  interval: "1d",  aggregate: 1, deviation: 3.5, maxBars: 220 },
-  "1w": { range: "5y",  interval: "1wk", aggregate: 1, deviation: 6.0, maxBars: 220 },
+  "1h": { range: "1mo", interval: "60m", aggregate: 1, deviation: 1.2, maxBars: 120 },
+  "4h": { range: "3mo", interval: "60m", aggregate: 4, deviation: 2.2, maxBars: 130 },
+  "1d": { range: "1y",  interval: "1d",  aggregate: 1, deviation: 3.5, maxBars: 150 },
+  "1w": { range: "5y",  interval: "1wk", aggregate: 1, deviation: 6.0, maxBars: 160 },
 };
 
 async function fetchGold(tf: ElliottTF) {
@@ -75,63 +75,64 @@ type YJ = {
     result?: Array<{
       meta?: { regularMarketPrice?: number };
       timestamp?: number[];
-      indicators?: { quote?: Array<{ close?: (number|null)[]; high?: (number|null)[]; low?: (number|null)[] }> };
+      indicators?: { quote?: Array<{ open?: (number|null)[]; close?: (number|null)[]; high?: (number|null)[]; low?: (number|null)[] }> };
     }>;
   };
 } | null;
 
-// Aggregate 1h bars into Nh bars (e.g. 4h): group consecutive N bars.
-function aggregate(hi: number[], lo: number[], cl: number[], ts: number[], n: number) {
-  if (n <= 1) return { hi, lo, cl, ts };
-  const H: number[] = [], L: number[] = [], C: number[] = [], T: number[] = [];
+// Aggregate 1h bars into Nh bars (e.g. 4h): group consecutive N bars into OHLC.
+function aggregate(op: number[], hi: number[], lo: number[], cl: number[], ts: number[], n: number) {
+  if (n <= 1) return { op, hi, lo, cl, ts };
+  const O: number[] = [], H: number[] = [], L: number[] = [], C: number[] = [], T: number[] = [];
   for (let i = 0; i < cl.length; i += n) {
     const hSlice = hi.slice(i, i + n), lSlice = lo.slice(i, i + n), cSlice = cl.slice(i, i + n);
     if (!cSlice.length) break;
+    O.push(op[i]);
     H.push(Math.max(...hSlice));
     L.push(Math.min(...lSlice));
     C.push(cSlice[cSlice.length - 1]);
     T.push(ts[i]);
   }
-  return { hi: H, lo: L, cl: C, ts: T };
+  return { op: O, hi: H, lo: L, cl: C, ts: T };
 }
 
-// Percentage-deviation ZigZag on closes — the classic "wave measuring" indicator.
-// Registers a new pivot only when price reverses from the running extreme by >= `pct`.
-// Exactly one state branch runs per bar, so the % filter is respected (no spurious pivots).
-function computeZigzag(closes: number[], ts: number[], pct: number) {
-  const n = closes.length;
+// Percentage-deviation ZigZag on candle highs/lows — the classic "wave measuring" indicator.
+// Pivots sit on true swing extremes (candle wicks). Registers a new pivot only when price
+// reverses from the running extreme by >= `pct`. Exactly one state branch runs per bar, so
+// the % filter is respected (no spurious pivots).
+function computeZigzag(hi: number[], lo: number[], ts: number[], pct: number) {
+  const n = hi.length;
   const piv: { idx: number; price: number; type: "high"|"low"; date: string }[] = [];
   if (n < 3) return piv;
   const th = pct / 100;
   const dt = (i: number) => new Date((ts[i] ?? 0) * 1000).toISOString().slice(0, 10);
-  const push = (idx: number, type: "high"|"low") =>
-    piv.push({ idx, price: +closes[idx].toFixed(1), type, date: dt(idx) });
+  const push = (idx: number, price: number, type: "high"|"low") =>
+    piv.push({ idx, price: +price.toFixed(1), type, date: dt(idx) });
 
   let trend: 0 | 1 | -1 = 0;
-  let extIdx = 0, extP = closes[0];          // running extreme once trend is established
-  let hiIdx = 0, hiP = closes[0];            // running max while seeking initial direction
-  let loIdx = 0, loP = closes[0];            // running min while seeking initial direction
+  let extIdx = 0, extP = 0;                 // running extreme once trend is established
+  let hiIdx = 0, hiP = hi[0];               // running high while seeking initial direction
+  let loIdx = 0, loP = lo[0];               // running low while seeking initial direction
 
   for (let i = 1; i < n; i++) {
-    const c = closes[i];
     if (trend === 0) {
-      if (c > hiP) { hiP = c; hiIdx = i; }
-      if (c < loP) { loP = c; loIdx = i; }
-      if (c <= hiP * (1 - th)) {              // dropped off the peak → peak was a high
-        push(hiIdx, "high"); trend = -1; extP = c; extIdx = i;
-      } else if (c >= loP * (1 + th)) {       // rose off the trough → trough was a low
-        push(loIdx, "low"); trend = 1; extP = c; extIdx = i;
+      if (hi[i] > hiP) { hiP = hi[i]; hiIdx = i; }
+      if (lo[i] < loP) { loP = lo[i]; loIdx = i; }
+      if (lo[i] <= hiP * (1 - th)) {          // dropped off the peak → peak was a high
+        push(hiIdx, hiP, "high"); trend = -1; extP = lo[i]; extIdx = i;
+      } else if (hi[i] >= loP * (1 + th)) {   // rose off the trough → trough was a low
+        push(loIdx, loP, "low"); trend = 1; extP = hi[i]; extIdx = i;
       }
-    } else if (trend === 1) {
-      if (c > extP) { extP = c; extIdx = i; }
-      else if (c <= extP * (1 - th)) { push(extIdx, "high"); trend = -1; extP = c; extIdx = i; }
-    } else {
-      if (c < extP) { extP = c; extIdx = i; }
-      else if (c >= extP * (1 + th)) { push(extIdx, "low"); trend = 1; extP = c; extIdx = i; }
+    } else if (trend === 1) {                 // up: track running high
+      if (hi[i] > extP) { extP = hi[i]; extIdx = i; }
+      else if (lo[i] <= extP * (1 - th)) { push(extIdx, extP, "high"); trend = -1; extP = lo[i]; extIdx = i; }
+    } else {                                  // down: track running low
+      if (lo[i] < extP) { extP = lo[i]; extIdx = i; }
+      else if (hi[i] >= extP * (1 + th)) { push(extIdx, extP, "low"); trend = 1; extP = hi[i]; extIdx = i; }
     }
   }
   // Commit the final running extreme so the zigzag reaches the latest swing
-  push(extIdx, trend >= 0 ? "high" : "low");
+  push(extIdx, extP, trend >= 0 ? "high" : "low");
 
   // Drop a duplicate final pivot if the last two share an index
   if (piv.length >= 2 && piv[piv.length - 1].idx === piv[piv.length - 2].idx) piv.pop();
@@ -260,25 +261,28 @@ export async function GET(req: Request) {
     const res = obj?.chart?.result?.[0];
     const q   = res?.indicators?.quote?.[0];
 
-    // Align all arrays by dropping null closes
+    // Align all OHLC arrays by dropping bars with any null field
+    const rawO = q?.open  ?? [];
     const rawC = q?.close ?? [];
     const rawH = q?.high  ?? [];
     const rawL = q?.low   ?? [];
     const rawT = res?.timestamp ?? [];
-    const hi: number[] = [], lo: number[] = [], cl: number[] = [], ts: number[] = [];
+    const op: number[] = [], hi: number[] = [], lo: number[] = [], cl: number[] = [], ts: number[] = [];
     for (let i = 0; i < rawC.length; i++) {
-      if (rawC[i] == null || rawH[i] == null || rawL[i] == null) continue;
-      cl.push(rawC[i] as number); hi.push(rawH[i] as number); lo.push(rawL[i] as number); ts.push(rawT[i] ?? 0);
+      if (rawO[i] == null || rawC[i] == null || rawH[i] == null || rawL[i] == null) continue;
+      op.push(rawO[i] as number); cl.push(rawC[i] as number);
+      hi.push(rawH[i] as number); lo.push(rawL[i] as number); ts.push(rawT[i] ?? 0);
     }
 
     // Aggregate (for 4h) then cap to maxBars
-    const agg = aggregate(hi, lo, cl, ts, cfg.aggregate);
+    const agg = aggregate(op, hi, lo, cl, ts, cfg.aggregate);
     const start = Math.max(0, agg.cl.length - cfg.maxBars);
-    const sCl = agg.cl.slice(start), sTs = agg.ts.slice(start);
+    const sOp = agg.op.slice(start), sHi = agg.hi.slice(start), sLo = agg.lo.slice(start),
+          sCl = agg.cl.slice(start), sTs = agg.ts.slice(start);
 
     const spot = res?.meta?.regularMarketPrice ?? sCl.at(-1) ?? 3200;
 
-    const pivots = computeZigzag(sCl, sTs, cfg.deviation);
+    const pivots = computeZigzag(sHi, sLo, sTs, cfg.deviation);
     const zigzag: ZigzagPoint[] = pivots.map(p => ({ i: p.idx, price: +p.price.toFixed(1), type: p.type }));
     const waveAnalysis = countWaves(pivots, spot);
 
@@ -286,7 +290,13 @@ export async function GET(req: Request) {
     const data: ElliottWavePayload = {
       timeframe: tf,
       goldPrice: +spot.toFixed(0),
-      series: { t: sTs, c: sCl.map(v => +v.toFixed(1)) },
+      series: {
+        t: sTs,
+        o: sOp.map(v => +v.toFixed(1)),
+        h: sHi.map(v => +v.toFixed(1)),
+        l: sLo.map(v => +v.toFixed(1)),
+        c: sCl.map(v => +v.toFixed(1)),
+      },
       zigzag,
       ...rest,
       pivots: wavePivots,

@@ -11,47 +11,38 @@ const TFS: { id: ElliottTF; label: string }[] = [
   { id: "1w", label: "1W" },
 ];
 
-// Real price chart with zigzag wave overlay drawn from the actual series
+// Real candlestick chart with zigzag wave overlay drawn from the actual OHLC series
 function WaveChart({ data }: { data: ElliottWavePayload }) {
   const { series, zigzag, pivots, goldPrice } = data;
-  const closes = series.c;
-  if (closes.length < 3) return (
+  const { o, h, l, c } = series;
+  const n = c.length;
+  if (n < 3) return (
     <div className="text-[10px] py-8 text-center" style={{ color: "rgba(175,185,215,0.3)" }}>
       ข้อมูลราคาไม่พอสำหรับ Timeframe นี้ — ลองเปลี่ยน TF
     </div>
   );
 
-  const W = 700, H = 200, padR = 40, padTop = 14, padBot = 18;
+  const W = 720, H = 300, padR = 44, padTop = 12, padBot = 16;
   const plotW = W - padR;
-  const allPrices = [...closes, ...data.projections.map(p => p.price), goldPrice];
-  const min = Math.min(...allPrices);
-  const max = Math.max(...allPrices);
+  const min = Math.min(...l);
+  const max = Math.max(...h);
   const range = (max - min) || 1;
 
-  const toX = (i: number) => (i / Math.max(closes.length - 1, 1)) * plotW;
+  // center each candle in its slot
+  const slot = plotW / n;
+  const cw = Math.max(1.2, Math.min(slot * 0.66, 9)); // candle body width
+  const toX = (i: number) => i * slot + slot / 2;
   const toY = (p: number) => padTop + (1 - (p - min) / range) * (H - padTop - padBot);
 
-  // Price line
-  const linePts = closes.map((c, i) => `${toX(i).toFixed(1)},${toY(c).toFixed(1)}`).join(" ");
-  // Area under price line
-  const areaPts = `${toX(0)},${H - padBot} ${linePts} ${toX(closes.length - 1)},${H - padBot}`;
-
   // Zigzag polyline through detected pivots (clamp indices to series bounds)
-  const zz = zigzag.filter(z => z.i >= 0 && z.i < closes.length);
+  const zz = zigzag.filter(z => z.i >= 0 && z.i < n);
   const zzPts = zz.map(z => `${toX(z.i).toFixed(1)},${toY(z.price).toFixed(1)}`).join(" ");
 
-  // Labeled wave pivots (0-5) — use seriesIndex
-  const labeled = pivots.filter(p => p.seriesIndex >= 0 && p.seriesIndex < closes.length);
+  // Labeled wave pivots (0-5-A-B-C) — use seriesIndex
+  const labeled = pivots.filter(p => p.seriesIndex >= 0 && p.seriesIndex < n);
 
   return (
     <svg viewBox={`0 0 ${W} ${H}`} width="100%" preserveAspectRatio="xMidYMid meet" style={{ display: "block" }}>
-      <defs>
-        <linearGradient id="ewArea" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="rgba(245,196,81,0.18)" />
-          <stop offset="100%" stopColor="rgba(245,196,81,0)" />
-        </linearGradient>
-      </defs>
-
       {/* Gridlines + price axis */}
       {[0, 0.25, 0.5, 0.75, 1].map((f, i) => {
         const price = max - f * range;
@@ -66,20 +57,27 @@ function WaveChart({ data }: { data: ElliottWavePayload }) {
         );
       })}
 
-      {/* Price area + line */}
-      <polygon points={areaPts} fill="url(#ewArea)" />
-      <polyline points={linePts} fill="none" stroke="rgba(245,196,81,0.55)" strokeWidth="1.2" strokeLinejoin="round" />
+      {/* Candlesticks */}
+      {c.map((close, i) => {
+        const up = close >= o[i];
+        const color = up ? "#22c55e" : "#ef4444";
+        const x = toX(i);
+        const yHi = toY(h[i]), yLo = toY(l[i]);
+        const yO = toY(o[i]), yC = toY(close);
+        const bodyTop = Math.min(yO, yC);
+        const bodyH = Math.max(Math.abs(yC - yO), 0.8);
+        return (
+          <g key={`k${i}`}>
+            <line x1={x} y1={yHi} x2={x} y2={yLo} stroke={color} strokeWidth="0.8" opacity="0.9" />
+            <rect x={x - cw / 2} y={bodyTop} width={cw} height={bodyH} fill={color} opacity="0.9" rx="0.4" />
+          </g>
+        );
+      })}
 
-      {/* Zigzag wave path */}
+      {/* Zigzag wave path over the candles */}
       {zz.length >= 2 && (
-        <polyline points={zzPts} fill="none" stroke="#c084fc" strokeWidth="2.2" strokeLinejoin="round" strokeLinecap="round" />
+        <polyline points={zzPts} fill="none" stroke="#c084fc" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" opacity="0.95" />
       )}
-
-      {/* Zigzag pivot dots */}
-      {zz.map((z, i) => (
-        <circle key={`z${i}`} cx={toX(z.i)} cy={toY(z.price)} r="2.4"
-          fill={z.type === "high" ? "#f5c451" : "#34d399"} opacity="0.7" />
-      ))}
 
       {/* Emphasized path through the labeled (counted) wave pivots */}
       {labeled.length >= 2 && (
@@ -122,7 +120,7 @@ function WaveChart({ data }: { data: ElliottWavePayload }) {
       {/* Current price marker */}
       <line x1="0" y1={toY(goldPrice)} x2={plotW} y2={toY(goldPrice)}
         stroke="rgba(96,165,250,0.4)" strokeDasharray="4,3" strokeWidth="1" />
-      <circle cx={toX(closes.length - 1)} cy={toY(goldPrice)} r="3" fill="#60a5fa" />
+      <circle cx={toX(n - 1)} cy={toY(goldPrice)} r="3" fill="#60a5fa" />
     </svg>
   );
 }
@@ -228,7 +226,7 @@ export default function ElliottWavePage() {
           <div className="panel px-5 py-4">
             <div className="flex items-center justify-between mb-3">
               <div className="text-[9px] uppercase tracking-widest" style={{ color: "rgba(175,185,215,0.3)" }}>
-                Wave Chart ({tf.toUpperCase()}) — เส้นทอง = ราคาจริง | เส้นม่วง = Zigzag คลื่น
+                Wave Chart ({tf.toUpperCase()}) — แท่งเทียนราคาจริง | เส้นม่วง = Zigzag วัดคลื่น
               </div>
               <div className="flex items-center gap-3 text-[8px]" style={{ color: "rgba(175,185,215,0.4)" }}>
                 <span>🟡 High</span><span>🟢 Low</span>

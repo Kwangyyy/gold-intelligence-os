@@ -40,9 +40,11 @@ export interface WaveProjection {
 export interface ElliottWavePayload {
   timeframe: ElliottTF;
   goldPrice: number;
-  series: { t: number[]; o: number[]; h: number[]; l: number[]; c: number[] };  // OHLC candles
+  series: { t: number[]; o: number[]; h: number[]; l: number[]; c: number[]; v: number[] };  // OHLCV candles
   zigzag: ZigzagPoint[];                   // full zigzag turning points (series indices)
   method: "NeoWave";
+  degree: string;        // wave degree name for this timeframe (Primary/Intermediate/…)
+  degreeTh: string;
   structure: "impulse" | "terminal" | "zigzag" | "flat" | "triangle" | "complex" | "unclear";
   structureLabel: string;
   structureLabelTh: string;
@@ -70,11 +72,27 @@ export interface ElliottWavePayload {
 // Timeframe → Yahoo query + processing config.
 // `deviation` = min % swing for the ZigZag to register a new wave pivot (bigger TF = bigger swings).
 const TF_CONFIG: Record<ElliottTF, { range: string; interval: string; aggregate: number; deviation: number; maxBars: number }> = {
-  "15m":{ range: "5d",  interval: "15m", aggregate: 1, deviation: 0.6, maxBars: 200 },
-  "1h": { range: "1mo", interval: "60m", aggregate: 1, deviation: 1.2, maxBars: 200 },
-  "4h": { range: "3mo", interval: "60m", aggregate: 4, deviation: 2.2, maxBars: 200 },
-  "1d": { range: "1y",  interval: "1d",  aggregate: 1, deviation: 3.5, maxBars: 260 },
-  "1w": { range: "5y",  interval: "1wk", aggregate: 1, deviation: 6.0, maxBars: 260 },
+  "15m":{ range: "1mo", interval: "15m", aggregate: 1, deviation: 0.6, maxBars: 800 },
+  "1h": { range: "6mo", interval: "60m", aggregate: 1, deviation: 1.2, maxBars: 900 },
+  "4h": { range: "2y",  interval: "60m", aggregate: 4, deviation: 2.2, maxBars: 800 },
+  "1d": { range: "5y",  interval: "1d",  aggregate: 1, deviation: 3.5, maxBars: 1000 },
+  "1w": { range: "10y", interval: "1wk", aggregate: 1, deviation: 6.0, maxBars: 700 },
+};
+
+// Wave degree per timeframe (Elliott/NeoWave fractal nesting: large → small).
+// Each degree uses its own notation so counts stay consistent across timeframes:
+//   1W Primary ①②③ · 1D Intermediate (1)(2)(3) · 4H Minor 1 2 3 · 1H Minute (i)(ii)(iii) · 15m Minuette i ii iii
+const DEGREE: Record<ElliottTF, { name: string; nameTh: string; glyph: Record<string, string> }> = {
+  "1w":  { name: "Primary", nameTh: "Primary (ดีกรีใหญ่สุด)",
+    glyph: { "0":"◦", "1":"①","2":"②","3":"③","4":"④","5":"⑤","A":"Ⓐ","B":"Ⓑ","C":"Ⓒ","D":"Ⓓ","E":"Ⓔ" } },
+  "1d":  { name: "Intermediate", nameTh: "Intermediate",
+    glyph: { "0":"◦", "1":"(1)","2":"(2)","3":"(3)","4":"(4)","5":"(5)","A":"(A)","B":"(B)","C":"(C)","D":"(D)","E":"(E)" } },
+  "4h":  { name: "Minor", nameTh: "Minor",
+    glyph: { "0":"◦", "1":"1","2":"2","3":"3","4":"4","5":"5","A":"A","B":"B","C":"C","D":"D","E":"E" } },
+  "1h":  { name: "Minute", nameTh: "Minute",
+    glyph: { "0":"◦", "1":"(i)","2":"(ii)","3":"(iii)","4":"(iv)","5":"(v)","A":"(a)","B":"(b)","C":"(c)","D":"(d)","E":"(e)" } },
+  "15m": { name: "Minuette", nameTh: "Minuette (ดีกรีเล็กสุด)",
+    glyph: { "0":"◦", "1":"i","2":"ii","3":"iii","4":"iv","5":"v","A":"a","B":"b","C":"c","D":"d","E":"e" } },
 };
 
 async function fetchGold(tf: ElliottTF) {
@@ -92,25 +110,26 @@ type YJ = {
     result?: Array<{
       meta?: { regularMarketPrice?: number };
       timestamp?: number[];
-      indicators?: { quote?: Array<{ open?: (number|null)[]; close?: (number|null)[]; high?: (number|null)[]; low?: (number|null)[] }> };
+      indicators?: { quote?: Array<{ open?: (number|null)[]; close?: (number|null)[]; high?: (number|null)[]; low?: (number|null)[]; volume?: (number|null)[] }> };
     }>;
   };
 } | null;
 
-// Aggregate 1h bars into Nh bars (e.g. 4h): group consecutive N bars into OHLC.
-function aggregate(op: number[], hi: number[], lo: number[], cl: number[], ts: number[], n: number) {
-  if (n <= 1) return { op, hi, lo, cl, ts };
-  const O: number[] = [], H: number[] = [], L: number[] = [], C: number[] = [], T: number[] = [];
+// Aggregate 1h bars into Nh bars (e.g. 4h): group consecutive N bars into OHLCV.
+function aggregate(op: number[], hi: number[], lo: number[], cl: number[], vo: number[], ts: number[], n: number) {
+  if (n <= 1) return { op, hi, lo, cl, vo, ts };
+  const O: number[] = [], H: number[] = [], L: number[] = [], C: number[] = [], V: number[] = [], T: number[] = [];
   for (let i = 0; i < cl.length; i += n) {
-    const hSlice = hi.slice(i, i + n), lSlice = lo.slice(i, i + n), cSlice = cl.slice(i, i + n);
+    const hSlice = hi.slice(i, i + n), lSlice = lo.slice(i, i + n), cSlice = cl.slice(i, i + n), vSlice = vo.slice(i, i + n);
     if (!cSlice.length) break;
     O.push(op[i]);
     H.push(Math.max(...hSlice));
     L.push(Math.min(...lSlice));
     C.push(cSlice[cSlice.length - 1]);
+    V.push(vSlice.reduce((a, b) => a + b, 0));
     T.push(ts[i]);
   }
-  return { op: O, hi: H, lo: L, cl: C, ts: T };
+  return { op: O, hi: H, lo: L, cl: C, vo: V, ts: T };
 }
 
 // Percentage-deviation ZigZag on candle highs/lows — the classic "wave measuring" indicator.
@@ -426,19 +445,21 @@ export async function GET(req: Request) {
     const rawC = q?.close ?? [];
     const rawH = q?.high  ?? [];
     const rawL = q?.low   ?? [];
+    const rawV = q?.volume ?? [];
     const rawT = res?.timestamp ?? [];
-    const op: number[] = [], hi: number[] = [], lo: number[] = [], cl: number[] = [], ts: number[] = [];
+    const op: number[] = [], hi: number[] = [], lo: number[] = [], cl: number[] = [], vo: number[] = [], ts: number[] = [];
     for (let i = 0; i < rawC.length; i++) {
       if (rawO[i] == null || rawC[i] == null || rawH[i] == null || rawL[i] == null) continue;
       op.push(rawO[i] as number); cl.push(rawC[i] as number);
-      hi.push(rawH[i] as number); lo.push(rawL[i] as number); ts.push(rawT[i] ?? 0);
+      hi.push(rawH[i] as number); lo.push(rawL[i] as number);
+      vo.push((rawV[i] as number) ?? 0); ts.push(rawT[i] ?? 0);
     }
 
     // Aggregate (for 4h) then cap to maxBars
-    const agg = aggregate(op, hi, lo, cl, ts, cfg.aggregate);
+    const agg = aggregate(op, hi, lo, cl, vo, ts, cfg.aggregate);
     const start = Math.max(0, agg.cl.length - cfg.maxBars);
     const sOp = agg.op.slice(start), sHi = agg.hi.slice(start), sLo = agg.lo.slice(start),
-          sCl = agg.cl.slice(start), sTs = agg.ts.slice(start);
+          sCl = agg.cl.slice(start), sVo = agg.vo.slice(start), sTs = agg.ts.slice(start);
 
     const spot = res?.meta?.regularMarketPrice ?? sCl.at(-1) ?? 3200;
 
@@ -446,20 +467,27 @@ export async function GET(req: Request) {
     const zigzag: ZigzagPoint[] = pivots.map(p => ({ i: p.idx, price: +p.price.toFixed(1), type: p.type }));
     const waveAnalysis = analyzeNeoWave(pivots, spot);
 
+    // Relabel wave pivots with this timeframe's degree notation (fractal nesting)
+    const deg = DEGREE[tf];
     const { wavePivots, ...rest } = waveAnalysis;
+    const degreePivots = wavePivots.map(p => ({ ...p, label: deg.glyph[p.label] ?? p.label }));
+
     const data: ElliottWavePayload = {
       timeframe: tf,
       goldPrice: +spot.toFixed(0),
+      degree: deg.name,
+      degreeTh: deg.nameTh,
       series: {
         t: sTs,
         o: sOp.map(v => +v.toFixed(1)),
         h: sHi.map(v => +v.toFixed(1)),
         l: sLo.map(v => +v.toFixed(1)),
         c: sCl.map(v => +v.toFixed(1)),
+        v: sVo.map(v => Math.round(v)),
       },
       zigzag,
       ...rest,
-      pivots: wavePivots,
+      pivots: degreePivots,
       disclaimer: "NeoWave analysis is rule-based but still probabilistic — alternate counts can be valid. Automated heuristic, not a substitute for a certified NeoWave analyst.",
       generatedAt: new Date().toISOString(),
     };

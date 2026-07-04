@@ -219,6 +219,27 @@ function ichimoku(t: number[], h: number[], l: number[], c: number[]) {
   for (let i = 26; i < n; i++) chikou.push({ time: t[i - 26], value: c[i] });
   return { tenkan, kijun, spanA, spanB, chikou };
 }
+// Solid chart background — required so the Kumo-cloud "mask" trick (below) can erase
+// back to an exact matching color instead of leaving a visible seam.
+const CHART_BG = "#0f1828";
+// Split spanA/spanB into contiguous same-trend runs so the cloud can be colored
+// green where spanA >= spanB (bullish) and red where spanA < spanB (bearish),
+// matching every other Ichimoku implementation's "Kumo" coloring convention.
+function cloudSegments(spanA: { time: number; value: number }[], spanB: { time: number; value: number }[]) {
+  const off = spanA.length - spanB.length;
+  if (off < 0) return [];
+  const segs: { bullish: boolean; upper: { time: number; value: number }[]; lower: { time: number; value: number }[] }[] = [];
+  let cur: (typeof segs)[number] | null = null;
+  for (let i = 0; i < spanB.length; i++) {
+    const a = spanA[off + i].value, b = spanB[i].value, time = spanB[i].time;
+    const bullish = a >= b;
+    const point = { time, value: Math.max(a, b) }, pointLo = { time, value: Math.min(a, b) };
+    if (!cur || cur.bullish !== bullish) { if (cur) segs.push(cur); cur = { bullish, upper: [], lower: [] }; }
+    cur.upper.push(point); cur.lower.push(pointLo);
+  }
+  if (cur) segs.push(cur);
+  return segs;
+}
 const toLine = (t: number[], v: (number | null)[]) =>
   t.map((time, i) => ({ time, value: v[i] })).filter(x => x.value != null) as { time: number; value: number }[];
 
@@ -246,6 +267,7 @@ export default function ElliottWavePage() {
   const candleRef = useRef<any>(null);
   const zzRef = useRef<any>(null);
   const ovRef = useRef<Record<string, any>>({});
+  const cloudPoolRef = useRef<{ top: any; mask: any }[]>([]);
   const oscChartRef = useRef<any>(null);
   const oscSeriesRef = useRef<any[]>([]);
   const syncing = useRef(false);
@@ -267,12 +289,26 @@ export default function ElliottWavePage() {
     const LWC = (window as any).LightweightCharts; if (!LWC) return;
     const chart = LWC.createChart(boxRef.current, {
       height: 440,
-      layout: { background: { type: "solid", color: "transparent" }, textColor: "rgba(175,185,215,0.6)", fontSize: 11 },
+      layout: { background: { type: "solid", color: CHART_BG }, textColor: "rgba(175,185,215,0.6)", fontSize: 11 },
       grid: { vertLines: { color: "rgba(255,255,255,0.04)" }, horzLines: { color: "rgba(255,255,255,0.04)" } },
       rightPriceScale: { borderColor: "rgba(255,255,255,0.08)" },
       timeScale: { borderColor: "rgba(255,255,255,0.08)", timeVisible: true, secondsVisible: false, rightOffset: 4 },
       crosshair: { mode: 1 },
     });
+    // Ichimoku Kumo-cloud pool: created BEFORE the candlesticks so it renders behind
+    // price (insertion order = z-order in Lightweight Charts). Each pair is a translucent
+    // "top" fill (down to the pane's bottom edge) plus an opaque "mask" that repaints the
+    // background color below the cloud's lower line, leaving only the band between the
+    // two Senkou spans visibly tinted. Pool size caps how many bullish/bearish color
+    // segments one chart can show at once — plenty for typical crossover counts.
+    const CLOUD_POOL_SIZE = 60;
+    const cloudPool: { top: any; mask: any }[] = [];
+    for (let i = 0; i < CLOUD_POOL_SIZE; i++) {
+      const top = chart.addAreaSeries({ topColor: "rgba(0,0,0,0)", bottomColor: "rgba(0,0,0,0)", lineColor: "rgba(0,0,0,0)", priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+      const mask = chart.addAreaSeries({ topColor: CHART_BG, bottomColor: CHART_BG, lineColor: "rgba(0,0,0,0)", priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+      cloudPool.push({ top, mask });
+    }
+    cloudPoolRef.current = cloudPool;
     const candle = chart.addCandlestickSeries({ upColor: "#22c55e", downColor: "#ef4444", borderVisible: false, wickUpColor: "#22c55e", wickDownColor: "#ef4444" });
     const zz = chart.addLineSeries({ color: "#c084fc", lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
     chartRef.current = chart; candleRef.current = candle; zzRef.current = zz;
@@ -283,7 +319,7 @@ export default function ElliottWavePage() {
       if (syncing.current || !oscChartRef.current || !r) return;
       syncing.current = true; oscChartRef.current.timeScale().setVisibleLogicalRange(r); syncing.current = false;
     });
-    return () => { ro.disconnect(); chart.remove(); chartRef.current = null; };
+    return () => { ro.disconnect(); chart.remove(); chartRef.current = null; cloudPoolRef.current = []; };
   }, [libReady]);
 
   // push candles + zigzag + markers
@@ -331,7 +367,20 @@ export default function ElliottWavePage() {
       ensure("ichA", { color: "rgba(34,197,94,0.7)", lineWidth: 1 }).setData(ic.spanA);
       ensure("ichB", { color: "rgba(239,68,68,0.7)", lineWidth: 1 }).setData(ic.spanB);
       ensure("ichChi", { color: "rgba(148,163,184,0.7)", lineWidth: 1 }).setData(ic.chikou);
-    } else { ["ichTen", "ichKij", "ichA", "ichB", "ichChi"].forEach(drop); }
+      // Kumo cloud band — colored fill between Senkou Span A and B (green = bullish, red = bearish)
+      const pool = cloudPoolRef.current;
+      const segs = cloudSegments(ic.spanA, ic.spanB).slice(0, pool.length);
+      segs.forEach((seg, i) => {
+        const fill = seg.bullish ? "rgba(34,197,94,0.18)" : "rgba(239,68,68,0.18)";
+        pool[i].top.applyOptions({ topColor: fill, bottomColor: fill });
+        pool[i].top.setData(seg.upper);
+        pool[i].mask.setData(seg.lower);
+      });
+      for (let i = segs.length; i < pool.length; i++) { pool[i].top.setData([]); pool[i].mask.setData([]); }
+    } else {
+      ["ichTen", "ichKij", "ichA", "ichB", "ichChi"].forEach(drop);
+      cloudPoolRef.current.forEach(p => { p.top.setData([]); p.mask.setData([]); });
+    }
 
     if (ov.psar) ensure("psar", { color: "#facc15", lineWidth: 1, lineVisible: false, pointMarkersVisible: true, pointMarkersRadius: 1.5 }).setData(toLine(s.t, psar(s.h, s.l))); else drop("psar");
     if (ov.supertrend) ensure("st", { color: "#f97316", lineWidth: 2 }).setData(toLine(s.t, supertrend(s.h, s.l, s.c))); else drop("st");
@@ -361,7 +410,7 @@ export default function ElliottWavePage() {
     if (!oscChartRef.current) {
       const c = LWC.createChart(oscBoxRef.current, {
         height: 150,
-        layout: { background: { type: "solid", color: "transparent" }, textColor: "rgba(175,185,215,0.5)", fontSize: 10 },
+        layout: { background: { type: "solid", color: CHART_BG }, textColor: "rgba(175,185,215,0.5)", fontSize: 10 },
         grid: { vertLines: { color: "rgba(255,255,255,0.03)" }, horzLines: { color: "rgba(255,255,255,0.03)" } },
         rightPriceScale: { borderColor: "rgba(255,255,255,0.08)" },
         timeScale: { borderColor: "rgba(255,255,255,0.08)", timeVisible: true, secondsVisible: false },

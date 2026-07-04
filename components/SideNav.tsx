@@ -209,6 +209,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     key: "navGrpAiNews", icon: "🤖",
     items: [
+      { href: "/council",          icon: "🏛", key: "navCouncil"         },
       { href: "/chat",             icon: "🤖", key: "navChat"            },
       { href: "/ai-model",         icon: "🧠", key: "navAiModel"         },
       { href: "/ai-model/history", icon: "📜", key: "navAiModelHistory"  },

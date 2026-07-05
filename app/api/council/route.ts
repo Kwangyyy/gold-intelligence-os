@@ -6,6 +6,7 @@ import { buildSmc } from "@/lib/smc";
 import { buildPortfolio } from "@/lib/portfolio";
 import { runCouncil, type CouncilContext } from "@/lib/council";
 import { planExecution } from "@/lib/execution";
+import { recordCouncilVote } from "@/lib/councilJournal";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +33,10 @@ export async function GET() {
       balance: portfolio.balance,
       riskPct: 1,
     });
+
+    // Self-Learning: journal this vote (throttled) so per-agent accuracy can be
+    // scored against future price. Non-fatal if it fails.
+    void recordCouncilVote(result, snapshot.price).catch(() => {});
 
     return NextResponse.json({ ...result, plan }, { headers: { "Cache-Control": "no-store" } });
   } catch {

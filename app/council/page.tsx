@@ -7,8 +7,10 @@ import type { Bilingual } from "@/lib/types";
 import type { AgentOpinion, CouncilResult, CouncilVote, CouncilDecision, RiskGate } from "@/lib/council";
 import type { OrderPlan } from "@/lib/execution";
 import { appendPaperTrade, closeAllOpenPaper } from "@/lib/paperStore";
+import type { LearningStats } from "@/lib/councilLearning";
 
 type CouncilResponse = CouncilResult & { plan: OrderPlan };
+type LearningResponse = LearningStats & { price?: number };
 
 const VOTE_COLOR: Record<CouncilVote, string> = {
   BUY: "#34d399",
@@ -130,6 +132,7 @@ export default function CouncilPage() {
   const L = useCallback((b: Bilingual) => b[lang], [lang]);
 
   const [data, setData] = useState<CouncilResponse | null>(null);
+  const [learning, setLearning] = useState<LearningResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
   const [execMsg, setExecMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -148,6 +151,16 @@ export default function CouncilPage() {
       setErr(String(e));
     } finally {
       setLoading(false);
+    }
+    // Self-Learning stats (non-fatal, independent of the main council fetch).
+    try {
+      const lr = await fetch("/api/council/learning", { cache: "no-store" });
+      if (lr.ok) {
+        const lj = await lr.json();
+        if (!lj.error) setLearning(lj as LearningResponse);
+      }
+    } catch {
+      /* ignore */
     }
   }, []);
 
@@ -387,6 +400,56 @@ export default function CouncilPage() {
               <AgentCard key={a.id} agent={a} L={L} lang={lang} />
             ))}
           </div>
+
+          {/* Self-Learning — per-agent accuracy */}
+          {learning && (
+            <div className="mt-6 rounded-2xl p-5" style={{ border: "1px solid rgba(96,165,250,0.25)", background: "rgba(6,9,26,0.5)" }}>
+              <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                <div className="text-sm font-bold" style={{ color: "#93c5fd" }}>
+                  {lang === "th" ? "🧠 การเรียนรู้ · ความแม่นของแต่ละ Agent" : "🧠 Self-Learning · per-agent accuracy"}
+                </div>
+                <div className="text-[10px] text-silver/40">
+                  {lang === "th"
+                    ? `บันทึก ${learning.totalEntries} · ประเมินแล้ว ${learning.evaluatedEntries} · รอ ${learning.pendingEntries}`
+                    : `logged ${learning.totalEntries} · scored ${learning.evaluatedEntries} · pending ${learning.pendingEntries}`}
+                </div>
+              </div>
+              <div className="mb-3 text-[10px] text-silver/35">
+                {lang === "th"
+                  ? "แต่ละโหวตถูกให้คะแนนหลังผ่านไป 1 ชม. โดยเทียบกับการเคลื่อนไหวของราคาจริง"
+                  : "Each vote is scored 1h later against the actual price move."}
+              </div>
+
+              {learning.evaluatedEntries === 0 ? (
+                <div className="rounded-xl px-4 py-3 text-[11px]" style={{ background: "rgba(96,165,250,0.06)", border: "1px solid rgba(96,165,250,0.15)", color: "rgba(175,185,215,0.6)" }}>
+                  {lang === "th"
+                    ? `กำลังเก็บข้อมูล — มีโหวต ${learning.pendingEntries} รายการรอครบกำหนดประเมิน สถิติความแม่นจะทยอยปรากฏเมื่อโหวตเริ่มถูกให้คะแนน`
+                    : `Collecting data — ${learning.pendingEntries} vote(s) awaiting maturity. Accuracy stats appear as votes get scored.`}
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {learning.agents.map((a) => {
+                    const enough = a.samples >= 3;
+                    const c = !enough ? "#94a3b8" : a.hitRate >= 55 ? "#34d399" : a.hitRate < 45 ? "#f87171" : "#f5c451";
+                    return (
+                      <div key={a.id} className="flex items-center gap-3">
+                        <div className="w-28 shrink-0 truncate text-[11px] font-semibold text-silver/80">{L(a.name)}</div>
+                        <div className="h-2 flex-1 overflow-hidden rounded-full" style={{ background: "rgba(255,255,255,0.06)" }}>
+                          <div className="h-full rounded-full transition-[width] duration-700" style={{ width: `${a.samples ? a.hitRate : 0}%`, background: c }} />
+                        </div>
+                        <div className="w-10 shrink-0 text-right font-mono text-[11px] font-bold" style={{ color: c }}>
+                          {a.samples ? `${a.hitRate}%` : "—"}
+                        </div>
+                        <div className="w-24 shrink-0 text-right text-[10px] text-silver/35">
+                          {lang === "th" ? `${a.samples} ครั้ง · rel ${a.reliability}` : `${a.samples} · rel ${a.reliability}`}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Disclaimer */}
           <div

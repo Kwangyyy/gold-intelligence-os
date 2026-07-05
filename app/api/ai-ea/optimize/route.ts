@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { optimizeStrategy, optimizeAll, type StrategyId } from "@/lib/eaOptimizer";
+import { optimizeRobust, optimizeRobustAll } from "@/lib/robustness";
 import type { OHLC } from "@/lib/backtest";
 
 export const dynamic = "force-dynamic";
@@ -29,12 +30,20 @@ export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const strategyId = (searchParams.get("strategy") ?? "auto") as StrategyId;
   const direction  = (searchParams.get("direction") ?? "both") as "both" | "buy_only" | "sell_only";
+  // Robust mode: optimise on a train split, validate on an untouched holdout, and
+  // re-rank by out-of-sample quality so overfit params don't reach the top.
+  const robust = searchParams.get("robust") === "1";
+  const filterOverfit = searchParams.get("filterOverfit") === "1";
 
   try {
     const ohlc = await fetchOHLC();
-    const results = strategyId === "auto"
-      ? optimizeAll(ohlc, { topN: 5, direction })
-      : optimizeStrategy(ohlc, strategyId, { topN: 5, direction });
+    const results = robust
+      ? (strategyId === "auto"
+          ? optimizeRobustAll(ohlc, { topN: 5, direction, filterOverfit })
+          : optimizeRobust(ohlc, strategyId, { topN: 5, direction, filterOverfit }))
+      : (strategyId === "auto"
+          ? optimizeAll(ohlc, { topN: 5, direction })
+          : optimizeStrategy(ohlc, strategyId, { topN: 5, direction }));
 
     // Strip full trade list to reduce payload size (keep equity curve + summary)
     const slim = results.map(r => ({
@@ -46,7 +55,7 @@ export async function GET(req: Request) {
       },
     }));
 
-    return NextResponse.json({ ok: true, results: slim, ohlcLen: ohlc.length },
+    return NextResponse.json({ ok: true, robust, results: slim, ohlcLen: ohlc.length },
       { headers: { "Cache-Control": "no-store" } });
   } catch (e) {
     return NextResponse.json({ ok: false, error: String(e) }, { status: 500 });

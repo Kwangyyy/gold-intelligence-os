@@ -4,8 +4,19 @@ import { useState, useCallback } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { STRATEGY_META, type StrategyId } from "@/lib/eaOptimizer";
 import type { OptimizedResult } from "@/lib/eaOptimizer";
+import type { RobustOptimizedResult, Verdict } from "@/lib/robustness";
+
+// Results may be plain (in-sample) or robust (with OOS fields).
+type EaResult = OptimizedResult & Partial<RobustOptimizedResult>;
 
 const STRATEGIES = Object.entries(STRATEGY_META) as [StrategyId, typeof STRATEGY_META[StrategyId]][];
+
+const VERDICT_STYLE: Record<Verdict, { color: string; th: string }> = {
+  robust: { color: "#34d399", th: "ทนทาน" },
+  fragile: { color: "#f5c451", th: "เปราะ" },
+  overfit: { color: "#f87171", th: "โอเวอร์ฟิต" },
+  no_edge: { color: "#94a3b8", th: "ไม่มีเอดจ์" },
+};
 
 const DIRECTION_OPTS = [
   { v: "both",      label: "Buy & Sell" },
@@ -23,7 +34,7 @@ function StatBadge({ label, value, color }: { label: string; value: string; colo
 }
 
 function ResultCard({ r, selected, onSelect, onExport }: {
-  r: OptimizedResult;
+  r: EaResult;
   selected: boolean;
   onSelect: () => void;
   onExport: () => void;
@@ -31,6 +42,7 @@ function ResultCard({ r, selected, onSelect, onExport }: {
   const res     = r.result;
   const ddColor = res.maxDrawdown > 20 ? "#f87171" : res.maxDrawdown > 10 ? "#f5c451" : "#34d399";
   const pfColor = res.profitFactor > 2 ? "#34d399" : res.profitFactor > 1.5 ? "#f5c451" : "#94a3b8";
+  const vstyle  = r.verdict ? VERDICT_STYLE[r.verdict] : null;
 
   // Mini equity sparkline SVG
   const curve = r.result.balanceCurve;
@@ -61,6 +73,12 @@ function ResultCard({ r, selected, onSelect, onExport }: {
               #{r.rank}
             </span>
             <span className="text-xs font-bold text-white">{r.strategyName}</span>
+            {vstyle && (
+              <span className="text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-wide"
+                style={{ background: `${vstyle.color}18`, color: vstyle.color, border: `1px solid ${vstyle.color}45` }}>
+                {vstyle.th}
+              </span>
+            )}
           </div>
           <div className="text-[10px] text-silver/40 mt-0.5 font-mono">{r.label}</div>
         </div>
@@ -81,6 +99,20 @@ function ResultCard({ r, selected, onSelect, onExport }: {
         <StatBadge label="Trades"   value={String(res.totalTrades)}       color="#94a3b8" />
         <StatBadge label="P&L"      value={"$" + res.totalPnl.toFixed(0)} color={finalV > 10000 ? "#34d399" : "#f87171"} />
       </div>
+
+      {/* Out-of-sample validation strip (robust mode) */}
+      {r.verdict && (
+        <div className="mb-3 flex items-center justify-between rounded-lg px-3 py-2"
+          style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
+          <span className="text-[9px] uppercase tracking-widest text-silver/35">In-sample → Out-of-sample</span>
+          <span className="font-mono text-[11px] font-bold">
+            <span style={{ color: (r.isReturnPct ?? 0) >= 0 ? "#94a3b8" : "#f87171" }}>{r.isReturnPct}%</span>
+            <span className="mx-1 text-silver/30">→</span>
+            <span style={{ color: (r.oosReturnPct ?? 0) >= 0 ? "#34d399" : "#f87171" }}>{r.oosReturnPct}%</span>
+            <span className="ml-2 text-silver/40">OOS PF {r.oosProfitFactor}</span>
+          </span>
+        </div>
+      )}
 
       {/* Equity sparkline */}
       {vals.length > 1 && (
@@ -115,8 +147,9 @@ function ResultCard({ r, selected, onSelect, onExport }: {
 export default function AiEaPage() {
   const [strategy,  setStrategy]  = useState<StrategyId>("auto");
   const [direction, setDirection] = useState<"both"|"buy_only"|"sell_only">("both");
+  const [robust,    setRobust]    = useState(true); // filter overfit via out-of-sample validation
   const [loading,   setLoading]   = useState(false);
-  const [results,   setResults]   = useState<OptimizedResult[]>([]);
+  const [results,   setResults]   = useState<EaResult[]>([]);
   const [selected,  setSelected]  = useState<number | null>(null);
   const [error,     setError]     = useState("");
   const [ohlcLen,   setOhlcLen]   = useState(0);
@@ -129,16 +162,16 @@ export default function AiEaPage() {
   const runOptimize = useCallback(async () => {
     setLoading(true); setError(""); setResults([]); setSelected(null); setEaCode(""); setExportErr("");
     try {
-      const r = await fetch(`/api/ai-ea/optimize?strategy=${strategy}&direction=${direction}`, { cache:"no-store" });
+      const r = await fetch(`/api/ai-ea/optimize?strategy=${strategy}&direction=${direction}${robust ? "&robust=1" : ""}`, { cache:"no-store" });
       const d = await r.json();
       if (!d.ok) throw new Error(d.error);
       setResults(d.results);
       setOhlcLen(d.ohlcLen);
     } catch (e) { setError(String(e)); }
     finally { setLoading(false); }
-  }, [strategy, direction]);
+  }, [strategy, direction, robust]);
 
-  const exportEA = useCallback(async (r: OptimizedResult) => {
+  const exportEA = useCallback(async (r: EaResult) => {
     setExporting(true); setExportErr(""); setEaCode("");
     try {
       const res = await fetch("/api/ai-ea/export", {
@@ -194,7 +227,7 @@ export default function AiEaPage() {
             </button>
           ))}
         </div>
-        <div className="flex items-center gap-3 mb-5">
+        <div className="flex items-center gap-3 mb-4">
           <span className="text-[10px] text-silver/35 uppercase tracking-widest">ทิศทาง:</span>
           {DIRECTION_OPTS.map(o => (
             <button key={o.v} onClick={() => setDirection(o.v)}
@@ -206,6 +239,26 @@ export default function AiEaPage() {
             </button>
           ))}
         </div>
+
+        {/* Overfit filter toggle */}
+        <button onClick={() => setRobust(v => !v)}
+          className="mb-5 flex w-full items-center justify-between rounded-xl px-4 py-3 text-left transition-all"
+          style={robust
+            ? { background:"rgba(52,211,153,0.08)", border:"1px solid rgba(52,211,153,0.35)" }
+            : { background:"rgba(71,85,105,0.08)", border:"1px solid rgba(71,85,105,0.2)" }}>
+          <div>
+            <div className="text-xs font-bold" style={{ color: robust ? "#34d399" : "#94a3b8" }}>
+              🛡️ กรอง Overfit (Walk-Forward validation) {robust ? "— เปิด" : "— ปิด"}
+            </div>
+            <div className="text-[10px] text-silver/40 mt-0.5">
+              optimize บนข้อมูล 70% แล้วตรวจกับ 30% ที่ไม่เคยเห็น · จัดอันดับตามผล out-of-sample จริง
+            </div>
+          </div>
+          <div className="ml-3 flex h-6 w-11 shrink-0 items-center rounded-full transition-all"
+            style={{ background: robust ? "rgba(52,211,153,0.4)" : "rgba(71,85,105,0.4)" }}>
+            <div className="h-5 w-5 rounded-full bg-white transition-transform" style={{ transform: robust ? "translateX(22px)" : "translateX(2px)" }} />
+          </div>
+        </button>
         <button
           onClick={runOptimize}
           disabled={loading}
@@ -214,7 +267,7 @@ export default function AiEaPage() {
           {loading
             ? <span className="flex items-center justify-center gap-2">
                 <span className="h-4 w-4 animate-spin rounded-full border-2 border-purple-500/30 border-t-purple-400" />
-                กำลัง optimize… (อาจใช้เวลา 5-15 วินาที)
+                กำลัง optimize… {robust ? "+ ตรวจ Overfit (อาจใช้เวลา 10-30 วินาที)" : "(อาจใช้เวลา 5-15 วินาที)"}
               </span>
             : "🚀 Run Optimization"}
         </button>

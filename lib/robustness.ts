@@ -17,7 +17,7 @@
 
 import { runBacktest, defaultBacktestConfig } from "./backtest";
 import type { OHLC, BacktestConfig, BacktestResult } from "./backtest";
-import { optimizeStrategy, STRATEGY_META, type StrategyId } from "./eaOptimizer";
+import { optimizeStrategy, STRATEGY_META, type StrategyId, type OptimizedResult } from "./eaOptimizer";
 import type { Bilingual } from "./types";
 
 // ── Seeded RNG (mulberry32) — deterministic Monte Carlo ──────────────────────
@@ -346,4 +346,95 @@ export function assessRobustness(ohlc: OHLC[], strategyId: StrategyId, opts: Rob
     verdictReasons: reasons,
     timestamp: new Date().toISOString(),
   };
+}
+
+// ── Robust optimizer — validate optimizer picks out-of-sample ─────────────────
+//
+// The naive optimizer ranks by IN-SAMPLE score, which favours overfit params.
+// optimizeRobust optimises on a TRAIN split, then validates each candidate on an
+// untouched HOLDOUT split, tags a verdict, and re-ranks by out-of-sample quality
+// so overfit strategies sink to the bottom (or are filtered out entirely).
+
+export interface RobustOptimizedResult extends OptimizedResult {
+  isReturnPct: number; // in-sample (train) return %
+  oosReturnPct: number; // out-of-sample (holdout) return %
+  oosProfitFactor: number;
+  oosMaxDD: number;
+  oosTrades: number;
+  verdict: Verdict;
+  robustScore: number; // 0..100, OOS-weighted
+}
+
+export interface RobustOptimizeOptions {
+  topN?: number; // results to return (default 5)
+  trainRatio?: number; // holdout split (default 0.7)
+  direction?: "both" | "buy_only" | "sell_only";
+  filterOverfit?: boolean; // drop overfit/no-edge results entirely (default false)
+}
+
+// Score a candidate primarily on its HOLDOUT performance, with a small bonus for
+// in-sample↔out-of-sample consistency.
+function robustScoreOf(isRet: number, oos: BacktestResult): number {
+  if (oos.totalTrades < 4 || oos.totalPnl <= 0) return 0;
+  const pf = Math.min(oos.profitFactor / 3, 1) * 45;
+  const dd = (1 - Math.min(oos.maxDrawdown / 40, 1)) * 25;
+  const ret = Math.min(Math.max(oos.totalPnl / INIT_BAL, 0) / 0.3, 1) * 20;
+  // Consistency: reward when OOS return direction/magnitude tracks in-sample.
+  const oosRet = oos.totalPnl / INIT_BAL;
+  const consistency = isRet > 0 ? Math.min(oosRet / isRet, 1) * 10 : 0;
+  return +(pf + dd + ret + Math.max(0, consistency)).toFixed(1);
+}
+
+function verdictFor(isRet: number, oos: BacktestResult): Verdict {
+  if (oos.totalTrades < 4) return "no_edge";
+  if (oos.totalPnl <= 0) return "overfit";
+  if (oos.profitFactor >= 1.3 && oos.maxDrawdown < 30) return "robust";
+  return "fragile";
+}
+
+export function optimizeRobust(ohlc: OHLC[], strategyId: StrategyId, opts: RobustOptimizeOptions = {}): RobustOptimizedResult[] {
+  const topN = opts.topN ?? 5;
+  const trainRatio = opts.trainRatio ?? 0.7;
+  const base = defaultBacktestConfig();
+  const split = Math.floor(ohlc.length * trainRatio);
+  const train = ohlc.slice(0, split);
+  const holdout = ohlc.slice(split);
+  if (train.length < 120 || holdout.length < 40) return [];
+
+  // Optimise on TRAIN only; take extra candidates so good ones survive filtering.
+  const candidates = optimizeStrategy(train, strategyId, { topN: Math.max(topN * 2, 8), direction: opts.direction });
+
+  const scored: RobustOptimizedResult[] = candidates.map((c) => {
+    const cfg: BacktestConfig = {
+      ...base,
+      ...c.params,
+      direction: opts.direction ?? "both",
+      cond2: c.params.cond2 ?? base.cond2,
+      cond3: base.cond3,
+    };
+    const oos = runBacktest(holdout, cfg);
+    return {
+      ...c,
+      isReturnPct: returnPct(c.result.totalPnl),
+      oosReturnPct: returnPct(oos.totalPnl),
+      oosProfitFactor: +oos.profitFactor.toFixed(2),
+      oosMaxDD: +oos.maxDrawdown.toFixed(2),
+      oosTrades: oos.totalTrades,
+      verdict: verdictFor(c.result.totalPnl / INIT_BAL, oos),
+      robustScore: robustScoreOf(c.result.totalPnl / INIT_BAL, oos),
+    };
+  });
+
+  let ranked = scored.sort((a, b) => b.robustScore - a.robustScore);
+  if (opts.filterOverfit) ranked = ranked.filter((r) => r.verdict === "robust" || r.verdict === "fragile");
+  return ranked.slice(0, topN).map((r, i) => ({ ...r, rank: i + 1 }));
+}
+
+export function optimizeRobustAll(ohlc: OHLC[], opts: RobustOptimizeOptions = {}): RobustOptimizedResult[] {
+  const strategies: StrategyId[] = ["ema_cross", "triple_ema", "rsi", "macd", "bb_bounce", "macd_rsi", "ema_rsi"];
+  const all: RobustOptimizedResult[] = [];
+  for (const s of strategies) all.push(...optimizeRobust(ohlc, s, { ...opts, topN: 3 }));
+  let ranked = all.sort((a, b) => b.robustScore - a.robustScore);
+  if (opts.filterOverfit) ranked = ranked.filter((r) => r.verdict === "robust" || r.verdict === "fragile");
+  return ranked.slice(0, opts.topN ?? 5).map((r, i) => ({ ...r, rank: i + 1 }));
 }

@@ -202,6 +202,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/ai-ea",           icon: "🤖", key: "navAiEa"            },
       { href: "/ea-monitor",      icon: "🔍", key: "navEaMonitor"       },
       { href: "/backtest",        icon: "🧪", key: "navBacktest"        },
+      { href: "/robustness",      icon: "🛡️", key: "navRobustness"      },
       { href: "/sr-indicator",    icon: "📐", key: "navSrIndicator"     },
       { href: "/mt5",             icon: "🔌", key: "navMt5"             },
     ],

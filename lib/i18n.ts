@@ -116,6 +116,7 @@ const DICT: Record<string, Bilingual> = {
   navTechnical: { th: "เทคนิคอล", en: "Technical" },
   navCouncil: { th: "สภา AI", en: "AI Council" },
   navRobustness: { th: "ตรวจ Overfit", en: "Robustness" },
+  navEaPortfolio: { th: "พอร์ต EA", en: "EA Portfolio" },
   navChat: { th: "AI Copilot", en: "AI Copilot" },
   navContent: { th: "คอนเทนต์", en: "Content" },
 

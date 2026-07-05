@@ -195,6 +195,7 @@ const NAV_GROUPS: NavGroup[] = [
     key: "navGrpPortfolio", icon: "💼",
     items: [
       { href: "/portfolio",       icon: "💼", key: "navPortfolio"       },
+      { href: "/ea-portfolio",    icon: "🧩", key: "navEaPortfolio"     },
       { href: "/performance",     icon: "📊", key: "navPerformance"     },
       { href: "/journal",         icon: "📒", key: "navJournal"         },
       { href: "/drawdown-tracker",icon: "📉", key: "navDrawdownTracker" },

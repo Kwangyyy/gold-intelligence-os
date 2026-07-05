@@ -401,8 +401,11 @@ export function optimizeRobust(ohlc: OHLC[], strategyId: StrategyId, opts: Robus
   const holdout = ohlc.slice(split);
   if (train.length < 120 || holdout.length < 40) return [];
 
-  // Optimise on TRAIN only; take extra candidates so good ones survive filtering.
-  const candidates = optimizeStrategy(train, strategyId, { topN: Math.max(topN * 2, 8), direction: opts.direction });
+  // Optimise on TRAIN only. Use a GENEROUS candidate pool: params that hold up
+  // out-of-sample often don't top the in-sample ranking, so a small pool would
+  // miss them. Grids are compact (<~140 combos), so validating ~20 is cheap.
+  const pool = Math.max(topN * 3, 20);
+  const candidates = optimizeStrategy(train, strategyId, { topN: pool, direction: opts.direction });
 
   const scored: RobustOptimizedResult[] = candidates.map((c) => {
     const cfg: BacktestConfig = {

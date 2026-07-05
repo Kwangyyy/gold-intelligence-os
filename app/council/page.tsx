@@ -114,6 +114,20 @@ function AgentCard({ agent, L, lang }: { agent: AgentOpinion; L: (b: Bilingual) 
         </div>
       </div>
 
+      {/* learned reliability (Self-Learning feedback) */}
+      {agent.reliability != null && agent.reliability !== 1 && (
+        <div className="mt-2">
+          {(() => {
+            const rc = agent.reliability! > 1 ? "#34d399" : "#f87171";
+            return (
+              <span className="rounded-md px-2 py-0.5 text-[10px] font-bold" style={{ background: `${rc}14`, border: `1px solid ${rc}38`, color: rc }} title={lang === "th" ? "น้ำหนักจากความแม่นที่ผ่านมา" : "learned track-record weight"}>
+                {lang === "th" ? "ความน่าเชื่อถือ" : "trust"} ×{agent.reliability!.toFixed(2)}
+              </span>
+            );
+          })()}
+        </div>
+      )}
+
       {/* reasons */}
       <ul className="mt-3 space-y-1">
         {agent.reasons.map((r, i) => (
@@ -304,6 +318,12 @@ export default function CouncilPage() {
             </div>
 
             <div className="mt-3 text-xs text-silver/60">{L(data.summary)}</div>
+
+            {data.quorum.reliabilityApplied && (
+              <div className="mt-2 inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-semibold" style={{ background: "rgba(96,165,250,0.1)", border: "1px solid rgba(96,165,250,0.25)", color: "#93c5fd" }}>
+                🧠 {lang === "th" ? "ความเชื่อมั่นถ่วงด้วยความแม่นที่เรียนรู้มา" : "confidence weighted by learned accuracy"}
+              </div>
+            )}
 
             {data.riskFlags.length > 0 && (
               <div className="mt-3 space-y-1 rounded-xl px-3 py-2" style={{ background: "rgba(251,146,60,0.06)", border: "1px solid rgba(251,146,60,0.2)" }}>

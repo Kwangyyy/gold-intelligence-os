@@ -48,6 +48,7 @@ export interface AgentOpinion {
   score: number; // -100 (max SELL) .. +100 (max BUY) directional lean (0 for non-directional)
   reasons: Bilingual[];
   gate?: RiskGate; // Risk Manager only
+  reliability?: number; // 0.6..1.4 learned track-record multiplier (1 = neutral / no data yet)
 }
 
 export interface CouncilResult {
@@ -62,6 +63,7 @@ export interface CouncilResult {
     sell: number; // SELL votes among the 6
     riskPass: boolean; // did the Risk Manager clear the trade?
     met: "BUY" | "SELL" | null; // which side reached quorum (before the risk gate)
+    reliabilityApplied: boolean; // true once learned reliability (≠1) has shaped the confidence
   };
   agents: AgentOpinion[];
   riskFlags: Bilingual[];
@@ -365,7 +367,11 @@ const DECISION_TH: Record<CouncilDecision, string> = {
   CLOSE: "ปิดสถานะ",
 };
 
-export function runCouncil(ctx: CouncilContext): CouncilResult {
+// `reliability` maps agent id → learned track-record multiplier (0.6..1.4) from
+// councilLearning. It is the Self-Learning feedback: agents that have proven
+// accurate weigh more toward the decision confidence. The count-based quorum
+// gate is unchanged — reliability shapes confidence, not the ≥4/6 rule.
+export function runCouncil(ctx: CouncilContext, reliability?: Record<string, number>): CouncilResult {
   const risk = riskAgent(ctx);
   const agents: AgentOpinion[] = [
     trendAgent(ctx),
@@ -375,6 +381,8 @@ export function runCouncil(ctx: CouncilContext): CouncilResult {
     risk,
     newsAgent(ctx),
   ];
+  for (const a of agents) a.reliability = reliability?.[a.id] ?? 1;
+  const reliabilityApplied = agents.some((a) => (a.reliability ?? 1) !== 1);
 
   const counts: Record<CouncilVote, number> = { BUY: 0, SELL: 0, WAIT: 0, REDUCE_LOT: 0, CLOSE: 0 };
   for (const a of agents) counts[a.vote]++;
@@ -418,9 +426,15 @@ export function runCouncil(ctx: CouncilContext): CouncilResult {
   if (decision === "BUY" || decision === "SELL") {
     const side = decision;
     const voters = agents.filter((a) => a.vote === side);
-    const avgConf = voters.length ? voters.reduce((s, a) => s + a.confidence, 0) / voters.length : 50;
+    // Reliability-weighted average confidence: proven-accurate agents count more.
+    const relOf = (a: AgentOpinion) => a.reliability ?? 1;
+    const wSum = voters.reduce((s, a) => s + relOf(a), 0) || 1;
+    const avgConf = voters.length ? voters.reduce((s, a) => s + a.confidence * relOf(a), 0) / wSum : 50;
+    // Tilt overall confidence by how reliable the agreeing side is (neutral at 1).
+    const avgRel = voters.length ? voters.reduce((s, a) => s + relOf(a), 0) / voters.length : 1;
+    const relTilt = clamp(1 + (avgRel - 1) * 0.4, 0.8, 1.2);
     const cnt = side === "BUY" ? buy : sell;
-    confidence = Math.round(clamp(avgConf * (0.55 + 0.45 * (cnt / 6)), 0, 99));
+    confidence = Math.round(clamp(avgConf * (0.55 + 0.45 * (cnt / 6)) * relTilt, 0, 99));
   } else if (decision === "CLOSE") {
     confidence = risk.confidence;
   } else if (decision === "REDUCE_LOT") {
@@ -443,7 +457,7 @@ export function runCouncil(ctx: CouncilContext): CouncilResult {
     decision,
     confidence,
     counts,
-    quorum: { threshold: THRESHOLD, buy, sell, riskPass, met },
+    quorum: { threshold: THRESHOLD, buy, sell, riskPass, met, reliabilityApplied },
     agents,
     riskFlags,
     overridden,

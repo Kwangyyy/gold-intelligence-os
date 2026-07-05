@@ -6,7 +6,8 @@ import { buildSmc } from "@/lib/smc";
 import { buildPortfolio } from "@/lib/portfolio";
 import { runCouncil, type CouncilContext } from "@/lib/council";
 import { planExecution } from "@/lib/execution";
-import { recordCouncilVote } from "@/lib/councilJournal";
+import { recordCouncilVote, getCouncilVotes } from "@/lib/councilJournal";
+import { computeAgentAccuracy } from "@/lib/councilLearning";
 
 export const dynamic = "force-dynamic";
 
@@ -23,8 +24,19 @@ export async function GET() {
     ]);
     const portfolio = buildPortfolio(snapshot.price);
 
+    // Self-Learning feedback: pull each agent's learned reliability from the
+    // journal (read-only; maturation happens in /api/council/learning) so proven
+    // agents weigh more toward the decision confidence.
+    const reliability: Record<string, number> = {};
+    try {
+      const stats = computeAgentAccuracy(await getCouncilVotes());
+      for (const a of stats.agents) reliability[a.id] = a.reliability;
+    } catch {
+      /* no journal yet → neutral reliability */
+    }
+
     const ctx: CouncilContext = { snapshot, technical, mtf, smc, portfolio };
-    const result = runCouncil(ctx);
+    const result = runCouncil(ctx, reliability);
 
     // Execution gate: turn the decision into a concrete, risk-sized order plan.
     const plan = planExecution(result, {

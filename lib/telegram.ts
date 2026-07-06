@@ -58,6 +58,65 @@ export async function broadcastSignal(setup: Parameters<typeof formatSignalMessa
   return sendTelegramMessage(channelId, lines.join("\n").replace(/\n{3,}/g, "\n\n"));
 }
 
+// ── AI Council alert ─────────────────────────────────────────────────────────
+export interface CouncilAlertInput {
+  symbol: string;
+  price: number;
+  decision: string;
+  confidence: number;
+  buyVotes: number;
+  sellVotes: number;
+  threshold: number;
+  riskGate: string;
+  plan?: {
+    action: string;
+    direction: "buy" | "sell" | null;
+    entry: number | null;
+    sl: number | null;
+    takeProfits: number[];
+    lots: number;
+    riskPct: number;
+  } | null;
+  reasons?: string[];
+  riskFlags?: string[];
+}
+
+export function formatCouncilAlert(a: CouncilAlertInput): string {
+  const fmt = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const emoji =
+    a.decision === "BUY" ? "🟢" : a.decision === "SELL" ? "🔴" : a.decision === "CLOSE" ? "⛔" : a.decision === "REDUCE_LOT" ? "🟠" : "⏸";
+  const now = new Date().toLocaleString("th-TH", { dateStyle: "short", timeStyle: "short", timeZone: "Asia/Bangkok" });
+
+  const lines: string[] = [
+    `🏛 <b>AI Council · ${a.symbol}</b>`,
+    `${emoji} <b>${a.decision}</b>  ·  Confidence <b>${a.confidence}%</b>`,
+    `🗳 BUY ${a.buyVotes}/6 · SELL ${a.sellVotes}/6 (need ${a.threshold}) · Risk: <b>${a.riskGate}</b>`,
+    `💵 ${a.symbol.startsWith("XAU") ? "$" : ""}${fmt(a.price)}  ·  🕐 ${now} (ICT)`,
+  ];
+
+  if (a.plan && (a.plan.action === "OPEN" || a.plan.action === "REDUCE") && a.plan.direction && a.plan.entry) {
+    lines.push(
+      ``,
+      `📦 <b>${a.plan.action} ${a.plan.direction.toUpperCase()}</b> · ${a.plan.lots} lots · risk ${a.plan.riskPct}%`,
+      `💰 Entry <code>${fmt(a.plan.entry)}</code>${a.plan.sl != null ? ` · 🛡 SL <code>${fmt(a.plan.sl)}</code>` : ""}`,
+      ...(a.plan.takeProfits.length ? [`🎯 TP <code>${a.plan.takeProfits.map(fmt).join(" / ")}</code>`] : []),
+    );
+  }
+
+  if (a.reasons?.length) {
+    lines.push(``, `📝 <b>เหตุผล</b>`, ...a.reasons.slice(0, 3).map((r) => `  • ${r}`));
+  }
+  if (a.riskFlags?.length) {
+    lines.push(``, `⚠️ ${a.riskFlags.slice(0, 2).join(" · ")}`);
+  }
+  lines.push(
+    ``,
+    `🤖 <i>Gold Intelligence OS</i> | <a href="https://gold-intelligence-os.vercel.app/council">เปิดสภา AI</a>`,
+    `<i>วิเคราะห์ประกอบการตัดสินใจ ไม่ใช่คำแนะนำการลงทุน</i>`,
+  );
+  return lines.join("\n").replace(/\n{3,}/g, "\n\n");
+}
+
 export function formatSignalMessage(setup: {
   direction: string;
   confidence: number;

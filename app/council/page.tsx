@@ -153,6 +153,8 @@ export default function CouncilPage() {
   const [execMsg, setExecMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [briefing, setBriefing] = useState<CouncilBriefing | null>(null);
   const [briefingState, setBriefingState] = useState<"idle" | "loading" | "off" | "error">("idle");
+  const [alertMsg, setAlertMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [alerting, setAlerting] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -253,6 +255,22 @@ export default function CouncilPage() {
 
   const decColor = data ? VOTE_COLOR[data.decision as CouncilDecision] : "#f5c451";
 
+  // Push the current council decision to Telegram (manual test / send).
+  const sendAlert = useCallback(async () => {
+    setAlerting(true);
+    setAlertMsg(null);
+    try {
+      const res = await fetch("/api/council/alert?force=1", { cache: "no-store" });
+      const j = await res.json();
+      if (j.sent) setAlertMsg({ ok: true, text: lang === "th" ? `ส่งแจ้งเตือน "${j.decision}" เข้า Telegram แล้ว` : `Sent "${j.decision}" alert to Telegram` });
+      else setAlertMsg({ ok: false, text: j.reason || j.error || "ส่งไม่สำเร็จ" });
+    } catch (e) {
+      setAlertMsg({ ok: false, text: String(e) });
+    } finally {
+      setAlerting(false);
+    }
+  }, [lang]);
+
   return (
     <div className="mx-auto max-w-4xl px-4 py-6 sm:px-6 lg:px-8">
       <PageHeader
@@ -263,16 +281,34 @@ export default function CouncilPage() {
             : "6 AI analysts confer before any order · rule: BUY/SELL ≥ 4 of 6 AND Risk Manager passes"
         }
         right={
-          <button
-            onClick={load}
-            disabled={loading}
-            className="rounded-xl px-4 py-2 text-xs font-bold transition-all disabled:opacity-40"
-            style={{ background: "rgba(245,196,81,0.12)", border: "1px solid rgba(245,196,81,0.3)", color: "#f5c451" }}
-          >
-            {loading ? (lang === "th" ? "⏳ กำลังประชุม…" : "⏳ Convening…") : lang === "th" ? "🔄 เรียกประชุมใหม่" : "🔄 Re-convene"}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={sendAlert}
+              disabled={alerting || !data}
+              className="rounded-xl px-3 py-2 text-xs font-bold transition-all disabled:opacity-40"
+              style={{ background: "rgba(96,165,250,0.12)", border: "1px solid rgba(96,165,250,0.3)", color: "#93c5fd" }}
+              title={lang === "th" ? "ส่งมติปัจจุบันเข้า Telegram" : "Send current verdict to Telegram"}
+            >
+              {alerting ? "⏳" : lang === "th" ? "🔔 แจ้งเตือน" : "🔔 Alert"}
+            </button>
+            <button
+              onClick={load}
+              disabled={loading}
+              className="rounded-xl px-4 py-2 text-xs font-bold transition-all disabled:opacity-40"
+              style={{ background: "rgba(245,196,81,0.12)", border: "1px solid rgba(245,196,81,0.3)", color: "#f5c451" }}
+            >
+              {loading ? (lang === "th" ? "⏳ กำลังประชุม…" : "⏳ Convening…") : lang === "th" ? "🔄 เรียกประชุมใหม่" : "🔄 Re-convene"}
+            </button>
+          </div>
         }
       />
+
+      {alertMsg && (
+        <div className="mb-4 rounded-xl px-4 py-2.5 text-[11px] font-semibold"
+          style={{ background: alertMsg.ok ? "rgba(52,211,153,0.08)" : "rgba(251,146,60,0.08)", border: `1px solid ${alertMsg.ok ? "rgba(52,211,153,0.25)" : "rgba(251,146,60,0.25)"}`, color: alertMsg.ok ? "#34d399" : "#fdba74" }}>
+          {alertMsg.ok ? "✓ " : "ℹ️ "}{alertMsg.text}
+        </div>
+      )}
 
       {err && (
         <div className="panel mb-5 px-5 py-4 text-sm" style={{ borderColor: "rgba(248,113,113,0.3)", color: "#f87171" }}>

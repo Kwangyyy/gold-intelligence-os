@@ -68,6 +68,11 @@ export async function GET(req: NextRequest) {
 
     const sig = `${result.decision}|${Math.round(snapshot.price / 5)}`;
     const prev = await lastAlert();
+    // Hard rate-limit: never send more than once per minute, even with force —
+    // bounds abuse of this public endpoint against the Telegram channel.
+    if (prev && Date.now() - prev.ts < 60_000) {
+      return NextResponse.json({ sent: false, decision: result.decision, reason: "rate-limited (wait 60s)" });
+    }
     if (!force && prev && prev.sig === sig && Date.now() - prev.ts < DEDUP_MS) {
       return NextResponse.json({ sent: false, decision: result.decision, reason: "deduped (already alerted)" });
     }

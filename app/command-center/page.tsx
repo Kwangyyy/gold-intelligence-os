@@ -1,10 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Press_Start_2P } from "next/font/google";
 import { useI18n } from "@/lib/i18n";
 import type { Bilingual } from "@/lib/types";
 import type { AgentOpinion, CouncilResult, CouncilVote } from "@/lib/council";
 import type { LearningStats } from "@/lib/councilLearning";
+
+// Real pixel font — used only for Latin/numeric UI chrome (headings, labels),
+// never Thai (Press Start 2P has no Thai glyphs).
+const pixelFont = Press_Start_2P({ weight: "400", subsets: ["latin"] });
+const pixel = pixelFont.className;
 
 type Council = CouncilResult;
 type Learning = LearningStats;
@@ -49,14 +55,16 @@ const FACTORY: { id: string; icon: string; name: string; href: string }[] = [
   { id: "port", icon: "🧩", name: "PORTFOLIO", href: "/ea-portfolio" },
 ];
 
-// A blocky pixel robot, tinted by status.
-function PixelBot({ color }: { color: string }) {
+// A blocky pixel robot, tinted by status. Idle bots bob slowly; working bots
+// bob faster and blink their eyes.
+function PixelBot({ color, active }: { color: string; active?: boolean }) {
   return (
-    <svg viewBox="0 0 16 16" width="30" height="30" shapeRendering="crispEdges" style={{ imageRendering: "pixelated" }}>
-      <rect x="6" y="0" width="1" height="2" fill={color} />
+    <svg viewBox="0 0 16 16" width="30" height="30" shapeRendering="crispEdges"
+      style={{ imageRendering: "pixelated", animation: `botbob ${active ? "0.9s" : "2.6s"} ease-in-out infinite` }}>
+      <rect x="6" y="0" width="1" height="2" fill={color} style={{ animation: active ? "botblink 1.3s steps(1) infinite" : undefined }} />
       <rect x="3" y="2" width="10" height="8" fill="#131c3a" stroke="#31507e" strokeWidth="0.5" />
-      <rect x="5" y="4" width="2" height="2" fill={color} />
-      <rect x="9" y="4" width="2" height="2" fill={color} />
+      <rect x="5" y="4" width="2" height="2" fill={color} style={{ animation: "eyeblink 3.2s steps(1) infinite" }} />
+      <rect x="9" y="4" width="2" height="2" fill={color} style={{ animation: "eyeblink 3.2s steps(1) infinite" }} />
       <rect x="5" y="7" width="6" height="1" fill={color} opacity="0.7" />
       <rect x="4" y="10" width="8" height="5" fill="#0c1430" stroke="#26406a" strokeWidth="0.5" />
       <rect x="6" y="12" width="4" height="1" fill={color} opacity="0.6" />
@@ -81,7 +89,7 @@ function Panel({ title, accent = CY, children, className = "" }: { title: string
   return (
     <div className={`relative ${className}`} style={{ border: `1px solid ${accent}33`, background: INK }}>
       {corner("tl")}{corner("tr")}{corner("bl")}{corner("br")}
-      <div className="px-3 py-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.2em]" style={{ color: accent, borderBottom: `1px solid ${accent}22`, textShadow: `0 0 8px ${accent}66` }}>{title}</div>
+      <div className={`${pixel} px-3 py-2 text-[8px] uppercase`} style={{ color: accent, borderBottom: `1px solid ${accent}22`, textShadow: `0 0 8px ${accent}66`, lineHeight: 1.6 }}>{title}</div>
       <div className="p-3">{children}</div>
     </div>
   );
@@ -96,6 +104,9 @@ export default function CommandCenterPage() {
   const [loading, setLoading] = useState(true);
   const [online, setOnline] = useState(false);
   const [clock, setClock] = useState("--:--:--");
+  // BOT FACTORY live run: which station is active, and the last real result.
+  const [fx, setFx] = useState<{ running: boolean; active: number; strat?: string; verdict?: string }>({ running: false, active: -1 });
+  const fxTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     const t = () => setClock(new Date().toLocaleTimeString("en-GB"));
@@ -117,6 +128,29 @@ export default function CommandCenterPage() {
 
   useEffect(() => { load(); const id = setInterval(load, 30_000); return () => clearInterval(id); }, [load]);
 
+  // Run a REAL walk-forward robustness assessment on a random strategy while the
+  // pipeline stations sweep (the endpoint genuinely does gen→backtest→optimize→
+  // robust internally). Portfolio station lights when the verdict lands.
+  const runFactory = useCallback(async () => {
+    if (fx.running) return;
+    const strategies = ["ema_cross", "rsi", "macd", "bb_bounce", "triple_ema"];
+    const strat = strategies[Math.floor(Math.random() * strategies.length)];
+    setFx({ running: true, active: 0, strat });
+    if (fxTimer.current) clearInterval(fxTimer.current);
+    fxTimer.current = setInterval(() => setFx((p) => (p.running ? { ...p, active: (p.active + 1) % (FACTORY.length - 1) } : p)), 850);
+    try {
+      const r = await fetch(`/api/backtest/robustness?strategy=${strat}&interval=1d`, { cache: "no-store" });
+      const j = await r.json();
+      if (fxTimer.current) clearInterval(fxTimer.current);
+      setFx({ running: false, active: -1, strat, verdict: j.verdict ?? (j.error ? "error" : "done") });
+    } catch {
+      if (fxTimer.current) clearInterval(fxTimer.current);
+      setFx({ running: false, active: -1, strat, verdict: "error" });
+    }
+  }, [fx.running]);
+
+  useEffect(() => () => { if (fxTimer.current) clearInterval(fxTimer.current); }, []);
+
   const agents = council?.agents ?? [];
   const relById = (id: string) => learning?.agents.find((a) => a.id === id);
   const avgAcc = learning && learning.agents.some((a) => a.samples > 0)
@@ -130,14 +164,14 @@ export default function CommandCenterPage() {
       {/* grid + scanlines */}
       <div className="pointer-events-none absolute inset-0" style={{ backgroundImage: `linear-gradient(${LINE} 1px, transparent 1px), linear-gradient(90deg, ${LINE} 1px, transparent 1px)`, backgroundSize: "26px 26px", opacity: 0.35 }} />
       <div className="pointer-events-none absolute inset-0" style={{ background: "repeating-linear-gradient(0deg, rgba(0,0,0,0.16) 0px, rgba(0,0,0,0.16) 1px, transparent 1px, transparent 3px)" }} />
-      <style>{`@keyframes flow{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}@keyframes blink{50%{opacity:.35}}`}</style>
+      <style>{`@keyframes flow{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}@keyframes blink{50%{opacity:.35}}@keyframes botbob{0%,100%{transform:translateY(0)}50%{transform:translateY(-1.5px)}}@keyframes eyeblink{0%,94%,100%{opacity:1}96%{opacity:.15}}@keyframes botblink{50%{opacity:.3}}`}</style>
 
       <div className="relative mx-auto max-w-6xl px-3 py-4 sm:px-5">
         {/* ── header ── */}
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3 px-4 py-2.5" style={{ border: `1px solid ${CY}44`, background: "linear-gradient(90deg, rgba(56,189,248,0.1), rgba(232,121,249,0.06))" }}>
           <div className="flex items-center gap-2.5">
             <span style={{ animation: "blink 1.4s steps(1) infinite" }}>▮</span>
-            <div className="text-sm font-black uppercase tracking-[0.25em]" style={{ color: CY, textShadow: `0 0 10px ${CY}77` }}>AI OFFICE <span style={{ color: MG }}>v1.0</span></div>
+            <div className={`${pixel} text-[13px] uppercase`} style={{ color: CY, textShadow: `0 0 10px ${CY}77`, lineHeight: 1.4 }}>AI OFFICE <span style={{ color: MG }}>v1.0</span></div>
           </div>
           <div className="flex items-center gap-4 text-[11px]">
             <div className="flex items-center gap-2"><span className="text-slate-500">TIME</span><span className="font-bold" style={{ color: CY }}>{clock}</span></div>
@@ -224,17 +258,42 @@ export default function CommandCenterPage() {
             </Panel>
 
             <Panel title="2 · Bot Factory · EA Pipeline" accent={MG}>
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-[9px] text-slate-500">
+                  {fx.running ? <span style={{ color: AM, animation: "blink 1s steps(1) infinite" }}>▶ OPTIMIZING {fx.strat?.toUpperCase()}…</span>
+                    : fx.verdict ? <span>LAST: <b style={{ color: fx.verdict === "robust" ? GR : fx.verdict === "overfit" ? RD : fx.verdict === "error" ? RD : AM }}>{fx.strat?.toUpperCase()} → {fx.verdict.toUpperCase()}</b></span>
+                    : <span>{lang === "th" ? "กดรันเพื่อทดสอบจริง (Walk-Forward)" : "run a real walk-forward test"}</span>}
+                </span>
+                <button onClick={runFactory} disabled={fx.running}
+                  className="rounded px-2.5 py-1 text-[9px] font-bold uppercase tracking-widest transition-all disabled:opacity-40"
+                  style={{ background: `${MG}18`, border: `1px solid ${MG}55`, color: MG }}>
+                  {fx.running ? "…" : "▶ RUN"}
+                </button>
+              </div>
               <div className="flex items-center gap-1 overflow-x-auto">
-                {FACTORY.map((f, i) => (
-                  <div key={f.id} className="flex items-center gap-1">
-                    <a href={f.href} className="flex w-[74px] flex-col items-center gap-1 border p-2 transition-all hover:scale-105" style={{ borderColor: `${MG}33`, background: "rgba(10,16,40,0.6)" }}>
-                      <span className="text-base">{f.icon}</span>
-                      <span className="text-[8px] font-bold text-slate-300">{f.name}</span>
-                      <span className="flex items-center gap-1 text-[7px] text-slate-500"><Led state="idle" /> READY</span>
-                    </a>
-                    {i < FACTORY.length - 1 && <span style={{ color: MG }}>▸</span>}
-                  </div>
-                ))}
+                {FACTORY.map((f, i) => {
+                  const isRob = f.id === "rob";
+                  let led: LedState = "idle"; let label = lang === "th" ? "พร้อม" : "READY";
+                  if (fx.running) {
+                    if (i === fx.active) { led = "warn"; label = "RUN…"; }
+                    else if (i < fx.active) { led = "work"; label = "DONE"; }
+                    else { led = "idle"; label = "QUEUE"; }
+                  } else if (fx.verdict && isRob) {
+                    led = fx.verdict === "robust" ? "work" : fx.verdict === "overfit" || fx.verdict === "error" ? "danger" : "warn";
+                    label = fx.verdict.slice(0, 7).toUpperCase();
+                  }
+                  return (
+                    <div key={f.id} className="flex items-center gap-1">
+                      <a href={f.href} className="flex w-[74px] flex-col items-center gap-1 border p-2 transition-all hover:scale-105"
+                        style={{ borderColor: `${LED[led]}${led === "idle" ? "33" : "66"}`, background: led === "warn" ? `${AM}10` : "rgba(10,16,40,0.6)", boxShadow: i === fx.active ? `0 0 12px ${AM}44` : undefined }}>
+                        <span className="text-base">{f.icon}</span>
+                        <span className="text-[8px] font-bold text-slate-300">{f.name}</span>
+                        <span className="flex items-center gap-1 text-[7px]" style={{ color: LED[led] }}><Led state={led} pulse={i === fx.active} /> {label}</span>
+                      </a>
+                      {i < FACTORY.length - 1 && <span style={{ color: i < fx.active ? GR : MG }}>▸</span>}
+                    </div>
+                  );
+                })}
               </div>
             </Panel>
 
@@ -263,7 +322,7 @@ export default function CommandCenterPage() {
                   const rel = relById(a.id);
                   return (
                     <div key={a.id} className="flex items-center gap-2 border p-2" style={{ borderColor: `${LED[st.led]}30`, background: "rgba(10,16,40,0.5)" }}>
-                      <PixelBot color={LED[st.led]} />
+                      <PixelBot color={LED[st.led]} active={loading || st.led === "work" || st.led === "danger"} />
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-[10px] font-bold text-slate-200">{L(a.name)}</div>
                         <div className="flex items-center gap-1 text-[8px]">

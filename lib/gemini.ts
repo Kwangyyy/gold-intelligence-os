@@ -1171,3 +1171,69 @@ function ruleBasedJournalAnalysis(s: JournalTradeSummary): JournalAnalysis {
     summaryEn: `From ${s.totalClosed} closed trades: win rate ${s.winRate.toFixed(1)}%, profit factor ${s.profitFactor.toFixed(2)}. Overall score ${rating}/10.`,
   };
 }
+
+// ── AI Council Briefing (Module H enrichment) ────────────────────────────────
+// Narrates an ALREADY-DECIDED council result. The council's quorum vote is
+// authoritative; the LLM only explains it — it never changes the decision.
+
+export interface CouncilBriefingAgent {
+  name: string;
+  vote: string;
+  confidence: number;
+  reliability?: number;
+  reason?: string;
+}
+
+export interface CouncilBriefingInput {
+  symbol: string;
+  price: number;
+  decision: string;
+  confidence: number;
+  buyVotes: number;
+  sellVotes: number;
+  threshold: number;
+  riskGate: string;
+  overridden: boolean;
+  riskFlags: string[];
+  agents: CouncilBriefingAgent[];
+}
+
+export interface CouncilBriefing {
+  headline: Bilingual;
+  narrative: Bilingual;
+}
+
+const COUNCIL_BRIEFING_SCHEMA: GeminiSchema = {
+  type: "OBJECT",
+  properties: { headline: BILINGUAL_SCHEMA, narrative: BILINGUAL_SCHEMA },
+  required: ["headline", "narrative"],
+};
+
+export async function generateCouncilBriefing(
+  input: CouncilBriefingInput,
+  signal?: AbortSignal
+): Promise<CouncilBriefing> {
+  const agentLines = input.agents
+    .map((a) => `- ${a.name}: voted ${a.vote} @ ${a.confidence}%${a.reliability != null ? ` (track-record x${a.reliability})` : ""}${a.reason ? ` — ${a.reason}` : ""}`)
+    .join("\n");
+
+  const prompt = `You are the chair of an AI trading council for ${input.symbol}. The council has ALREADY voted using a fixed quorum rule; your job is ONLY to explain the outcome clearly — do not change it or invent a different call.
+
+=== COUNCIL RESULT ===
+Decision: ${input.decision} at ${input.confidence}% confidence
+Price: $${input.price}
+Votes: BUY ${input.buyVotes} / SELL ${input.sellVotes} (need >= ${input.threshold} of 6 to trade)
+Risk Manager gate: ${input.riskGate}${input.overridden ? " (this overrode the raw vote)" : ""}
+${input.riskFlags.length ? "Risk flags: " + input.riskFlags.join("; ") : "No risk flags"}
+
+Agents:
+${agentLines}
+
+=== TASK ===
+Write a concise council briefing:
+- headline: <= 12 words capturing the decision and its single biggest driver.
+- narrative: 2-3 sentences explaining WHY this decision — which agents agreed vs dissented, and how the Risk Manager gate and each agent's track-record weighting shaped it. Speak to a trader.
+Rules: use ONLY the data above; do not invent numbers. Risk-first; NEVER promise profit or use words like "guaranteed", "sure win", "100% safe". Write "th" in natural Thai and "en" in natural English.`;
+
+  return generateJson<CouncilBriefing>(prompt, COUNCIL_BRIEFING_SCHEMA, signal);
+}

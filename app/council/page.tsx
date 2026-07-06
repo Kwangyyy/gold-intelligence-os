@@ -8,6 +8,7 @@ import type { AgentOpinion, CouncilResult, CouncilVote, CouncilDecision, RiskGat
 import type { OrderPlan } from "@/lib/execution";
 import { appendPaperTrade, closeAllOpenPaper } from "@/lib/paperStore";
 import type { LearningStats } from "@/lib/councilLearning";
+import type { CouncilBriefing } from "@/lib/gemini";
 
 type CouncilResponse = CouncilResult & { plan: OrderPlan };
 type LearningResponse = LearningStats & { price?: number };
@@ -150,6 +151,8 @@ export default function CouncilPage() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
   const [execMsg, setExecMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [briefing, setBriefing] = useState<CouncilBriefing | null>(null);
+  const [briefingState, setBriefingState] = useState<"idle" | "loading" | "off" | "error">("idle");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -214,6 +217,39 @@ export default function CouncilPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Lazy AI briefing — fetched AFTER the deterministic decision renders, so the
+  // council itself stays fast and works even if Gemini is unavailable.
+  useEffect(() => {
+    if (!data) return;
+    const riskGate = data.agents.find((a) => a.id === "risk")?.gate ?? "pass";
+    const input = {
+      symbol: data.symbol,
+      price: data.price,
+      decision: data.decision,
+      confidence: data.confidence,
+      buyVotes: data.quorum.buy,
+      sellVotes: data.quorum.sell,
+      threshold: data.quorum.threshold,
+      riskGate,
+      overridden: data.overridden,
+      riskFlags: data.riskFlags.map((f) => f.en),
+      agents: data.agents.map((a) => ({ name: a.name.en, vote: a.vote, confidence: a.confidence, reliability: a.reliability, reason: a.reasons[0]?.en })),
+    };
+    let cancelled = false;
+    setBriefing(null);
+    setBriefingState("loading");
+    fetch("/api/council/briefing", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) })
+      .then((r) => r.json())
+      .then((j) => {
+        if (cancelled) return;
+        if (!j.enabled) setBriefingState("off");
+        else if (j.briefing) { setBriefing(j.briefing as CouncilBriefing); setBriefingState("idle"); }
+        else setBriefingState("error");
+      })
+      .catch(() => { if (!cancelled) setBriefingState("error"); });
+    return () => { cancelled = true; };
+  }, [data]);
 
   const decColor = data ? VOTE_COLOR[data.decision as CouncilDecision] : "#f5c451";
 
@@ -333,6 +369,24 @@ export default function CouncilPage() {
               </div>
             )}
           </div>
+
+          {/* AI Briefing (Gemini) — lazy, optional */}
+          {(briefing || briefingState === "loading") && (
+            <div className="mb-5 rounded-2xl p-5" style={{ border: "1px solid rgba(168,85,247,0.3)", background: "rgba(168,85,247,0.06)" }}>
+              <div className="mb-2 flex items-center gap-2 text-[10px] uppercase tracking-widest" style={{ color: "#c084fc" }}>
+                <span>✨ {lang === "th" ? "บทสรุปจาก AI (Gemini)" : "AI Briefing (Gemini)"}</span>
+                {briefingState === "loading" && <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-purple-500/30 border-t-purple-400" />}
+              </div>
+              {briefing ? (
+                <>
+                  <div className="text-sm font-bold text-white">{L(briefing.headline)}</div>
+                  <div className="mt-1.5 text-xs leading-relaxed text-silver/70">{L(briefing.narrative)}</div>
+                </>
+              ) : (
+                <div className="text-xs text-silver/40">{lang === "th" ? "AI กำลังสรุปเหตุผลของสภา…" : "AI is summarising the council's reasoning…"}</div>
+              )}
+            </div>
+          )}
 
           {/* Execution gate */}
           {(() => {

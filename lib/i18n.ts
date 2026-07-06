@@ -114,6 +114,7 @@ const DICT: Record<string, Bilingual> = {
     en: "Pick a timeframe above, or click the 'Indicators' (fx) icon on the chart to add tools like EMA, RSI, MACD.",
   },
   navTechnical: { th: "เทคนิคอล", en: "Technical" },
+  navCommandCenter: { th: "ศูนย์บัญชาการ AI", en: "AI Command Center" },
   navCouncil: { th: "สภา AI", en: "AI Council" },
   navRobustness: { th: "ตรวจ Overfit", en: "Robustness" },
   navEaPortfolio: { th: "พอร์ต EA", en: "EA Portfolio" },

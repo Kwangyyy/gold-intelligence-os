@@ -39,7 +39,9 @@ function getRedis(): Redis | null {
 
 // The file tier is available whenever we're on a normal Node runtime with a
 // writable cwd (i.e. not Edge). Redis takes precedence when configured.
-function useFile(): boolean {
+// NOTE: don't name this `use*` — ESLint's rules-of-hooks treats such names as
+// React Hooks and fails the production build.
+function fileTierReady(): boolean {
   return typeof process !== "undefined" && !!process.versions?.node;
 }
 
@@ -79,7 +81,7 @@ export async function getCouncilVotes(limit = MAX_LOG): Promise<CouncilVoteEntry
     const raw = await r.lrange<string>(KEY, 0, limit - 1);
     return raw.map(parse).filter(Boolean) as CouncilVoteEntry[];
   }
-  if (useFile()) return (await fileLoad()).slice(0, limit);
+  if (fileTierReady()) return (await fileLoad()).slice(0, limit);
   return (globalThis.__councilVotes ?? []).slice(0, limit);
 }
 
@@ -111,7 +113,7 @@ export async function recordCouncilVote(result: CouncilResult, price: number): P
     await r.ltrim(KEY, 0, MAX_LOG - 1);
     return true;
   }
-  if (useFile()) {
+  if (fileTierReady()) {
     const all = await fileLoad();
     all.unshift(entry);
     await fileSave(all);
@@ -145,7 +147,7 @@ export async function matureAndEvaluate(currentPrice: number): Promise<number> {
     return matured;
   }
 
-  if (useFile()) {
+  if (fileTierReady()) {
     const all = await fileLoad();
     let matured = 0;
     for (const entry of all) {
@@ -174,7 +176,7 @@ export async function clearCouncilVotes(): Promise<void> {
     await r.del(KEY);
     return;
   }
-  if (useFile()) {
+  if (fileTierReady()) {
     await fileSave([]);
     return;
   }

@@ -42,9 +42,29 @@ export interface BacktestConfig extends BacktestStrategyParams {
   lotMultiplier: number;
   maxLotSteps: number;
   initialBalance: number;
+  // Trading costs (optional — default to realistic XAUUSD values). Applied per
+  // round-trip so backtests aren't optimistic. spread/slippage are in price $,
+  // commission is $ per lot round-trip.
+  spreadPoints?: number;
+  commissionPerLot?: number;
+  slippagePoints?: number;
   // Extra conditions (optional — disabled by default)
   cond2: BacktestExtraCond;
   cond3: BacktestExtraCond;
+}
+
+// XAUUSD: 1 lot = 100 oz, so a $1 price move = $100 P/L per lot. A $0.30 spread
+// costs $30 per lot round-trip.
+export const DEFAULT_SPREAD = 0.3;
+export const DEFAULT_COMMISSION_PER_LOT = 0; // most retail XAUUSD is spread-only
+export const DEFAULT_SLIPPAGE = 0.1;
+
+// Round-trip cost in USD for a trade of `lot` lots.
+export function tradeCost(cfg: BacktestConfig, lot: number): number {
+  const spread = cfg.spreadPoints ?? DEFAULT_SPREAD;
+  const slip = cfg.slippagePoints ?? DEFAULT_SLIPPAGE;
+  const comm = cfg.commissionPerLot ?? DEFAULT_COMMISSION_PER_LOT;
+  return (spread + slip) * lot * 100 + comm * lot;
 }
 
 export interface BacktestTrade {
@@ -108,6 +128,9 @@ export function defaultBacktestConfig(): BacktestConfig {
     lotMultiplier: 2.0,
     maxLotSteps: 4,
     initialBalance: 10000,
+    spreadPoints: DEFAULT_SPREAD,
+    commissionPerLot: DEFAULT_COMMISSION_PER_LOT,
+    slippagePoints: DEFAULT_SLIPPAGE,
     cond2: defaultExtraCond("rsi"),
     cond3: defaultExtraCond("macd"),
   };
@@ -452,6 +475,7 @@ export function runBacktest(ohlc: OHLC[], cfg: BacktestConfig): BacktestResult {
 
       if (closed) {
         const exitPrice = reason === "tp" ? openTrade.tp : openTrade.sl;
+        pnl -= tradeCost(cfg, openTrade.lot); // spread + commission + slippage
         openTrade.exit = exitPrice;
         openTrade.pnl = pnl;
         openTrade.exitReason = reason;
@@ -490,9 +514,10 @@ export function runBacktest(ohlc: OHLC[], cfg: BacktestConfig): BacktestResult {
   // Close any remaining open trade at last close
   if (openTrade) {
     const last = ohlc[ohlc.length - 1];
-    const pnl = openTrade.direction === "buy"
+    const gross = openTrade.direction === "buy"
       ? (last.close - openTrade.entry) * openTrade.lot * 100
       : (openTrade.entry - last.close) * openTrade.lot * 100;
+    const pnl = gross - tradeCost(cfg, openTrade.lot);
     openTrade.exit = last.close;
     openTrade.pnl = pnl;
     openTrade.exitReason = "end";

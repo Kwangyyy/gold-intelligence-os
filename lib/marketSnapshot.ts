@@ -15,6 +15,7 @@ import {
   stubRecommendation,
 } from "./marketLogic";
 import { getNewsRisk } from "./mockNews";
+import { getNewsRiskLive } from "./newsRisk";
 import {
   geminiEnabled,
   generateNewsImpact,
@@ -254,6 +255,10 @@ export async function getMarketSnapshot(): Promise<MarketSnapshot> {
   } catch {
     snapshot = fallbackSnapshot();
   }
+
+  // Replace the mock news risk with the live economic calendar (falls back to
+  // the mock if the feed is unavailable).
+  snapshot.newsRisk = await getNewsRiskLive(snapshot.newsRisk);
 
   await applyAi(snapshot);
   return snapshot;

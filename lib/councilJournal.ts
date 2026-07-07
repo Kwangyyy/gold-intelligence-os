@@ -4,18 +4,18 @@
 // the later price so councilLearning.ts can score per-agent accuracy.
 //
 // Storage tiers (first available wins):
-//   1. Upstash Redis  — when UPSTASH_REDIS_REST_* is set (durable; works on
+//   1. Postgres       — when POSTGRES_URL is set (Vercel Postgres / Neon).
+//   2. Upstash Redis  — when UPSTASH_REDIS_REST_* is set (durable; works on
 //      serverless / Vercel where the filesystem is ephemeral).
-//   2. Local JSON file — .data/council-votes.json, for local / self-hosted dev.
-//      Durable across `next dev` restarts (the in-memory tier was NOT, so the
-//      learning never actually accumulated — this fixes that).
-//   3. In-memory      — last-resort fallback (resets on restart).
+//   3. Local JSON file — .data/council-votes.json, for local / self-hosted dev.
+//   4. In-memory      — last-resort fallback (resets on restart).
 
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { Redis } from "@upstash/redis";
 import type { CouncilResult } from "./council";
 import type { CouncilVoteEntry } from "./councilLearning";
+import { pgEnabled, pgAppendVote, pgGetVotes, pgMatureAndEvaluate } from "./researchDb";
 
 const KEY = "gios:council-votes";
 const MAX_LOG = 500;
@@ -76,6 +76,9 @@ async function fileSave(entries: CouncilVoteEntry[]): Promise<void> {
 
 // ── Public API ───────────────────────────────────────────────────────────────
 export async function getCouncilVotes(limit = MAX_LOG): Promise<CouncilVoteEntry[]> {
+  if (pgEnabled()) {
+    try { return await pgGetVotes(limit); } catch { return []; }
+  }
   const r = getRedis();
   if (r) {
     const raw = await r.lrange<string>(KEY, 0, limit - 1);
@@ -107,6 +110,9 @@ export async function recordCouncilVote(result: CouncilResult, price: number): P
     })),
   };
 
+  if (pgEnabled()) {
+    try { await pgAppendVote(entry); return true; } catch { return false; }
+  }
   const r = getRedis();
   if (r) {
     await r.lpush(KEY, JSON.stringify(entry));
@@ -132,6 +138,9 @@ export async function matureAndEvaluate(currentPrice: number): Promise<number> {
     return age >= MATURITY_MS && age <= MAX_EVAL_AGE_MS;
   };
 
+  if (pgEnabled()) {
+    try { return await pgMatureAndEvaluate(now, currentPrice, MATURITY_MS, MAX_EVAL_AGE_MS); } catch { return 0; }
+  }
   const r = getRedis();
   if (r) {
     const raw = await r.lrange<string>(KEY, 0, MAX_LOG - 1);

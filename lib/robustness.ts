@@ -17,8 +17,40 @@
 
 import { runBacktest, defaultBacktestConfig } from "./backtest";
 import type { OHLC, BacktestConfig, BacktestResult } from "./backtest";
-import { optimizeStrategy, STRATEGY_META, type StrategyId, type OptimizedResult } from "./eaOptimizer";
+import { optimizeStrategy, gridSizeFor, STRATEGY_META, type StrategyId, type OptimizedResult } from "./eaOptimizer";
 import type { Bilingual } from "./types";
+
+// ── Multiple-testing / Deflated Sharpe ───────────────────────────────────────
+// When an optimizer keeps the BEST of N parameter trials, the winning Sharpe is
+// inflated by selection. This estimates the Sharpe you'd expect from pure luck
+// given N trials, and flags a strategy whose Sharpe doesn't clear that bar.
+function erf(x: number): number {
+  const t = 1 / (1 + 0.3275911 * Math.abs(x));
+  const y = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
+  return x >= 0 ? y : -y;
+}
+const normCdf = (x: number) => 0.5 * (1 + erf(x / Math.SQRT2));
+
+export interface MultipleTesting {
+  trials: number;
+  observedSharpe: number;
+  expectedMaxSharpe: number; // Sharpe expected from the best of N noise trials
+  haircut: number; // observed − expectedMax (>0 = edge beyond luck)
+  deflatedProb: number; // 0..1 confidence the edge isn't multiple-testing luck
+  pass: boolean;
+}
+
+export function multipleTestingCheck(observedSharpe: number, trials: number, nReturns: number, periodsPerYear = 252): MultipleTesting | null {
+  if (nReturns < 3 || trials < 2) return null;
+  // Sampling std of an annualized Sharpe under the null (no skill).
+  const sigma = Math.sqrt(periodsPerYear / nReturns);
+  // Expected maximum of `trials` iid N(0, sigma²) (extreme-value approximation).
+  const z = Math.sqrt(2 * Math.log(trials));
+  const expectedMaxSharpe = +(sigma * (z - (Math.log(Math.log(trials)) + Math.log(4 * Math.PI)) / (2 * z))).toFixed(2);
+  const haircut = +(observedSharpe - expectedMaxSharpe).toFixed(2);
+  const deflatedProb = +normCdf(haircut / sigma).toFixed(3);
+  return { trials, observedSharpe: +observedSharpe.toFixed(2), expectedMaxSharpe, haircut, deflatedProb, pass: haircut > 0 && deflatedProb >= 0.9 };
+}
 
 // ── Seeded RNG (mulberry32) — deterministic Monte Carlo ──────────────────────
 function mulberry32(seed: number): () => number {
@@ -259,6 +291,7 @@ export interface RobustnessReport {
   };
   walkForward: WalkForwardResult;
   monteCarlo: MonteCarloResult;
+  multipleTesting: MultipleTesting | null;
   verdict: Verdict;
   verdictReasons: Bilingual[];
   timestamp: string;
@@ -289,6 +322,7 @@ export function assessRobustness(ohlc: OHLC[], strategyId: StrategyId, opts: Rob
 
   const wf = walkForward(ohlc, strategyId, opts);
   const mc = monteCarlo(baseResult.trades.map((t) => t.pnl), opts);
+  const mtc = multipleTestingCheck(baseResult.sharpeRatio, gridSizeFor(strategyId), baseResult.trades.length);
 
   // Verdict.
   const baselineGood = baseResult.totalPnl > 0 && baseResult.profitFactor >= 1.2 && baseResult.totalTrades >= 15;
@@ -327,6 +361,17 @@ export function assessRobustness(ohlc: OHLC[], strategyId: StrategyId, opts: Rob
     en: `Walk-forward: ${wf.foldsPositive}/${wf.folds.length} folds OOS-positive · Monte Carlo ${mc.simulations} sims`,
   });
 
+  // Multiple-testing correction: an inflated Sharpe from testing many combos.
+  if (mtc) {
+    reasons.push(
+      mtc.pass
+        ? { th: `ผ่านการแก้ multiple-testing: Sharpe ${mtc.observedSharpe} สูงกว่าค่าที่คาดจากการฟลุ๊ค ${mtc.expectedMaxSharpe} (จาก ${mtc.trials} ชุด)`, en: `Passes multiple-testing: Sharpe ${mtc.observedSharpe} beats the ${mtc.expectedMaxSharpe} expected from ${mtc.trials} noise trials` }
+        : { th: `⚠ Deflated Sharpe: ทดสอบ ${mtc.trials} ชุดแล้วได้ Sharpe ${mtc.observedSharpe} ซึ่งฟลุ๊คก็ได้ ~${mtc.expectedMaxSharpe} — เอดจ์อาจไม่จริง`, en: `⚠ Deflated Sharpe: ${mtc.trials} trials, Sharpe ${mtc.observedSharpe} vs ~${mtc.expectedMaxSharpe} expected by luck — edge may be a curve fit` }
+    );
+    // A robust-looking strategy that fails the multiple-testing bar is at most fragile.
+    if (verdict === "robust" && !mtc.pass) verdict = "fragile";
+  }
+
   return {
     strategyId,
     strategyName: STRATEGY_META[strategyId]?.name ?? strategyId,
@@ -342,6 +387,7 @@ export function assessRobustness(ohlc: OHLC[], strategyId: StrategyId, opts: Rob
     },
     walkForward: wf,
     monteCarlo: mc,
+    multipleTesting: mtc,
     verdict,
     verdictReasons: reasons,
     timestamp: new Date().toISOString(),

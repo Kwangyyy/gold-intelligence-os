@@ -121,6 +121,12 @@ function buildGrid(strategyId: StrategyId): Partial<BacktestConfig>[] {
   }
 }
 
+// Number of parameter combinations tested for a strategy — the "trials" count
+// used for multiple-testing (deflated-Sharpe) correction.
+export function gridSizeFor(strategyId: StrategyId): number {
+  return buildGrid(strategyId).length;
+}
+
 // ── Scoring ───────────────────────────────────────────────────────────────────
 
 function score(r: BacktestResult): number {

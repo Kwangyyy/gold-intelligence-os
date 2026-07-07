@@ -213,10 +213,33 @@ export default function RobustnessPage() {
             </div>
           </div>
 
+          {/* Multiple-testing / Deflated Sharpe */}
+          {data.multipleTesting && (
+            <div className="mt-4 rounded-2xl p-4" style={{ border: `1px solid ${data.multipleTesting.pass ? "rgba(52,211,153,0.3)" : "rgba(248,113,113,0.3)"}`, background: "rgba(6,9,26,0.5)" }}>
+              <div className="mb-1 flex items-center justify-between">
+                <div className="text-sm font-bold" style={{ color: "#c084fc" }}>🎯 {lang === "th" ? "แก้ Multiple-Testing (Deflated Sharpe)" : "Multiple-Testing (Deflated Sharpe)"}</div>
+                <span className="rounded-md px-2 py-0.5 text-[10px] font-bold" style={{ background: data.multipleTesting.pass ? "#34d39918" : "#f8717118", border: `1px solid ${data.multipleTesting.pass ? "#34d39945" : "#f8717145"}`, color: data.multipleTesting.pass ? "#34d399" : "#f87171" }}>
+                  {data.multipleTesting.pass ? "PASS" : "FAIL"}
+                </span>
+              </div>
+              <div className="mb-3 text-[10px] text-silver/35">
+                {lang === "th"
+                  ? `ทดสอบ ${data.multipleTesting.trials} ชุดค่าแล้วเก็บตัวที่ดีสุด → Sharpe สูงเพราะฟลุ๊คได้ ถ้าไม่ชนะค่าที่คาดจากการสุ่ม แปลว่าเอดจ์อาจไม่จริง`
+                  : `Keeping the best of ${data.multipleTesting.trials} trials inflates Sharpe. If it doesn't beat what luck would produce, the edge may be a curve fit`}
+              </div>
+              <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl sm:grid-cols-4" style={{ background: "rgba(255,255,255,0.05)" }}>
+                <Metric label={lang === "th" ? "ชุดที่ทดสอบ" : "Trials"} value={`${data.multipleTesting.trials}`} />
+                <Metric label={lang === "th" ? "Sharpe จริง" : "Observed SR"} value={`${data.multipleTesting.observedSharpe}`} color="#93c5fd" />
+                <Metric label={lang === "th" ? "คาดจากฟลุ๊ค" : "Expected (luck)"} value={`${data.multipleTesting.expectedMaxSharpe}`} color="#f5c451" />
+                <Metric label={lang === "th" ? "ความเชื่อมั่น" : "Deflated Prob"} value={`${(data.multipleTesting.deflatedProb * 100).toFixed(0)}%`} color={data.multipleTesting.pass ? "#34d399" : "#f87171"} />
+              </div>
+            </div>
+          )}
+
           <div className="mt-6 rounded-xl px-4 py-3 text-[10px]" style={{ background: "rgba(248,113,113,0.05)", border: "1px solid rgba(248,113,113,0.12)", color: "rgba(175,185,215,0.4)" }}>
             ⚠️ {lang === "th"
-              ? "เครื่องมือนี้ช่วยคัดกลยุทธ์ที่ฟิตกับอดีตออกไป ไม่ใช่การรับประกันผลอนาคต · เป็น backtest บนข้อมูล Yahoo ไม่รวม spread/commission จริง"
-              : "This filters out curve-fit strategies; it does not guarantee future results · backtest on Yahoo data, excludes real spread/commission"}
+              ? "เครื่องมือนี้ช่วยคัดกลยุทธ์ที่ฟิตกับอดีตออกไป ไม่ใช่การรับประกันผลอนาคต · backtest บนข้อมูล Yahoo รวมต้นทุน spread/commission โดยประมาณแล้ว"
+              : "This filters out curve-fit strategies; it does not guarantee future results · backtest on Yahoo data, now includes estimated spread/commission costs"}
           </div>
         </>
       )}

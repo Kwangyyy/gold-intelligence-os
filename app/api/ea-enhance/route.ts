@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { geminiEnabled } from "@/lib/gemini";
+import { getApiUser, unauthorized } from "@/lib/apiAuth";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
 const API_KEY = process.env.GEMINI_API_KEY || "";
 
 export async function POST(req: NextRequest) {
+  // Billed Gemini call — signed-in users only.
+  if (!(await getApiUser())) return unauthorized();
   if (!geminiEnabled()) {
     return NextResponse.json({ error: "Gemini not configured" }, { status: 503 });
   }

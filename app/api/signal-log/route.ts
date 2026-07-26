@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { getSignals, clearSignals, updateOutcome, type SignalOutcome } from "@/lib/signalLog";
+import { getApiUser, unauthorized } from "@/lib/apiAuth";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
@@ -10,6 +12,7 @@ export async function GET(req: Request) {
 }
 
 export async function PATCH(req: Request) {
+  if (!(await getApiUser())) return unauthorized();
   const { id, outcome, pnlPips } = await req.json() as {
     id: string; outcome: SignalOutcome; pnlPips?: number;
   };
@@ -19,6 +22,7 @@ export async function PATCH(req: Request) {
 }
 
 export async function DELETE() {
+  if (!(await getApiUser())) return unauthorized();
   await clearSignals();
   return NextResponse.json({ ok: true });
 }

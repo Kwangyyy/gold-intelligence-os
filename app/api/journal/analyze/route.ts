@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server";
 import { analyzeJournalTrades, type JournalTradeSummary } from "@/lib/gemini";
+import { getApiUser, unauthorized } from "@/lib/apiAuth";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
+  // Billed Gemini call — signed-in users only.
+  if (!(await getApiUser())) return unauthorized();
   try {
     const summary: JournalTradeSummary = await req.json();
     if (!summary || summary.totalClosed < 1) {

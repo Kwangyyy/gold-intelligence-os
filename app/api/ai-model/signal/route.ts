@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { Redis } from "@upstash/redis";
+import { getApiUser, unauthorized } from "@/lib/apiAuth";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export interface AiModelSignalEntry {
@@ -26,6 +28,8 @@ function redis(): Redis | null {
 declare global { var __aiSigLog: AiModelSignalEntry[] | undefined; }
 
 export async function POST(req: Request) {
+  // Appends to the shared signal history — signed-in users only.
+  if (!(await getApiUser())) return unauthorized();
   const body = await req.json() as Omit<AiModelSignalEntry, "id" | "ts">;
   const entry: AiModelSignalEntry = { ...body, id: Date.now().toString(36), ts: Date.now() };
   const r = redis();

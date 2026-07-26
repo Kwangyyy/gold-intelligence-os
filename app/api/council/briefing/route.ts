@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { geminiEnabled, generateCouncilBriefing, type CouncilBriefingInput, type CouncilBriefing } from "@/lib/gemini";
+import { getApiUser, unauthorized } from "@/lib/apiAuth";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // PRD Module H enrichment — a natural-language briefing over an already-decided
@@ -12,6 +14,8 @@ const TTL = 10 * 60_000;
 const TIMEOUT = 15_000;
 
 export async function POST(req: Request) {
+  // Billed Gemini call — never expose it to anonymous traffic.
+  if (!(await getApiUser())) return unauthorized();
   if (!geminiEnabled()) return NextResponse.json({ enabled: false });
 
   let input: CouncilBriefingInput;

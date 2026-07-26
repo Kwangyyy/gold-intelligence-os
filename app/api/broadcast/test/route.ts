@@ -1,9 +1,14 @@
 import { NextResponse } from "next/server";
 import { broadcastSignal } from "@/lib/telegram";
+import { getApiAdmin, unauthorized } from "@/lib/apiAuth";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST() {
+  // Pushes a message to the public subscriber channel — admin only.
+  if (!(await getApiAdmin())) return unauthorized();
+
   const result = await broadcastSignal({
     symbol: "XAUUSD",
     direction: "buy",

@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { geminiEnabled } from "@/lib/gemini";
 import type { BacktestConfig, BacktestStrategyType } from "@/lib/backtest";
+import { getApiUser, unauthorized } from "@/lib/apiAuth";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 function buildPrompt(strategy: BacktestStrategyType, params: Partial<BacktestConfig>, stats: {
@@ -180,6 +182,8 @@ bool IsNewBar() {
 }
 
 export async function POST(req: Request) {
+  // Billed Gemini call — signed-in users only.
+  if (!(await getApiUser())) return unauthorized();
   try {
     const body = await req.json();
     const { strategy, params, stats } = body as {

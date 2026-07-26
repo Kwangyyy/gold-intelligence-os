@@ -1,9 +1,16 @@
 import { NextResponse } from "next/server";
 import { sendTelegramMessage, formatSignalMessage } from "@/lib/telegram";
+import { getApiUser, unauthorized } from "@/lib/apiAuth";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
+  // Sends through OUR bot token to a caller-supplied chatId. Without a session
+  // this is an open spam relay: anyone could point our bot at any chat and get
+  // the bot banned. Signed-in (admin-approved) users only.
+  if (!(await getApiUser())) return unauthorized();
+
   try {
     const body = await req.json();
     const { chatId, setup, testMode } = body as {

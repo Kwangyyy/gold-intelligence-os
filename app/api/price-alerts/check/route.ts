@@ -1,10 +1,15 @@
 import { NextResponse } from "next/server";
 import { checkAndTrigger } from "@/lib/priceAlertStore";
 import { sendTelegramMessage } from "@/lib/telegram";
+import { getApiUser, unauthorized } from "@/lib/apiAuth";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
+  // Fires real Telegram alerts off a caller-supplied price — an anonymous
+  // caller could pass a fake price and trigger every stored alert.
+  if (!(await getApiUser())) return unauthorized();
   try {
     const { price } = await req.json();
     if (!price || typeof price !== "number") {

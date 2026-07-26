@@ -3,7 +3,9 @@ import { chatWithContext, geminiEnabled, type ChatMessage } from "@/lib/gemini";
 import { getMarketSnapshot } from "@/lib/marketSnapshot";
 import { buildMultiTimeframe } from "@/lib/timeframes";
 import type { MarketSnapshot, MultiTimeframe } from "@/lib/types";
+import { getApiUser, unauthorized } from "@/lib/apiAuth";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // Builds a compact text snapshot of the platform's current state for grounding.
@@ -42,6 +44,8 @@ function buildContext(mkt: MarketSnapshot | null, mtf: MultiTimeframe | null): s
 }
 
 export async function POST(req: NextRequest) {
+  // Billed Gemini call — signed-in users only.
+  if (!(await getApiUser())) return unauthorized();
   if (!geminiEnabled()) {
     return NextResponse.json({ error: "AI is not configured (missing GEMINI_API_KEY)." }, { status: 503 });
   }

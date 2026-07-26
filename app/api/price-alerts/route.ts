@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { listAlerts, addAlert, deleteAlert } from "@/lib/priceAlertStore";
+import { getApiUser, unauthorized } from "@/lib/apiAuth";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
@@ -9,6 +11,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  if (!(await getApiUser())) return unauthorized();
   try {
     const { targetPrice, condition, chatId, note } = await req.json();
     if (!targetPrice || !condition || !chatId) {
@@ -22,6 +25,7 @@ export async function POST(req: Request) {
 }
 
 export async function DELETE(req: Request) {
+  if (!(await getApiUser())) return unauthorized();
   try {
     const { id } = await req.json();
     if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });

@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { Redis } from "@upstash/redis";
 import type { OptimizedResult } from "@/lib/eaOptimizer";
+import { getApiUser, unauthorized } from "@/lib/apiAuth";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const KEY = "gios:ea-optimizer-history";
@@ -33,6 +35,7 @@ function memHistory(): SavedRun[] {
 }
 
 export async function POST(req: Request) {
+  if (!(await getApiUser())) return unauthorized();
   try {
     const { results, strategy, direction } = await req.json() as {
       results: OptimizedResult[]; strategy: string; direction: string;
@@ -90,6 +93,7 @@ export async function GET() {
 }
 
 export async function DELETE() {
+  if (!(await getApiUser())) return unauthorized();
   try {
     const redis = getRedis();
     if (redis) await redis.del(KEY);

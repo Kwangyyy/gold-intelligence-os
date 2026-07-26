@@ -11,7 +11,9 @@ import { planExecution } from "@/lib/execution";
 import { getCouncilVotes } from "@/lib/councilJournal";
 import { computeAgentAccuracy } from "@/lib/councilLearning";
 import { formatCouncilAlert, sendTelegramMessage } from "@/lib/telegram";
+import { getApiAdmin, isCronRequest, unauthorized } from "@/lib/apiAuth";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const MIN_CONFIDENCE = 55;
@@ -38,8 +40,13 @@ async function saveAlert(sig: string): Promise<void> {
 // Telegram alert. Safe to call from Vercel Cron (GET) or a manual button.
 // Dedup prevents repeat alerts for the same standing decision.
 export async function GET(req: NextRequest) {
+  // Two legitimate callers: Vercel Cron (Bearer CRON_SECRET) and an admin
+  // pressing the button on /council. Anything else would let a stranger drive
+  // our Telegram channel, so it is refused before any work is done.
+  const viaCron = isCronRequest(req);
+  if (!viaCron && !(await getApiAdmin())) return unauthorized();
+
   const force = req.nextUrl.searchParams.get("force") === "1";
-  const chatOverride = req.nextUrl.searchParams.get("chatId") || undefined;
 
   try {
     const [snapshot, technical, mtf, smc] = await Promise.all([
@@ -98,7 +105,8 @@ export async function GET(req: NextRequest) {
       riskFlags: result.riskFlags.map((f) => f.th),
     });
 
-    const chatId = chatOverride || process.env.TELEGRAM_CHANNEL_ID || "";
+    // Always our own configured channel — never a caller-supplied chat id.
+    const chatId = process.env.TELEGRAM_CHANNEL_ID || "";
     if (!chatId) {
       return NextResponse.json({ sent: false, decision: result.decision, reason: "Telegram not configured (set TELEGRAM_BOT_TOKEN + TELEGRAM_CHANNEL_ID)", preview: text });
     }

@@ -1,6 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
 import { PageHeader } from "@/components/PageHeader";
 
 function EnvRow({ label, envKey, set, note }: { label: string; envKey: string; set: boolean; note: string }) {
@@ -23,6 +25,15 @@ function EnvRow({ label, envKey, set, note }: { label: string; envKey: string; s
 }
 
 export default function BroadcastPage() {
+  // Sends real Telegram broadcasts — admin only.
+  const { data: session, status: authStatus } = useSession();
+  const router = useRouter();
+  useEffect(() => {
+    if (authStatus === "loading") return;
+    const u = session?.user as { isAdmin?: boolean } | undefined;
+    if (!u?.isAdmin) router.replace("/");
+  }, [authStatus, session, router]);
+
   const [testing,  setTesting]  = useState(false);
   const [testMsg,  setTestMsg]  = useState("");
   const [testOk,   setTestOk]   = useState<boolean | null>(null);

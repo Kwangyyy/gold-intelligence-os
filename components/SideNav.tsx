@@ -15,6 +15,7 @@ interface NavItem {
   href: string;
   icon: string;
   key: string;
+  adminOnly?: boolean;
 }
 interface NavGroup {
   key: string;   // i18n key for the group label
@@ -211,8 +212,8 @@ const NAV_GROUPS: NavGroup[] = [
   {
     key: "navGrpAiNews", icon: "🤖",
     items: [
-      { href: "/command-center",   icon: "🛰️", key: "navCommandCenter"   },
-      { href: "/council",          icon: "🏛", key: "navCouncil"         },
+      { href: "/command-center",   icon: "🛰️", key: "navCommandCenter", adminOnly: true },
+      { href: "/council",          icon: "🏛", key: "navCouncil", adminOnly: true },
       { href: "/chat",             icon: "🤖", key: "navChat"            },
       { href: "/ai-model",         icon: "🧠", key: "navAiModel"         },
       { href: "/ai-model/history", icon: "📜", key: "navAiModelHistory"  },
@@ -236,8 +237,8 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/alerts",       icon: "🔔", key: "navAlerts"      },
       { href: "/price-alerts", icon: "🎯", key: "navPriceAlerts" },
       { href: "/signal-log",   icon: "📡", key: "navSignalLog"   },
-      { href: "/broadcast",    icon: "📢", key: "navBroadcast"   },
-      { href: "/admin",        icon: "🔐", key: "navAdmin"       },
+      { href: "/broadcast",    icon: "📢", key: "navBroadcast", adminOnly: true },
+      { href: "/admin",        icon: "🔐", key: "navAdmin", adminOnly: true },
     ],
   },
 ];
@@ -359,7 +360,7 @@ export function SideNav({ open, onClose }: Props) {
       {/* ── Navigation (grouped accordion) ────────────────────── */}
       <nav className="relative flex-1 overflow-y-auto px-2.5 py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {NAV_GROUPS.map((group) => {
-          const items = group.items.filter(item => item.href !== "/admin" || isAdmin);
+          const items = group.items.filter(item => !item.adminOnly || isAdmin);
           if (items.length === 0) return null;
 
           const isOpen = expanded.has(group.key);

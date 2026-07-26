@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
 import { PageHeader } from "@/components/PageHeader";
 import { useI18n } from "@/lib/i18n";
 import type { Bilingual } from "@/lib/types";
@@ -145,6 +147,15 @@ function AgentCard({ agent, L, lang }: { agent: AgentOpinion; L: (b: Bilingual) 
 export default function CouncilPage() {
   const { lang } = useI18n();
   const L = useCallback((b: Bilingual) => b[lang], [lang]);
+
+  // Internal decision engine / paper-trading control — admin only.
+  const { data: session, status: authStatus } = useSession();
+  const router = useRouter();
+  useEffect(() => {
+    if (authStatus === "loading") return;
+    const u = session?.user as { isAdmin?: boolean } | undefined;
+    if (!u?.isAdmin) router.replace("/");
+  }, [authStatus, session, router]);
 
   const [data, setData] = useState<CouncilResponse | null>(null);
   const [learning, setLearning] = useState<LearningResponse | null>(null);

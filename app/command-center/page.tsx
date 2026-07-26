@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
 import { Press_Start_2P } from "next/font/google";
 import { useI18n } from "@/lib/i18n";
 import type { Bilingual } from "@/lib/types";
@@ -98,6 +100,15 @@ function Panel({ title, accent = CY, children, className = "" }: { title: string
 export default function CommandCenterPage() {
   const { lang } = useI18n();
   const L = useCallback((b: Bilingual) => b[lang], [lang]);
+
+  // Internal ops HUD — admin only.
+  const { data: session, status: authStatus } = useSession();
+  const router = useRouter();
+  useEffect(() => {
+    if (authStatus === "loading") return;
+    const u = session?.user as { isAdmin?: boolean } | undefined;
+    if (!u?.isAdmin) router.replace("/");
+  }, [authStatus, session, router]);
 
   const [council, setCouncil] = useState<Council | null>(null);
   const [learning, setLearning] = useState<Learning | null>(null);

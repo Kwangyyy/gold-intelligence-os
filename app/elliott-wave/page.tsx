@@ -245,6 +245,53 @@ function cloudSegments(spanA: { time: number; value: number }[], spanB: { time: 
 const toLine = (t: number[], v: (number | null)[]) =>
   t.map((time, i) => ({ time, value: v[i] })).filter(x => x.value != null) as { time: number; value: number }[];
 
+// ── price ↔ oscillator divergence ─────────────────────────────────────────────
+// Bearish: price prints a higher high while the oscillator prints a lower high.
+// Bullish: price prints a lower low while the oscillator prints a higher low.
+// Pivots are confirmed by a symmetric window, so the newest few bars can't form
+// a pivot yet — that is deliberate, an unconfirmed pivot repaints.
+interface DivSeg { a: number; b: number; kind: "bull" | "bear" }
+function findDivergences(
+  highs: number[], lows: number[], osc: (number | null)[],
+  w = 4, minGap = 5, maxGap = 60,
+): DivSeg[] {
+  const n = osc.length;
+  const isHi: number[] = [], isLo: number[] = [];
+  for (let i = w; i < n - w; i++) {
+    const v = osc[i];
+    if (v == null) continue;
+    let hi = true, lo = true;
+    for (let j = i - w; j <= i + w; j++) {
+      const u = osc[j];
+      if (j === i || u == null) continue;
+      if (u > v) hi = false;
+      if (u < v) lo = false;
+    }
+    if (hi) isHi.push(i);
+    if (lo) isLo.push(i);
+  }
+  const out: DivSeg[] = [];
+  const scan = (piv: number[], kind: "bull" | "bear") => {
+    for (let k = 1; k < piv.length; k++) {
+      const a = piv[k - 1], b = piv[k];
+      const gap = b - a;
+      if (gap < minGap || gap > maxGap) continue;
+      const oa = osc[a]!, ob = osc[b]!;
+      if (kind === "bear") {
+        if (ob < oa && highs[b] > highs[a]) out.push({ a, b, kind });
+      } else {
+        if (ob > oa && lows[b] < lows[a]) out.push({ a, b, kind });
+      }
+    }
+  };
+  scan(isHi, "bear");
+  scan(isLo, "bull");
+  return out;
+}
+// Divergence only means something on a bounded/momentum oscillator; reading it
+// off ADX, ATR or OBV would be noise dressed up as a signal.
+const DIV_OSCS = new Set(["rsi", "stoch", "cci", "willr", "roc", "macd"]);
+
 const STRUCT_COLOR: Record<string, string> = {
   impulse: "#34d399", terminal: "#fb923c", zigzag: "#f5c451", flat: "#f5c451",
   triangle: "#60a5fa", complex: "#c084fc", unclear: "#94a3b8",
@@ -336,6 +383,8 @@ export default function ElliottWavePage() {
   }, []);
 
   // Drives the "Ns ago" readout so staleness is always visible at a glance.
+  const [divOn, setDivOn] = useState(true);
+  const [divCount, setDivCount] = useState({ bull: 0, bear: 0 });
   const [nowTs, setNowTs] = useState(Date.now());
   useEffect(() => {
     const id = setInterval(() => setNowTs(Date.now()), 1000);
@@ -592,8 +641,42 @@ export default function ElliottWavePage() {
     } else if (osc === "obv") {
       addLine({ color: "#a3e635", lineWidth: 2 }).setData(toLine(s.t, obv(s.c, s.v)));
     }
+
+    // Divergence markup on the oscillator: a red segment joins two oscillator
+    // highs that fell while price rose (bearish), a green segment joins two lows
+    // that rose while price fell (bullish).
+    if (divOn && DIV_OSCS.has(osc)) {
+      const primary =
+        osc === "rsi"   ? rsi(s.c, 14) :
+        osc === "stoch" ? stoch(s.h, s.l, s.c).k :
+        osc === "cci"   ? cci(s.h, s.l, s.c) :
+        osc === "willr" ? williamsR(s.h, s.l, s.c) :
+        osc === "roc"   ? roc(s.c) :
+        osc === "macd"  ? macd(s.c).line : null;
+      if (primary) {
+        const segs = findDivergences(s.h, s.l, primary).slice(-12);
+        for (const d of segs) {
+          const sr = chart.addLineSeries({
+            color: d.kind === "bear" ? "#f87171" : "#34d399",
+            lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+          });
+          sr.setData([
+            { time: s.t[d.a], value: primary[d.a] as number },
+            { time: s.t[d.b], value: primary[d.b] as number },
+          ]);
+          oscSeriesRef.current.push(sr);
+        }
+        setDivCount({
+          bull: segs.filter(x => x.kind === "bull").length,
+          bear: segs.filter(x => x.kind === "bear").length,
+        });
+      }
+    } else {
+      setDivCount({ bull: 0, bear: 0 });
+    }
+
     if (chartRef.current) { const r = chartRef.current.timeScale().getVisibleLogicalRange(); if (r) chart.timeScale().setVisibleLogicalRange(r); }
-  }, [osc, data, libReady]);
+  }, [osc, data, libReady, divOn]);
 
   const structColor = data ? (STRUCT_COLOR[data.structure] ?? "#94a3b8") : "#94a3b8";
 
@@ -643,6 +726,23 @@ export default function ElliottWavePage() {
                 style={a ? { background: "rgba(96,165,250,0.2)", color: "#60a5fa", boxShadow: "inset 0 0 0 1px rgba(96,165,250,0.4)" } : { color: "rgba(175,185,215,0.5)" }}>{o.label}</button>;
             })}
           </div>
+          {/* Divergence markup on the oscillator pane */}
+          {DIV_OSCS.has(osc) && (
+            <button onClick={() => setDivOn(v => !v)}
+              className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[10px] font-bold transition-all"
+              style={divOn
+                ? { background: "rgba(245,196,81,0.15)", border: "1px solid rgba(245,196,81,0.5)", color: "#f5c451" }
+                : { background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", color: "rgba(175,185,215,0.45)" }}>
+              <span className="h-2 w-2 rounded-full" style={{ background: divOn ? "#f5c451" : "rgba(148,163,184,0.3)" }} />
+              Divergence
+              {divOn && (divCount.bull + divCount.bear > 0) && (
+                <span className="ml-0.5">
+                  <span style={{ color: "#34d399" }}>▲{divCount.bull}</span>
+                  <span style={{ color: "#f87171" }} className="ml-1">▼{divCount.bear}</span>
+                </span>
+              )}
+            </button>
+          )}
         </div>
       </div>
 
@@ -670,8 +770,13 @@ export default function ElliottWavePage() {
 
       {/* Charts */}
       <div className="panel p-3 mb-5 relative">
-        <ChartDrawTools key={chartReady ? "ready" : "pending"}
-          chart={chartRef.current} series={candleRef.current} height={440} storageKey={`xauusd:${tf}`}>
+        {/* No `key` here on purpose. Keying this on chartReady remounted the
+            subtree when the flag flipped, which threw away the child <div> the
+            chart had already mounted its canvas into — the chart survived in
+            memory with no container and the pane rendered blank. A plain
+            re-render is enough to hand the instance down. */}
+        <ChartDrawTools chart={chartReady ? chartRef.current : null} series={chartReady ? candleRef.current : null}
+          height={440} storageKey={`xauusd:${tf}`}>
           <div ref={boxRef} style={{ width: "100%", height: 440 }} />
         </ChartDrawTools>
         {osc !== "none" && <div ref={oscBoxRef} style={{ width: "100%", height: 150 }} className="mt-1 border-t" />}
@@ -683,6 +788,7 @@ export default function ElliottWavePage() {
         <div className="mt-2 flex flex-wrap items-center gap-3 text-[9px]" style={{ color: "rgba(175,185,215,0.4)" }}>
           <span style={{ color: "#c084fc" }}>— เส้นม่วง = NeoWave ZigZag</span>
           {oiOn && <><span style={{ color: "#ef4444" }}>— แดง = Call wall</span><span style={{ color: "#22c55e" }}>— เขียว = Put wall</span><span>— ประ = 1/2/3SD</span></>}
+          {divOn && DIV_OSCS.has(osc) && <span>ช่องล่าง: <span style={{ color: "#34d399" }}>เขียว = Bull div</span> · <span style={{ color: "#f87171" }}>แดง = Bear div</span></span>}
           <span>ลากเพื่อแพน · สกอร์ลเพื่อซูม · ลากซ้ายเพื่อดูย้อนหลัง</span>
         </div>
       </div>

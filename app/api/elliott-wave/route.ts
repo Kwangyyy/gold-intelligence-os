@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getGoldCandles, getGoldSpot } from "@/lib/goldSource";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -78,20 +79,19 @@ export interface ElliottWavePayload {
 // Ranges respect Yahoo's per-interval history caps (1m ≤ 7d, 5m/15m/30m ≤ 60d,
 // 60m ≤ 730d); asking for more silently returns nothing. 2h and 4h are built by
 // aggregating 60m bars, since Yahoo has no native 2h/4h interval.
-const TF_CONFIG: Record<ElliottTF, { range: string; interval: string; aggregate: number; deviation: number; maxBars: number }> = {
-  "1m": { range: "5d",  interval: "1m",  aggregate: 1, deviation: 0.15, maxBars: 700 },
-  "5m": { range: "1mo", interval: "5m",  aggregate: 1, deviation: 0.30, maxBars: 800 },
-  "15m":{ range: "1mo", interval: "15m", aggregate: 1, deviation: 0.60, maxBars: 800 },
-  // "2mo" is not one of Yahoo's accepted range tokens (1d/5d/1mo/3mo/6mo/1y/2y/
-  // 5y/10y/ytd/max) and silently returned an empty series; 3mo would breach the
-  // 60-day cap for 30m bars, so 1mo it is.
-  "30m":{ range: "1mo", interval: "30m", aggregate: 1, deviation: 0.90, maxBars: 800 },
-  "1h": { range: "6mo", interval: "60m", aggregate: 1, deviation: 1.20, maxBars: 900 },
-  "2h": { range: "1y",  interval: "60m", aggregate: 2, deviation: 1.70, maxBars: 800 },
-  "4h": { range: "2y",  interval: "60m", aggregate: 4, deviation: 2.20, maxBars: 800 },
-  "1d": { range: "5y",  interval: "1d",  aggregate: 1, deviation: 3.50, maxBars: 1000 },
-  "1w": { range: "10y", interval: "1wk", aggregate: 1, deviation: 6.00, maxBars: 700 },
-  "1M": { range: "max", interval: "1mo", aggregate: 1, deviation: 10.0, maxBars: 400 },
+// Only what the wave analysis needs. Where the candles come from, and the
+// per-interval history limits, now live in lib/goldSource.ts.
+const TF_CONFIG: Record<ElliottTF, { deviation: number; maxBars: number }> = {
+  "1m": { deviation: 0.15, maxBars: 700 },
+  "5m": { deviation: 0.30, maxBars: 800 },
+  "15m":{ deviation: 0.60, maxBars: 800 },
+  "30m":{ deviation: 0.90, maxBars: 800 },
+  "1h": { deviation: 1.20, maxBars: 900 },
+  "2h": { deviation: 1.70, maxBars: 800 },
+  "4h": { deviation: 2.20, maxBars: 800 },
+  "1d": { deviation: 3.50, maxBars: 1000 },
+  "1w": { deviation: 6.00, maxBars: 700 },
+  "1M": { deviation: 10.0, maxBars: 400 },
 };
 
 // Wave degree per timeframe (Elliott/NeoWave fractal nesting: large → small).
@@ -119,43 +119,6 @@ const DEGREE: Record<ElliottTF, { name: string; nameTh: string; glyph: Record<st
   "1m":  { name: "Submicro", nameTh: "Submicro (ดีกรีเล็กสุด)",
     glyph: { "0":"◦", "1":"{1}","2":"{2}","3":"{3}","4":"{4}","5":"{5}","A":"{a}","B":"{b}","C":"{c}","D":"{d}","E":"{e}" } },
 };
-
-async function fetchGold(tf: ElliottTF) {
-  const cfg = TF_CONFIG[tf];
-  try {
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?range=${cfg.range}&interval=${cfg.interval}`;
-    const r   = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" }, cache: "no-store" });
-    if (!r.ok) return null;
-    return await r.json();
-  } catch { return null; }
-}
-
-type YJ = {
-  chart?: {
-    result?: Array<{
-      meta?: { regularMarketPrice?: number };
-      timestamp?: number[];
-      indicators?: { quote?: Array<{ open?: (number|null)[]; close?: (number|null)[]; high?: (number|null)[]; low?: (number|null)[]; volume?: (number|null)[] }> };
-    }>;
-  };
-} | null;
-
-// Aggregate 1h bars into Nh bars (e.g. 4h): group consecutive N bars into OHLCV.
-function aggregate(op: number[], hi: number[], lo: number[], cl: number[], vo: number[], ts: number[], n: number) {
-  if (n <= 1) return { op, hi, lo, cl, vo, ts };
-  const O: number[] = [], H: number[] = [], L: number[] = [], C: number[] = [], V: number[] = [], T: number[] = [];
-  for (let i = 0; i < cl.length; i += n) {
-    const hSlice = hi.slice(i, i + n), lSlice = lo.slice(i, i + n), cSlice = cl.slice(i, i + n), vSlice = vo.slice(i, i + n);
-    if (!cSlice.length) break;
-    O.push(op[i]);
-    H.push(Math.max(...hSlice));
-    L.push(Math.min(...lSlice));
-    C.push(cSlice[cSlice.length - 1]);
-    V.push(vSlice.reduce((a, b) => a + b, 0));
-    T.push(ts[i]);
-  }
-  return { op: O, hi: H, lo: L, cl: C, vo: V, ts: T };
-}
 
 // Percentage-deviation ZigZag on candle highs/lows — the classic "wave measuring" indicator.
 // Pivots sit on true swing extremes (candle wicks). Registers a new pivot only when price
@@ -537,33 +500,22 @@ export async function GET(req: Request) {
   try {
     const cfg = TF_CONFIG[tf];
     const deviation = cfg.deviation * SENS[sens];
-    const j   = await fetchGold(tf);
-    const obj = j as YJ;
-    const res = obj?.chart?.result?.[0];
-    const q   = res?.indicators?.quote?.[0];
 
-    // Align all OHLC arrays by dropping bars with any null field
-    const rawO = q?.open  ?? [];
-    const rawC = q?.close ?? [];
-    const rawH = q?.high  ?? [];
-    const rawL = q?.low   ?? [];
-    const rawV = q?.volume ?? [];
-    const rawT = res?.timestamp ?? [];
-    const op: number[] = [], hi: number[] = [], lo: number[] = [], cl: number[] = [], vo: number[] = [], ts: number[] = [];
-    for (let i = 0; i < rawC.length; i++) {
-      if (rawO[i] == null || rawC[i] == null || rawH[i] == null || rawL[i] == null) continue;
-      op.push(rawO[i] as number); cl.push(rawC[i] as number);
-      hi.push(rawH[i] as number); lo.push(rawL[i] as number);
-      vo.push((rawV[i] as number) ?? 0); ts.push(rawT[i] ?? 0);
-    }
+    // Spot-equivalent, real-time candles (PAXG via Binance, Yahoo GC=F as
+    // fallback). Everything below is source-agnostic.
+    const candles = await getGoldCandles(tf, cfg.maxBars);
+    const start = Math.max(0, candles.c.length - cfg.maxBars);
+    const sOp = candles.o.slice(start), sHi = candles.h.slice(start), sLo = candles.l.slice(start),
+          sCl = candles.c.slice(start), sVo = candles.v.slice(start), sTs = candles.t.slice(start);
 
-    // Aggregate (for 4h) then cap to maxBars
-    const agg = aggregate(op, hi, lo, cl, vo, ts, cfg.aggregate);
-    const start = Math.max(0, agg.cl.length - cfg.maxBars);
-    const sOp = agg.op.slice(start), sHi = agg.hi.slice(start), sLo = agg.lo.slice(start),
-          sCl = agg.cl.slice(start), sVo = agg.vo.slice(start), sTs = agg.ts.slice(start);
+    if (!sCl.length) throw new Error(`no candles for ${tf}`);
 
-    const spot = res?.meta?.regularMarketPrice ?? sCl.at(-1) ?? 3200;
+    // Live tick, so the newest price is not capped by the last closed bar.
+    let spot = sCl[sCl.length - 1];
+    try {
+      const live = await getGoldSpot();
+      if (live.price > 0) spot = live.price;
+    } catch { /* the last close is a fine stand-in */ }
 
     const pivots = computeZigzag(sHi, sLo, sTs, deviation);
     const zigzag: ZigzagPoint[] = pivots.map(p => ({ i: p.idx, price: +p.price.toFixed(1), type: p.type }));

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { getUserLiveData } from "@/lib/mt5Store";
+import { getGoldSpot } from "@/lib/goldSource";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,7 +24,7 @@ export const dynamic = "force-dynamic";
 
 export interface GoldLive {
   price: number;
-  source: "mt5" | "gld" | "futures";
+  source: "mt5" | "paxg" | "gld" | "futures";
   sourceLabel: string;
   sourceLabelTh: string;
   delaySec: number;      // how old the underlying print is
@@ -106,7 +107,22 @@ export async function GET() {
     return NextResponse.json(data, { headers: { "Cache-Control": "no-store" } });
   }
 
-  // 2. GLD-derived. The ratio must come from two prints taken at the SAME moment;
+  // 2. PAXG — a token redeemable 1:1 for a troy ounce of LBMA gold, quoted in
+  //    real time by Binance and within a couple of dollars of the spot print.
+  //    Preferred over the GLD derivation below because it needs no conversion.
+  try {
+    const p = await getGoldSpot();
+    if (p.source === "paxg" && p.price > 0) {
+      const data = build({
+        price: p.price, source: "paxg", delaySec: p.delaySec,
+        sourceLabel: `PAXG/USDT spot-equivalent, real-time (futures feed is ${futuresDelay}s delayed)`,
+        sourceLabelTh: `PAXG/USDT เทียบเท่าราคา spot แบบเรียลไทม์ (ฟีด futures หน่วง ${futuresDelay} วิ)`,
+      });
+      return NextResponse.json(data, { headers: { "Cache-Control": "no-store" } });
+    }
+  } catch { /* fall through to the GLD derivation */ }
+
+  // 3. GLD-derived. The ratio must come from two prints taken at the SAME moment;
   //    pairing a live GLD against a ten-minute-old future would bake that gap
   //    straight into the ratio and bias the result by roughly the move since.
   if (gld && gc && futuresDelay > 120) {

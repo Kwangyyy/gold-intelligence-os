@@ -761,7 +761,7 @@ export default function ElliottWavePage() {
                 : { background: "rgba(251,146,60,0.12)", border: "1px solid rgba(251,146,60,0.4)", color: "#fb923c" }}>
               <b className="font-mono">${live.price.toLocaleString()}</b>
               <span className="opacity-70">
-                {live.source === "mt5" ? "MT5" : live.source === "gld" ? "GLD-live" : "GC=F"}
+                {live.source === "mt5" ? "MT5" : live.source === "paxg" ? "spot" : live.source === "gld" ? "GLD-live" : "GC=F"}
                 {live.isRealtime ? " · realtime" : ` · หน่วง ${live.delaySec}s`}
               </span>
             </span>

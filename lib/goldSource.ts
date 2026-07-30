@@ -1,0 +1,139 @@
+// Candle source for the gold charts.
+//
+// Why not Yahoo GC=F any more: it is COMEX *futures*, and Yahoo reports it about
+// ten minutes late (measured 603s and 611s). Futures also carry a basis over
+// spot — roughly $47 while this was written — so the chart sat both stale and
+// about one percent above the spot price the user actually trades. Against a
+// TradingView OANDA:XAUUSD chart that reads as simply wrong.
+//
+// Binance PAXG/USDT instead: PAXG is a token redeemable 1:1 for a troy ounce of
+// LBMA gold, so it tracks spot closely — $1.76 from the OANDA spot print when
+// compared side by side — and Binance serves it in real time (13s old), free,
+// with native 1m…1M intervals so nothing has to be aggregated.
+//
+// Trade-off, stated plainly: PAXG is a token, not spot XAU. It can sit at a
+// small premium or discount, and it trades through weekends when the gold market
+// is shut, so weekend bars exist that a broker chart will not show. History only
+// goes back to the token's 2019 launch, which shortens the weekly and monthly
+// views. Yahoo remains the fallback when Binance is unreachable.
+
+export type GoldTF = "1m" | "5m" | "15m" | "30m" | "1h" | "2h" | "4h" | "1d" | "1w" | "1M";
+
+export interface Candles {
+  t: number[];  // unix seconds
+  o: number[];
+  h: number[];
+  l: number[];
+  c: number[];
+  v: number[];
+  source: "paxg" | "yahoo";
+  delaySec: number;
+}
+
+const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36";
+
+// Binance has a native interval for every timeframe we offer.
+const BINANCE_IV: Record<GoldTF, string> = {
+  "1m": "1m", "5m": "5m", "15m": "15m", "30m": "30m", "1h": "1h",
+  "2h": "2h", "4h": "4h", "1d": "1d", "1w": "1w", "1M": "1M",
+};
+
+// Yahoo fallback: no native 2h/4h, so those are folded from 60m bars.
+const YAHOO_CFG: Record<GoldTF, { range: string; interval: string; aggregate: number }> = {
+  "1m": { range: "5d",  interval: "1m",  aggregate: 1 },
+  "5m": { range: "1mo", interval: "5m",  aggregate: 1 },
+  "15m":{ range: "1mo", interval: "15m", aggregate: 1 },
+  "30m":{ range: "1mo", interval: "30m", aggregate: 1 },
+  "1h": { range: "6mo", interval: "60m", aggregate: 1 },
+  "2h": { range: "1y",  interval: "60m", aggregate: 2 },
+  "4h": { range: "2y",  interval: "60m", aggregate: 4 },
+  "1d": { range: "5y",  interval: "1d",  aggregate: 1 },
+  "1w": { range: "10y", interval: "1wk", aggregate: 1 },
+  "1M": { range: "max", interval: "1mo", aggregate: 1 },
+};
+
+async function fromBinance(tf: GoldTF, limit: number): Promise<Candles> {
+  const url = `https://api.binance.com/api/v3/klines?symbol=PAXGUSDT&interval=${BINANCE_IV[tf]}&limit=${Math.min(limit, 1000)}`;
+  const r = await fetch(url, { headers: { "User-Agent": UA }, cache: "no-store", signal: AbortSignal.timeout(12_000) });
+  if (!r.ok) throw new Error(`Binance ${r.status}`);
+  const rows = (await r.json()) as (string | number)[][];
+  if (!Array.isArray(rows) || !rows.length) throw new Error("Binance: empty");
+
+  const t: number[] = [], o: number[] = [], h: number[] = [], l: number[] = [], c: number[] = [], v: number[] = [];
+  for (const k of rows) {
+    t.push(Math.floor(Number(k[0]) / 1000));
+    o.push(Number(k[1])); h.push(Number(k[2])); l.push(Number(k[3])); c.push(Number(k[4]));
+    v.push(Number(k[5]));
+  }
+  return { t, o, h, l, c, v, source: "paxg", delaySec: Math.max(0, Math.floor(Date.now() / 1000) - t[t.length - 1]) };
+}
+
+function aggregate(src: Omit<Candles, "source" | "delaySec">, n: number) {
+  if (n <= 1) return src;
+  const t: number[] = [], o: number[] = [], h: number[] = [], l: number[] = [], c: number[] = [], v: number[] = [];
+  for (let i = 0; i < src.c.length; i += n) {
+    const hs = src.h.slice(i, i + n), ls = src.l.slice(i, i + n), cs = src.c.slice(i, i + n), vs = src.v.slice(i, i + n);
+    if (!cs.length) break;
+    t.push(src.t[i]); o.push(src.o[i]);
+    h.push(Math.max(...hs)); l.push(Math.min(...ls));
+    c.push(cs[cs.length - 1]); v.push(vs.reduce((a, b) => a + b, 0));
+  }
+  return { t, o, h, l, c, v };
+}
+
+async function fromYahoo(tf: GoldTF): Promise<Candles> {
+  const cfg = YAHOO_CFG[tf];
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?range=${cfg.range}&interval=${cfg.interval}`;
+  const r = await fetch(url, { headers: { "User-Agent": UA }, cache: "no-store", signal: AbortSignal.timeout(12_000) });
+  if (!r.ok) throw new Error(`Yahoo ${r.status}`);
+  const j = await r.json();
+  const res = j?.chart?.result?.[0];
+  const q = res?.indicators?.quote?.[0];
+  const rawT: number[] = res?.timestamp ?? [];
+  if (!rawT.length) throw new Error("Yahoo: empty");
+
+  const t: number[] = [], o: number[] = [], h: number[] = [], l: number[] = [], c: number[] = [], v: number[] = [];
+  for (let i = 0; i < rawT.length; i++) {
+    if (q?.open?.[i] == null || q?.close?.[i] == null || q?.high?.[i] == null || q?.low?.[i] == null) continue;
+    t.push(rawT[i]); o.push(q.open[i]); h.push(q.high[i]); l.push(q.low[i]); c.push(q.close[i]);
+    v.push(q.volume?.[i] ?? 0);
+  }
+  const agg = aggregate({ t, o, h, l, c, v }, cfg.aggregate);
+  const last = agg.t[agg.t.length - 1] ?? 0;
+  return { ...agg, source: "yahoo", delaySec: Math.max(0, Math.floor(Date.now() / 1000) - last) };
+}
+
+/** Candles for a timeframe, real-time when Binance is reachable. */
+export async function getGoldCandles(tf: GoldTF, limit = 1000): Promise<Candles> {
+  try {
+    return await fromBinance(tf, limit);
+  } catch {
+    return await fromYahoo(tf);
+  }
+}
+
+/** Latest spot-equivalent gold price, real-time. */
+export async function getGoldSpot(): Promise<{ price: number; source: "paxg" | "yahoo"; delaySec: number }> {
+  try {
+    const r = await fetch("https://api.binance.com/api/v3/ticker/price?symbol=PAXGUSDT", {
+      headers: { "User-Agent": UA }, cache: "no-store", signal: AbortSignal.timeout(8_000),
+    });
+    if (!r.ok) throw new Error(String(r.status));
+    const j = await r.json();
+    const price = Number(j?.price);
+    if (!price) throw new Error("no price");
+    return { price, source: "paxg", delaySec: 0 };
+  } catch {
+    const r = await fetch("https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?interval=1m&range=1d", {
+      headers: { "User-Agent": UA }, cache: "no-store", signal: AbortSignal.timeout(8_000),
+    });
+    const j = await r.json();
+    const m = j?.chart?.result?.[0]?.meta;
+    const now = Math.floor(Date.now() / 1000);
+    return {
+      price: Number(m?.regularMarketPrice ?? 0),
+      source: "yahoo",
+      delaySec: m?.regularMarketTime ? Math.max(0, now - Number(m.regularMarketTime)) : 0,
+    };
+  }
+}

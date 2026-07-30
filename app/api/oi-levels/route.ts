@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getGoldSpot } from "@/lib/goldSource";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -154,11 +155,16 @@ export async function GET(req: Request) {
   const wanted = new URL(req.url).searchParams.get("expiry") ?? "";
 
   try {
-    const [chain, goldRaw, gldLive] = await Promise.all([
+    // Gold must be on the SAME basis the chart plots (spot-equivalent), not
+    // COMEX futures. Futures carry a basis of roughly $47 over spot, so a
+    // futures-derived ratio would place every strike about 1% too high and the
+    // OI walls would line up against nothing on a spot-priced chart.
+    const [chain, spot, gldLive] = await Promise.all([
       getChain(),
-      fetchYahooPrice("GC=F"),
+      getGoldSpot(),
       fetchYahooPrice("GLD"),
     ]);
+    const goldRaw = spot.price;
     const { rows, iv30, gldClose } = chain;
 
     // Gold-equivalent conversion. GLD holds ~1/10 oz per share (minus fee drag),

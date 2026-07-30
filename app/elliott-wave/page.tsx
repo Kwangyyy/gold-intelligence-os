@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Script from "next/script";
 import { PageHeader } from "@/components/PageHeader";
+import { ChartDrawTools } from "@/components/ChartDrawTools";
 import type { ElliottWavePayload, ElliottTF } from "@/app/api/elliott-wave/route";
 import type { OiLevelsPayload } from "@/app/api/oi-levels/route";
 
@@ -255,6 +256,9 @@ export default function ElliottWavePage() {
   const [err, setErr] = useState("");
   const [tf, setTf] = useState<ElliottTF>("1d");
   const [libReady, setLibReady] = useState(false);
+  // Refs alone don't re-render, so the drawing layer would never receive the
+  // chart instance. This flips once the chart exists and hands it down.
+  const [chartReady, setChartReady] = useState(false);
   const [ov, setOv] = useState<Record<OverlayKey, boolean>>({
     ema20: false, ema50: true, ema100: false, ema200: true, sma20: false, sma50: false, sma200: false,
     bb: false, keltner: false, donchian: false, ichimoku: false, vwap: false, psar: false, supertrend: false, volume: true,
@@ -425,6 +429,7 @@ export default function ElliottWavePage() {
     const candle = chart.addCandlestickSeries({ upColor: "#22c55e", downColor: "#ef4444", borderVisible: false, wickUpColor: "#22c55e", wickDownColor: "#ef4444" });
     const zz = chart.addLineSeries({ color: "#c084fc", lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
     chartRef.current = chart; candleRef.current = candle; zzRef.current = zz;
+    setChartReady(true);
     const ro = new ResizeObserver(() => boxRef.current && chart.applyOptions({ width: boxRef.current.clientWidth }));
     ro.observe(boxRef.current); chart.applyOptions({ width: boxRef.current.clientWidth });
     // sync main → osc
@@ -432,7 +437,7 @@ export default function ElliottWavePage() {
       if (syncing.current || !oscChartRef.current || !r) return;
       syncing.current = true; oscChartRef.current.timeScale().setVisibleLogicalRange(r); syncing.current = false;
     });
-    return () => { ro.disconnect(); chart.remove(); chartRef.current = null; cloudPoolRef.current = []; };
+    return () => { ro.disconnect(); chart.remove(); chartRef.current = null; cloudPoolRef.current = []; setChartReady(false); };
   }, [libReady]);
 
   // push candles + zigzag + markers
@@ -665,7 +670,10 @@ export default function ElliottWavePage() {
 
       {/* Charts */}
       <div className="panel p-3 mb-5 relative">
-        <div ref={boxRef} style={{ width: "100%", height: 440 }} />
+        <ChartDrawTools key={chartReady ? "ready" : "pending"}
+          chart={chartRef.current} series={candleRef.current} height={440} storageKey={`xauusd:${tf}`}>
+          <div ref={boxRef} style={{ width: "100%", height: 440 }} />
+        </ChartDrawTools>
         {osc !== "none" && <div ref={oscBoxRef} style={{ width: "100%", height: 150 }} className="mt-1 border-t" />}
         {(!libReady || loading) && (
           <div className="absolute inset-0 flex items-center justify-center rounded-xl" style={{ background: "rgba(6,9,26,0.4)" }}>

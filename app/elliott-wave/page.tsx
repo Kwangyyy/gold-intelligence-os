@@ -268,6 +268,9 @@ export default function ElliottWavePage() {
   const [oiExpiry, setOiExpiry] = useState("");
   const [oiLoading, setOiLoading] = useState(false);
   const [oiErr, setOiErr] = useState("");
+  const [oiLines, setOiLines] = useState(14);   // how many strike walls to draw
+  const [tick, setTick] = useState(0);          // bumped by the live poller
+  const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
 
   const boxRef = useRef<HTMLDivElement>(null);
   const oscBoxRef = useRef<HTMLDivElement>(null);
@@ -277,6 +280,7 @@ export default function ElliottWavePage() {
   const ovRef = useRef<Record<string, any>>({});
   const cloudPoolRef = useRef<{ top: any; mask: any }[]>([]);
   const oiLinesRef = useRef<any[]>([]);
+  const viewKeyRef = useRef("");   // "<tf>:<sens>" — a change means fit, a repeat means keep the user's zoom
   const oscChartRef = useRef<any>(null);
   const oscSeriesRef = useRef<any[]>([]);
   const syncing = useRef(false);
@@ -288,9 +292,20 @@ export default function ElliottWavePage() {
       const j = await r.json();
       if (j.error) throw new Error(j.error);
       setData(j);
+      setUpdatedAt(new Date());
     } catch (e) { setErr(String(e)); } finally { setLoading(false); }
   }, []);
-  useEffect(() => { load(tf, sens); }, [load, tf, sens]);
+  useEffect(() => { load(tf, sens); }, [load, tf, sens, tick]);
+
+  // Live poll, cadence matched to the bar size so every timeframe stays current.
+  // Pauses while the tab is hidden so a backgrounded chart isn't burning fetches.
+  useEffect(() => {
+    const everyMs = tf === "15m" ? 20_000 : tf === "1h" ? 30_000 : tf === "4h" ? 60_000 : 60_000;
+    const id = setInterval(() => {
+      if (document.visibilityState === "visible") setTick(t => t + 1);
+    }, everyMs);
+    return () => clearInterval(id);
+  }, [tf]);
 
   // Pull the OI chain only when the overlay is switched on.
   useEffect(() => {
@@ -303,7 +318,7 @@ export default function ElliottWavePage() {
       .catch(e => { if (alive) setOiErr(String(e)); })
       .finally(() => { if (alive) setOiLoading(false); });
     return () => { alive = false; };
-  }, [oiOn, oiExpiry]);
+  }, [oiOn, oiExpiry, tick]);
 
   // Draw OI strikes + expected-range bands as labeled price lines on the candles.
   useEffect(() => {
@@ -324,8 +339,9 @@ export default function ElliottWavePage() {
         add({ price: band.low,  color, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: `−${label}` });
       });
 
-    // Strike walls: only the heaviest few, or the chart turns into a barcode.
-    const top = [...oi.strikes].sort((a, b) => b.total - a.total).slice(0, 14);
+    // Strike walls: heaviest first, count chosen by the user (more than ~25 and
+    // the price axis labels start overlapping into a barcode).
+    const top = [...oi.strikes].sort((a, b) => b.total - a.total).slice(0, oiLines);
     const maxOi = Math.max(...top.map(s => s.total), 1);
     for (const s of top) {
       const weight = s.total / maxOi;
@@ -342,7 +358,8 @@ export default function ElliottWavePage() {
 
     // The three headline levels, drawn last so they sit on top.
     add({ price: oi.maxPain, color: "rgba(255,255,255,0.7)", lineWidth: 2, lineStyle: 3, axisLabelVisible: true, title: "Max Pain" });
-  }, [oiOn, oi, data]);
+    add({ price: oi.gammaFlip, color: "rgba(251,146,60,0.8)", lineWidth: 2, lineStyle: 3, axisLabelVisible: true, title: "γ Flip" });
+  }, [oiOn, oi, data, oiLines]);
 
   // main chart create (once)
   useEffect(() => {
@@ -395,9 +412,15 @@ export default function ElliottWavePage() {
         color: p.type === "high" ? "#f5c451" : "#34d399", shape: p.type === "high" ? "arrowDown" : "arrowUp", text: p.label,
       }))
     );
-    // show the most recent ~130 bars, older history scrollable
-    chartRef.current.timeScale().setVisibleLogicalRange({ from: Math.max(0, n - 130), to: n + 4 });
-  }, [data]);
+    // Only frame the chart when the dataset itself changes (timeframe or
+    // sensitivity). On a live refresh the user may be zoomed into 2019 — snapping
+    // back to the last 130 bars every poll would make the chart unusable.
+    const viewKey = `${data.timeframe}:${sens}`;
+    if (viewKeyRef.current !== viewKey) {
+      viewKeyRef.current = viewKey;
+      chartRef.current.timeScale().setVisibleLogicalRange({ from: Math.max(0, n - 130), to: n + 4 });
+    }
+  }, [data, sens]);
 
   // overlays
   useEffect(() => {
@@ -554,6 +577,12 @@ export default function ElliottWavePage() {
             })}
           </div>
           {data && <span className="text-[9px] px-2 py-1 rounded-lg" style={{ background: "rgba(192,132,252,0.12)", color: "#c084fc" }}>ดีกรี: {data.degree}</span>}
+          {/* live poll indicator */}
+          <span className="flex items-center gap-1.5 text-[9px] px-2 py-1 rounded-lg"
+            style={{ background: "rgba(52,211,153,0.1)", color: "#34d399" }}>
+            <span className="h-1.5 w-1.5 rounded-full" style={{ background: "#34d399", animation: "pulse 1.6s infinite" }} />
+            LIVE{updatedAt ? ` · ${updatedAt.toLocaleTimeString("th-TH")}` : ""}
+          </span>
         </div>
         <div className="flex items-center gap-2">
           <span className="text-[9px] uppercase tracking-widest" style={{ color: "rgba(175,185,215,0.3)" }}>ความไว</span>
@@ -627,16 +656,23 @@ export default function ElliottWavePage() {
                 หมดอายุ {oi.expiry} (อีก {oi.dte} วัน) · ATM IV {(oi.atmIv * 100).toFixed(1)}%
               </div>}
             </div>
-            {oi && oi.expiries.length > 0 && (
-              <select value={oiExpiry} onChange={e => setOiExpiry(e.target.value)}
+            <div className="flex items-center gap-2 flex-wrap">
+              <select value={oiLines} onChange={e => setOiLines(Number(e.target.value))}
                 className="rounded-lg px-2 py-1 text-[10px] outline-none"
                 style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#e2e8f0" }}>
-                <option value="">อัตโนมัติ (ใกล้สุดที่สภาพคล่องพอ)</option>
-                {oi.expiries.map(e => (
-                  <option key={e.date} value={e.date}>{e.date} · {e.dte}d · OI {(e.totalOi / 1000).toFixed(0)}k</option>
-                ))}
+                {[10, 14, 20, 25, 30, 40].map(n => <option key={n} value={n}>แสดง {n} เส้น</option>)}
               </select>
-            )}
+              {oi && oi.expiries.length > 0 && (
+                <select value={oiExpiry} onChange={e => setOiExpiry(e.target.value)}
+                  className="rounded-lg px-2 py-1 text-[10px] outline-none"
+                  style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#e2e8f0" }}>
+                  <option value="">อัตโนมัติ (ใกล้สุดที่สภาพคล่องพอ)</option>
+                  {oi.expiries.map(e => (
+                    <option key={e.date} value={e.date}>{e.date} · {e.dte}d · OI {(e.totalOi / 1000).toFixed(0)}k</option>
+                  ))}
+                </select>
+              )}
+            </div>
           </div>
 
           {oiLoading && <div className="animate-pulse text-xs py-4" style={{ color: "rgba(175,185,215,0.4)" }}>กำลังโหลด option chain…</div>}
@@ -676,6 +712,64 @@ export default function ElliottWavePage() {
                     </div>
                   ))}
                 </div>
+              </div>
+
+              {/* Gamma Exposure profile */}
+              <div className="mb-4">
+                <div className="flex items-baseline justify-between flex-wrap gap-2 mb-2">
+                  <div className="text-[9px] uppercase tracking-widest" style={{ color: "rgba(175,185,215,0.3)" }}>
+                    Gamma Exposure (GEX) · $mm ต่อการเคลื่อนไหว 1%
+                  </div>
+                  <div className="flex items-center gap-3 text-[10px]">
+                    <span style={{ color: "rgba(175,185,215,0.5)" }}>
+                      สุทธิ <b style={{ color: oi.gammaRegime === "long" ? "#34d399" : "#f87171" }}>
+                        {oi.totalGex >= 0 ? "+" : ""}{oi.totalGex.toFixed(1)}
+                      </b>
+                    </span>
+                    <span className="px-2 py-0.5 rounded font-bold"
+                      style={oi.gammaRegime === "long"
+                        ? { background: "rgba(52,211,153,0.15)", color: "#34d399" }
+                        : { background: "rgba(248,113,113,0.15)", color: "#f87171" }}>
+                      {oi.gammaRegime === "long" ? "Long Gamma · กรอบแคบ" : "Short Gamma · ผันผวนสูง"}
+                    </span>
+                    <span style={{ color: "rgba(251,146,60,0.9)" }}>γ Flip ${oi.gammaFlip.toLocaleString()}</span>
+                  </div>
+                </div>
+                {/* horizontal profile: positive right (call gamma), negative left (put gamma) */}
+                {(() => {
+                  const prof = [...oi.strikes].sort((a, b) => b.strike - a.strike);
+                  const mx = Math.max(...prof.map(s => Math.abs(s.gex)), 0.01);
+                  return (
+                    <div className="space-y-[2px]">
+                      {prof.map(s => {
+                        const w = (Math.abs(s.gex) / mx) * 50; // half-width %
+                        const pos = s.gex >= 0;
+                        const atSpot = Math.abs(s.pctFromSpot) < 1;
+                        return (
+                          <div key={s.strikeGld} className="flex items-center gap-1.5">
+                            <span className="w-14 text-right font-mono text-[9px]"
+                              style={{ color: atSpot ? "#f5c451" : "rgba(175,185,215,0.45)" }}>
+                              {s.strike.toFixed(0)}
+                            </span>
+                            <div className="relative flex-1 h-[9px]">
+                              <div className="absolute inset-y-0 left-1/2 w-px" style={{ background: "rgba(255,255,255,0.12)" }} />
+                              <div className="absolute inset-y-0 rounded-sm"
+                                style={{
+                                  left: pos ? "50%" : `${50 - w}%`,
+                                  width: `${w}%`,
+                                  background: pos ? "rgba(52,211,153,0.65)" : "rgba(248,113,113,0.65)",
+                                }} />
+                            </div>
+                            <span className="w-12 font-mono text-[9px]" style={{ color: pos ? "rgba(52,211,153,0.75)" : "rgba(248,113,113,0.75)" }}>
+                              {s.gex >= 0 ? "+" : ""}{s.gex.toFixed(1)}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+                <div className="mt-1.5 text-[9px]" style={{ color: "rgba(175,185,215,0.4)" }}>{oi.gexNoteTh}</div>
               </div>
 
               {/* strike table */}

@@ -21,6 +21,7 @@ export interface OiStrike {
   total: number;
   iv: number;
   netGamma: number;    // call gamma − put gamma, OI-weighted (dealer-hedging pressure)
+  gex: number;         // dollar gamma exposure, $mm per 1% move (calls +, puts −)
   side: "call" | "put" | "mixed";
   sd: 0 | 1 | 2 | 3;   // which expected-range band the strike sits in
   pctFromSpot: number;
@@ -56,6 +57,11 @@ export interface OiLevelsPayload {
   totalCallOi: number;
   totalPutOi: number;
   pcRatio: number;
+  totalGex: number;      // net dealer gamma, $mm per 1% move
+  gammaFlip: number;     // gold price where cumulative net gamma changes sign
+  gammaRegime: "long" | "short";
+  gexNote: string;
+  gexNoteTh: string;
   insight: string;
   insightTh: string;
   asOf: string;
@@ -130,22 +136,30 @@ async function fetchYahooPrice(symbol: string): Promise<number> {
 const dteOf = (iso: string) =>
   Math.round((Date.parse(`${iso}T21:00:00Z`) - Date.now()) / 86_400_000);
 
-let CACHE: { data: OiLevelsPayload; ts: number; key: string } | null = null;
-const TTL = 10 * 60_000; // CBOE feed is delayed; 10 min is plenty
+// The 3.3 MB CBOE chain is itself delayed, so it is cached — but spot is not.
+// Everything downstream of spot (expected range, distance from spot, GEX, which
+// SD band a strike falls in) is recomputed on every request so the numbers track
+// the live market instead of whatever price was current when the chain was pulled.
+let CHAIN: { rows: ParsedRow[]; iv30: number; gldClose: number; ts: number } | null = null;
+const CHAIN_TTL = 10 * 60_000;
+
+async function getChain() {
+  if (CHAIN && Date.now() - CHAIN.ts < CHAIN_TTL) return CHAIN;
+  const { price, iv30, rows } = await fetchChain();
+  CHAIN = { rows, iv30, gldClose: price, ts: Date.now() };
+  return CHAIN;
+}
 
 export async function GET(req: Request) {
   const wanted = new URL(req.url).searchParams.get("expiry") ?? "";
-  const key = wanted || "auto";
-  if (CACHE && CACHE.key === key && Date.now() - CACHE.ts < TTL) {
-    return NextResponse.json(CACHE.data);
-  }
 
   try {
-    const [{ price: gldClose, iv30, rows }, goldRaw, gldLive] = await Promise.all([
-      fetchChain(),
+    const [chain, goldRaw, gldLive] = await Promise.all([
+      getChain(),
       fetchYahooPrice("GC=F"),
       fetchYahooPrice("GLD"),
     ]);
+    const { rows, iv30, gldClose } = chain;
 
     // Gold-equivalent conversion. GLD holds ~1/10 oz per share (minus fee drag),
     // so the ratio is derived live rather than hard-coded — and from one feed,
@@ -209,6 +223,9 @@ export async function GET(req: Request) {
     };
 
     // Keep the strikes that matter: inside 3SD, with real OI, biggest first.
+    // GEX: dollar gamma per 1% move = Γ × OI × 100 (multiplier) × S² × 0.01, in $mm.
+    // Calls count positive and puts negative, i.e. the usual dealer-short-puts view.
+    const gexScale = (g: number) => +((g * 100 * gld * gld * 0.01) / 1e6).toFixed(2);
     const all: OiStrike[] = [...agg.entries()]
       .map(([strikeGld, a]) => {
         const strike = +(strikeGld * ratio).toFixed(1);
@@ -221,6 +238,7 @@ export async function GET(req: Request) {
           total: Math.round(total),
           iv: +a.iv.toFixed(4),
           netGamma: +a.netGamma.toFixed(2),
+          gex: gexScale(a.netGamma),
           side: (a.calls > a.puts * 1.5 ? "call" : a.puts > a.calls * 1.5 ? "put" : "mixed") as OiStrike["side"],
           sd: sdOf(strike),
           pctFromSpot: +(((strike - gold) / gold) * 100).toFixed(2),
@@ -264,6 +282,19 @@ export async function GET(req: Request) {
     const totalPutOi = Math.round(all.reduce((s, x) => s + x.puts, 0));
     const pcRatio = totalCallOi > 0 ? +(totalPutOi / totalCallOi).toFixed(2) : 0;
 
+    // Gamma profile. The flip is approximated by walking strikes low→high and
+    // finding where the running net gamma changes sign — the standard chart-level
+    // approximation, not a full re-pricing of the book at every spot.
+    const gexSorted = [...all].sort((a, b) => a.strike - b.strike);
+    const totalGex = +gexSorted.reduce((s, x) => s + x.gex, 0).toFixed(2);
+    let running = 0, gammaFlip = gold;
+    for (const s of gexSorted) {
+      const prev = running;
+      running += s.gex;
+      if (prev !== 0 && Math.sign(prev) !== Math.sign(running)) { gammaFlip = s.strike; break; }
+    }
+    const gammaRegime: "long" | "short" = totalGex >= 0 ? "long" : "short";
+
     const cw = +(callWallRow.strike).toFixed(0);
     const pw = +(putWallRow.strike).toFixed(0);
     const mp = +(maxPain * ratio).toFixed(0);
@@ -290,6 +321,17 @@ export async function GET(req: Request) {
       totalCallOi,
       totalPutOi,
       pcRatio,
+      totalGex,
+      gammaFlip: +gammaFlip.toFixed(0),
+      gammaRegime,
+      gexNote:
+        gammaRegime === "long"
+          ? "Net long gamma: dealer hedging sells rallies and buys dips, which tends to compress realised range."
+          : "Net short gamma: dealer hedging chases direction, which tends to amplify moves and widen realised range.",
+      gexNoteTh:
+        gammaRegime === "long"
+          ? "Gamma สุทธิเป็นบวก — การ hedge ของ dealer จะขายตอนขึ้น/ซื้อตอนลง มักกดให้ราคาแกว่งในกรอบแคบ"
+          : "Gamma สุทธิเป็นลบ — การ hedge ของ dealer จะไล่ตามทิศทาง มักขยายความผันผวนและทำให้ราคาวิ่งแรง",
       insight:
         `Expiry ${chosen.date} (${chosen.dte}d). ATM IV ${(atmIv * 100).toFixed(1)}% ⇒ 1SD $${expectedRange.sd1.low}–$${expectedRange.sd1.high}. ` +
         `Call wall $${cw}, put wall $${pw}, max pain $${mp}. P/C ${pcRatio}.`,
@@ -299,8 +341,7 @@ export async function GET(req: Request) {
       asOf: new Date().toISOString(),
     };
 
-    CACHE = { data, ts: Date.now(), key };
-    return NextResponse.json(data);
+    return NextResponse.json(data, { headers: { "Cache-Control": "no-store" } });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 502 });
   }

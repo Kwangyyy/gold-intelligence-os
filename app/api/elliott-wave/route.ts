@@ -472,7 +472,17 @@ function analyzeNeoWave(pivots: Zig[], spot: number) {
 }
 
 const CACHE: Record<string, { data: ElliottWavePayload; ts: number }> = {};
-const TTL = 30 * 60 * 1000; // 30 min
+
+// Cache lifetime scaled to the bar size. A flat 30 min meant a 15m chart could
+// show a price half an hour stale — the analysis barely moves intrabar but the
+// last candle and the spot print do, and those are what the user reads.
+const TTL_BY_TF: Record<ElliottTF, number> = {
+  "15m": 20_000,
+  "1h":  30_000,
+  "4h":  60_000,
+  "1d":  60_000,
+  "1w":  120_000,
+};
 
 // Count sensitivity → multiplier on the ZigZag deviation. Lower = finer (more waves).
 const SENS: Record<string, number> = { fine: 0.6, normal: 1.0, coarse: 1.7 };
@@ -486,7 +496,7 @@ export async function GET(req: Request) {
 
   const cacheKey = `${tf}:${sens}`;
   const cached = CACHE[cacheKey];
-  if (cached && Date.now() - cached.ts < TTL) return NextResponse.json(cached.data);
+  if (cached && Date.now() - cached.ts < TTL_BY_TF[tf]) return NextResponse.json(cached.data);
 
   try {
     const cfg = TF_CONFIG[tf];

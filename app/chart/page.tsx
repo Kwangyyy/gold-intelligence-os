@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useI18n } from "@/lib/i18n";
 import { GoldChart } from "@/components/GoldChart";
+import { OiLevelsPanel } from "@/components/OiLevelsPanel";
 import { BeginnerHint } from "@/components/BeginnerHint";
 import { Disclaimer } from "@/components/Disclaimer";
 import { PageHeader } from "@/components/PageHeader";
@@ -137,6 +138,14 @@ export default function ChartPage() {
 
       {/* ── TradingView Chart ──────────────────────────────────── */}
       <GoldChart key={tvSym} tvSymbol={tvSym} />
+
+      {/* Gold option OI / expected range. Gold only — the chain is GLD, so
+          showing it under silver or any other symbol would misattribute it. */}
+      {selectedId === "XAUUSD" && (
+        <div className="mt-4">
+          <OiLevelsPanel />
+        </div>
+      )}
 
       <p className="mt-3 text-center text-[11px] text-silver/35">{t("chartSource")}</p>
       <div className="mt-6">

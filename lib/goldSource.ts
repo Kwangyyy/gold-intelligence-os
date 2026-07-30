@@ -32,6 +32,32 @@ export interface Candles {
 
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36";
 
+// api.binance.com answers 451 to US datacenter IPs, so on Vercel it silently
+// failed and everything fell back to delayed Yahoo futures — the deploy behaved
+// differently from local for purely geographic reasons. data-api.binance.vision
+// is Binance's public market-data domain and is not geo-restricted, so it leads.
+const BINANCE_HOSTS = [
+  "data-api.binance.vision",
+  "api-gcp.binance.com",
+  "api.binance.com",
+];
+
+async function binanceJson(path: string): Promise<unknown> {
+  let lastErr: unknown = new Error("no host tried");
+  for (const host of BINANCE_HOSTS) {
+    try {
+      const r = await fetch(`https://${host}${path}`, {
+        headers: { "User-Agent": UA },
+        cache: "no-store",
+        signal: AbortSignal.timeout(9_000),
+      });
+      if (!r.ok) { lastErr = new Error(`${host} ${r.status}`); continue; }
+      return await r.json();
+    } catch (e) { lastErr = e; }
+  }
+  throw lastErr;
+}
+
 // Binance has a native interval for every timeframe we offer.
 const BINANCE_IV: Record<GoldTF, string> = {
   "1m": "1m", "5m": "5m", "15m": "15m", "30m": "30m", "1h": "1h",
@@ -53,10 +79,9 @@ const YAHOO_CFG: Record<GoldTF, { range: string; interval: string; aggregate: nu
 };
 
 async function fromBinance(tf: GoldTF, limit: number): Promise<Candles> {
-  const url = `https://api.binance.com/api/v3/klines?symbol=PAXGUSDT&interval=${BINANCE_IV[tf]}&limit=${Math.min(limit, 1000)}`;
-  const r = await fetch(url, { headers: { "User-Agent": UA }, cache: "no-store", signal: AbortSignal.timeout(12_000) });
-  if (!r.ok) throw new Error(`Binance ${r.status}`);
-  const rows = (await r.json()) as (string | number)[][];
+  const rows = (await binanceJson(
+    `/api/v3/klines?symbol=PAXGUSDT&interval=${BINANCE_IV[tf]}&limit=${Math.min(limit, 1000)}`,
+  )) as (string | number)[][];
   if (!Array.isArray(rows) || !rows.length) throw new Error("Binance: empty");
 
   const t: number[] = [], o: number[] = [], h: number[] = [], l: number[] = [], c: number[] = [], v: number[] = [];
@@ -115,11 +140,7 @@ export async function getGoldCandles(tf: GoldTF, limit = 1000): Promise<Candles>
 /** Latest spot-equivalent gold price, real-time. */
 export async function getGoldSpot(): Promise<{ price: number; source: "paxg" | "yahoo"; delaySec: number }> {
   try {
-    const r = await fetch("https://api.binance.com/api/v3/ticker/price?symbol=PAXGUSDT", {
-      headers: { "User-Agent": UA }, cache: "no-store", signal: AbortSignal.timeout(8_000),
-    });
-    if (!r.ok) throw new Error(String(r.status));
-    const j = await r.json();
+    const j = (await binanceJson("/api/v3/ticker/price?symbol=PAXGUSDT")) as { price?: string };
     const price = Number(j?.price);
     if (!price) throw new Error("no price");
     return { price, source: "paxg", delaySec: 0 };

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Script from "next/script";
 import { PageHeader } from "@/components/PageHeader";
 import type { ElliottWavePayload, ElliottTF } from "@/app/api/elliott-wave/route";
+import type { OiLevelsPayload } from "@/app/api/oi-levels/route";
 
 const TFS: { id: ElliottTF; label: string }[] = [
   { id: "15m", label: "15m" }, { id: "1h", label: "1H" }, { id: "4h", label: "4H" },
@@ -261,6 +262,13 @@ export default function ElliottWavePage() {
   const [osc, setOsc] = useState<Osc>("rsi");
   const [sens, setSens] = useState<"fine" | "normal" | "coarse">("normal");
 
+  // Option open-interest levels + expected range (CBOE GLD chain → gold-equivalent)
+  const [oiOn, setOiOn] = useState(false);
+  const [oi, setOi] = useState<OiLevelsPayload | null>(null);
+  const [oiExpiry, setOiExpiry] = useState("");
+  const [oiLoading, setOiLoading] = useState(false);
+  const [oiErr, setOiErr] = useState("");
+
   const boxRef = useRef<HTMLDivElement>(null);
   const oscBoxRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<any>(null);
@@ -268,6 +276,7 @@ export default function ElliottWavePage() {
   const zzRef = useRef<any>(null);
   const ovRef = useRef<Record<string, any>>({});
   const cloudPoolRef = useRef<{ top: any; mask: any }[]>([]);
+  const oiLinesRef = useRef<any[]>([]);
   const oscChartRef = useRef<any>(null);
   const oscSeriesRef = useRef<any[]>([]);
   const syncing = useRef(false);
@@ -282,6 +291,58 @@ export default function ElliottWavePage() {
     } catch (e) { setErr(String(e)); } finally { setLoading(false); }
   }, []);
   useEffect(() => { load(tf, sens); }, [load, tf, sens]);
+
+  // Pull the OI chain only when the overlay is switched on.
+  useEffect(() => {
+    if (!oiOn) return;
+    let alive = true;
+    setOiLoading(true); setOiErr("");
+    fetch(`/api/oi-levels${oiExpiry ? `?expiry=${oiExpiry}` : ""}`, { cache: "no-store" })
+      .then(r => r.json())
+      .then(j => { if (!alive) return; if (j.error) setOiErr(String(j.error)); else setOi(j); })
+      .catch(e => { if (alive) setOiErr(String(e)); })
+      .finally(() => { if (alive) setOiLoading(false); });
+    return () => { alive = false; };
+  }, [oiOn, oiExpiry]);
+
+  // Draw OI strikes + expected-range bands as labeled price lines on the candles.
+  useEffect(() => {
+    const series = candleRef.current;
+    if (!series) return;
+    for (const l of oiLinesRef.current) { try { series.removePriceLine(l); } catch { /* gone with the series */ } }
+    oiLinesRef.current = [];
+    if (!oiOn || !oi) return;
+
+    const add = (o: Record<string, unknown>) => { oiLinesRef.current.push(series.createPriceLine(o)); };
+
+    // Expected range: dashed, quiet — context rather than a level to trade.
+    ([[oi.expectedRange.sd1, "1SD", "rgba(56,189,248,0.55)"],
+      [oi.expectedRange.sd2, "2SD", "rgba(168,85,247,0.45)"],
+      [oi.expectedRange.sd3, "3SD", "rgba(148,163,184,0.35)"]] as const)
+      .forEach(([band, label, color]) => {
+        add({ price: band.high, color, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: `+${label}` });
+        add({ price: band.low,  color, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: `−${label}` });
+      });
+
+    // Strike walls: only the heaviest few, or the chart turns into a barcode.
+    const top = [...oi.strikes].sort((a, b) => b.total - a.total).slice(0, 14);
+    const maxOi = Math.max(...top.map(s => s.total), 1);
+    for (const s of top) {
+      const weight = s.total / maxOi;
+      const color = s.side === "call" ? `rgba(239,68,68,${0.3 + weight * 0.55})`
+                  : s.side === "put"  ? `rgba(34,197,94,${0.3 + weight * 0.55})`
+                  :                     `rgba(245,196,81,${0.3 + weight * 0.55})`;
+      add({
+        price: s.strike, color,
+        lineWidth: weight > 0.6 ? 3 : weight > 0.3 ? 2 : 1,
+        lineStyle: 0, axisLabelVisible: true,
+        title: `OI ${(s.total / 1000).toFixed(1)}k · ${s.sd}SD · IV ${s.iv.toFixed(3)}`,
+      });
+    }
+
+    // The three headline levels, drawn last so they sit on top.
+    add({ price: oi.maxPain, color: "rgba(255,255,255,0.7)", lineWidth: 2, lineStyle: 3, axisLabelVisible: true, title: "Max Pain" });
+  }, [oiOn, oi, data]);
 
   // main chart create (once)
   useEffect(() => {
@@ -525,6 +586,15 @@ export default function ElliottWavePage() {
             style={on ? { background: `${ind.color}22`, border: `1px solid ${ind.color}66`, color: ind.color } : { background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", color: "rgba(175,185,215,0.45)" }}>
             <span className="h-2 w-2 rounded-full" style={{ background: on ? ind.color : "rgba(148,163,184,0.3)" }} />{ind.label}</button>;
         })}
+        {/* Option OI walls + expected range — separate source, so visually separated */}
+        <button onClick={() => setOiOn(v => !v)}
+          className="flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[10px] font-bold transition-all ml-1"
+          style={oiOn
+            ? { background: "rgba(56,189,248,0.18)", border: "1px solid rgba(56,189,248,0.6)", color: "#38bdf8" }
+            : { background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", color: "rgba(175,185,215,0.45)" }}>
+          <span className="h-2 w-2 rounded-full" style={{ background: oiOn ? "#38bdf8" : "rgba(148,163,184,0.3)" }} />
+          🎯 OI + Expected Range
+        </button>
       </div>
 
       {err && <div className="panel px-5 py-4 text-sm text-red-400 mb-4">{err}</div>}
@@ -540,9 +610,118 @@ export default function ElliottWavePage() {
         )}
         <div className="mt-2 flex flex-wrap items-center gap-3 text-[9px]" style={{ color: "rgba(175,185,215,0.4)" }}>
           <span style={{ color: "#c084fc" }}>— เส้นม่วง = NeoWave ZigZag</span>
+          {oiOn && <><span style={{ color: "#ef4444" }}>— แดง = Call wall</span><span style={{ color: "#22c55e" }}>— เขียว = Put wall</span><span>— ประ = 1/2/3SD</span></>}
           <span>ลากเพื่อแพน · สกอร์ลเพื่อซูม · ลากซ้ายเพื่อดูย้อนหลัง</span>
         </div>
       </div>
+
+      {/* ── Option OI + Expected Range ─────────────────────────── */}
+      {oiOn && (
+        <div className="panel px-5 py-4 mb-5">
+          <div className="flex items-start justify-between gap-3 flex-wrap mb-3">
+            <div>
+              <div className="text-[9px] uppercase tracking-widest" style={{ color: "rgba(175,185,215,0.3)" }}>
+                🎯 Option Open Interest · Expected Range
+              </div>
+              {oi && <div className="text-[10px] mt-0.5" style={{ color: "rgba(175,185,215,0.5)" }}>
+                หมดอายุ {oi.expiry} (อีก {oi.dte} วัน) · ATM IV {(oi.atmIv * 100).toFixed(1)}%
+              </div>}
+            </div>
+            {oi && oi.expiries.length > 0 && (
+              <select value={oiExpiry} onChange={e => setOiExpiry(e.target.value)}
+                className="rounded-lg px-2 py-1 text-[10px] outline-none"
+                style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#e2e8f0" }}>
+                <option value="">อัตโนมัติ (ใกล้สุดที่สภาพคล่องพอ)</option>
+                {oi.expiries.map(e => (
+                  <option key={e.date} value={e.date}>{e.date} · {e.dte}d · OI {(e.totalOi / 1000).toFixed(0)}k</option>
+                ))}
+              </select>
+            )}
+          </div>
+
+          {oiLoading && <div className="animate-pulse text-xs py-4" style={{ color: "rgba(175,185,215,0.4)" }}>กำลังโหลด option chain…</div>}
+          {oiErr && <div className="text-xs py-2 text-red-400">โหลด OI ไม่สำเร็จ: {oiErr}</div>}
+
+          {oi && !oiLoading && (
+            <>
+              {/* headline levels */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+                {[
+                  { label: "Call Wall (แนวต้าน)", v: oi.callWall, c: "#f87171" },
+                  { label: "Put Wall (แนวรับ)",   v: oi.putWall,  c: "#34d399" },
+                  { label: "Max Pain",            v: oi.maxPain,  c: "#e2e8f0" },
+                  { label: "Put/Call OI",         v: oi.pcRatio,  c: oi.pcRatio > 1 ? "#34d399" : "#f87171", raw: true },
+                ].map(s => (
+                  <div key={s.label}>
+                    <div className="text-[9px] uppercase tracking-widest mb-0.5" style={{ color: "rgba(175,185,215,0.35)" }}>{s.label}</div>
+                    <div className="font-mono text-sm font-black" style={{ color: s.c }}>
+                      {s.raw ? s.v.toFixed(2) : `$${s.v.toLocaleString()}`}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* expected range bands */}
+              <div className="mb-4">
+                <div className="text-[9px] uppercase tracking-widest mb-2" style={{ color: "rgba(175,185,215,0.3)" }}>
+                  กรอบราคาคาดการณ์ (จาก ATM IV · lognormal)
+                </div>
+                <div className="space-y-1">
+                  {([["1SD (68%)", oi.expectedRange.sd1, "#38bdf8"], ["2SD (95%)", oi.expectedRange.sd2, "#c084fc"], ["3SD (99.7%)", oi.expectedRange.sd3, "#94a3b8"]] as const).map(([label, b, c]) => (
+                    <div key={label} className="flex items-center gap-2 text-[10px]">
+                      <span className="w-20 font-bold" style={{ color: c }}>{label}</span>
+                      <span className="font-mono" style={{ color: "#34d399" }}>${b.low.toLocaleString()}</span>
+                      <div className="flex-1 h-0.5 rounded" style={{ background: `${c}44` }} />
+                      <span className="font-mono" style={{ color: "#f87171" }}>${b.high.toLocaleString()}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* strike table */}
+              <div className="overflow-x-auto">
+                <table className="w-full text-[10px]">
+                  <thead>
+                    <tr style={{ color: "rgba(175,185,215,0.35)" }}>
+                      {["Strike (ทอง)", "GLD", "Calls", "Puts", "รวม OI", "IV", "SD", "ห่าง"].map(h => (
+                        <th key={h} className="text-right py-1.5 px-2 font-normal uppercase tracking-wide whitespace-nowrap">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {oi.strikes.map(s => {
+                      const near = Math.abs(s.pctFromSpot) < 1;
+                      return (
+                        <tr key={s.strikeGld} style={{ background: near ? "rgba(245,196,81,0.07)" : undefined, borderTop: "1px solid rgba(255,255,255,0.04)" }}>
+                          <td className="text-right py-1.5 px-2 font-mono font-bold" style={{ color: s.side === "call" ? "#f87171" : s.side === "put" ? "#34d399" : "#f5c451" }}>
+                            ${s.strike.toLocaleString()}
+                          </td>
+                          <td className="text-right py-1.5 px-2 font-mono" style={{ color: "rgba(175,185,215,0.35)" }}>{s.strikeGld}</td>
+                          <td className="text-right py-1.5 px-2 font-mono" style={{ color: "rgba(248,113,113,0.8)" }}>{s.calls.toLocaleString()}</td>
+                          <td className="text-right py-1.5 px-2 font-mono" style={{ color: "rgba(52,211,153,0.8)" }}>{s.puts.toLocaleString()}</td>
+                          <td className="text-right py-1.5 px-2 font-mono font-bold" style={{ color: "#e2e8f0" }}>{s.total.toLocaleString()}</td>
+                          <td className="text-right py-1.5 px-2 font-mono" style={{ color: "rgba(175,185,215,0.5)" }}>{s.iv.toFixed(3)}</td>
+                          <td className="text-right py-1.5 px-2 font-bold" style={{ color: s.sd === 1 ? "#38bdf8" : s.sd === 2 ? "#c084fc" : "#94a3b8" }}>{s.sd}SD</td>
+                          <td className="text-right py-1.5 px-2 font-mono" style={{ color: "rgba(175,185,215,0.4)" }}>{s.pctFromSpot > 0 ? "+" : ""}{s.pctFromSpot.toFixed(1)}%</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* honest provenance */}
+              <div className="mt-3 pt-2 text-[9px] leading-relaxed" style={{ borderTop: "1px solid rgba(255,255,255,0.06)", color: "rgba(175,185,215,0.4)" }}>
+                <div>📊 {oi.insightTh}</div>
+                <div className="mt-1" style={{ color: "rgba(251,146,60,0.75)" }}>
+                  ⓘ ที่มา: {oi.source} · GLD ${oi.gld} × {oi.ratio} = ทอง ${oi.gold}
+                </div>
+                <div className="mt-0.5">{oi.sourceNoteTh}</div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       {data && (
         <div className="space-y-5">

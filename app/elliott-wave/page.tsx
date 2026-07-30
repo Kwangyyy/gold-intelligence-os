@@ -6,10 +6,13 @@ import { PageHeader } from "@/components/PageHeader";
 import { ChartDrawTools } from "@/components/ChartDrawTools";
 import type { ElliottWavePayload, ElliottTF } from "@/app/api/elliott-wave/route";
 import type { OiLevelsPayload } from "@/app/api/oi-levels/route";
+import type { GoldLive } from "@/app/api/gold-live/route";
 
 const TFS: { id: ElliottTF; label: string }[] = [
-  { id: "15m", label: "15m" }, { id: "1h", label: "1H" }, { id: "4h", label: "4H" },
-  { id: "1d", label: "1D" }, { id: "1w", label: "1W" },
+  { id: "1m",  label: "1m"  }, { id: "5m",  label: "5m"  }, { id: "15m", label: "15m" },
+  { id: "30m", label: "30m" }, { id: "1h",  label: "1H"  }, { id: "2h",  label: "2H"  },
+  { id: "4h",  label: "4H"  }, { id: "1d",  label: "1D"  }, { id: "1w",  label: "1W"  },
+  { id: "1M",  label: "1M"  },
 ];
 
 type OverlayKey = "ema20" | "ema50" | "ema100" | "ema200" | "sma20" | "sma50" | "sma200" | "bb" | "keltner" | "donchian" | "ichimoku" | "vwap" | "psar" | "supertrend" | "volume";
@@ -322,6 +325,7 @@ export default function ElliottWavePage() {
   const [oiLines, setOiLines] = useState(14);   // how many strike walls to draw
   const [tick, setTick] = useState(0);          // bumped by the live poller
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
+  const [live, setLive] = useState<GoldLive | null>(null);   // fast price loop, separate from the bars
 
   const boxRef = useRef<HTMLDivElement>(null);
   const oscBoxRef = useRef<HTMLDivElement>(null);
@@ -360,7 +364,8 @@ export default function ElliottWavePage() {
   }, [load, tf, sens, tick]);
 
   const POLL_MS: Record<ElliottTF, number> = {
-    "15m": 10_000, "1h": 15_000, "4h": 30_000, "1d": 30_000, "1w": 60_000,
+    "1m": 6_000, "5m": 10_000, "15m": 10_000, "30m": 12_000, "1h": 15_000,
+    "2h": 25_000, "4h": 30_000, "1d": 30_000, "1w": 60_000, "1M": 60_000,
   };
 
   // Live poll. Skipped while hidden so a backgrounded tab isn't burning fetches.
@@ -381,6 +386,46 @@ export default function ElliottWavePage() {
     window.addEventListener("focus", wake);
     return () => { document.removeEventListener("visibilitychange", wake); window.removeEventListener("focus", wake); };
   }, []);
+
+  // Live price on its own fast loop. The candle feed (GC=F) is ~10 minutes
+  // delayed, so without this the chart tip can never be current no matter how
+  // often the bars refresh. Polled every 5s and painted onto the forming candle.
+  useEffect(() => {
+    let alive = true;
+    const pull = () => {
+      if (document.visibilityState !== "visible") return;
+      fetch(`/api/gold-live?t=${Date.now()}`, { cache: "no-store" })
+        .then(r => r.json())
+        .then(j => { if (alive && !j.error) setLive(j); })
+        .catch(() => {});
+    };
+    pull();
+    const id = setInterval(pull, 5_000);
+    const wake = () => pull();
+    document.addEventListener("visibilitychange", wake);
+    window.addEventListener("focus", wake);
+    return () => {
+      alive = false; clearInterval(id);
+      document.removeEventListener("visibilitychange", wake);
+      window.removeEventListener("focus", wake);
+    };
+  }, []);
+
+  // Paint the live price onto the last (forming) candle, the way a trading
+  // platform updates the in-progress bar rather than waiting for the next one.
+  useEffect(() => {
+    if (!live || !data || !candleRef.current) return;
+    const s = data.series, n = s.t.length;
+    if (!n) return;
+    const p = live.price;
+    candleRef.current.update({
+      time: s.t[n - 1],
+      open: s.o[n - 1],
+      high: Math.max(s.h[n - 1], p),
+      low:  Math.min(s.l[n - 1], p),
+      close: p,
+    });
+  }, [live, data]);
 
   // Drives the "Ns ago" readout so staleness is always visible at a glance.
   const [divOn, setDivOn] = useState(true);
@@ -706,6 +751,21 @@ export default function ElliottWavePage() {
             <span className="h-1.5 w-1.5 rounded-full" style={{ background: "#34d399", animation: "pulse 1.6s infinite" }} />
             LIVE{updatedAt ? ` · ${Math.max(0, Math.round((nowTs - updatedAt.getTime()) / 1000))}s` : ""}
           </span>
+          {/* Live price + where it came from. The feed delay is stated rather
+              than hidden, because a delayed print shown as live is a trap. */}
+          {live && (
+            <span className="flex items-center gap-1.5 text-[10px] px-2 py-1 rounded-lg"
+              title={live.sourceLabelTh}
+              style={live.isRealtime
+                ? { background: "rgba(52,211,153,0.12)", border: "1px solid rgba(52,211,153,0.35)", color: "#34d399" }
+                : { background: "rgba(251,146,60,0.12)", border: "1px solid rgba(251,146,60,0.4)", color: "#fb923c" }}>
+              <b className="font-mono">${live.price.toLocaleString()}</b>
+              <span className="opacity-70">
+                {live.source === "mt5" ? "MT5" : live.source === "gld" ? "GLD-live" : "GC=F"}
+                {live.isRealtime ? " · realtime" : ` · หน่วง ${live.delaySec}s`}
+              </span>
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <span className="text-[9px] uppercase tracking-widest" style={{ color: "rgba(175,185,215,0.3)" }}>ความไว</span>

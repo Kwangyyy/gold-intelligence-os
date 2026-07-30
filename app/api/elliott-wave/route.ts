@@ -3,7 +3,11 @@ import { NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
-export type ElliottTF = "15m" | "1h" | "4h" | "1d" | "1w";
+export type ElliottTF = "1m" | "5m" | "15m" | "30m" | "1h" | "2h" | "4h" | "1d" | "1w" | "1M";
+
+// Not exported: a Next.js route module may only export handlers and a fixed set
+// of config keys, so exporting this const fails the build's type check.
+const ELLIOTT_TFS: ElliottTF[] = ["1m", "5m", "15m", "30m", "1h", "2h", "4h", "1d", "1w", "1M"];
 
 // A NeoWave (Glenn Neely) rule check — rule-based verification, the core of NeoWave rigor.
 export interface NeelyRule {
@@ -71,28 +75,49 @@ export interface ElliottWavePayload {
 
 // Timeframe → Yahoo query + processing config.
 // `deviation` = min % swing for the ZigZag to register a new wave pivot (bigger TF = bigger swings).
+// Ranges respect Yahoo's per-interval history caps (1m ≤ 7d, 5m/15m/30m ≤ 60d,
+// 60m ≤ 730d); asking for more silently returns nothing. 2h and 4h are built by
+// aggregating 60m bars, since Yahoo has no native 2h/4h interval.
 const TF_CONFIG: Record<ElliottTF, { range: string; interval: string; aggregate: number; deviation: number; maxBars: number }> = {
-  "15m":{ range: "1mo", interval: "15m", aggregate: 1, deviation: 0.6, maxBars: 800 },
-  "1h": { range: "6mo", interval: "60m", aggregate: 1, deviation: 1.2, maxBars: 900 },
-  "4h": { range: "2y",  interval: "60m", aggregate: 4, deviation: 2.2, maxBars: 800 },
-  "1d": { range: "5y",  interval: "1d",  aggregate: 1, deviation: 3.5, maxBars: 1000 },
-  "1w": { range: "10y", interval: "1wk", aggregate: 1, deviation: 6.0, maxBars: 700 },
+  "1m": { range: "5d",  interval: "1m",  aggregate: 1, deviation: 0.15, maxBars: 700 },
+  "5m": { range: "1mo", interval: "5m",  aggregate: 1, deviation: 0.30, maxBars: 800 },
+  "15m":{ range: "1mo", interval: "15m", aggregate: 1, deviation: 0.60, maxBars: 800 },
+  // "2mo" is not one of Yahoo's accepted range tokens (1d/5d/1mo/3mo/6mo/1y/2y/
+  // 5y/10y/ytd/max) and silently returned an empty series; 3mo would breach the
+  // 60-day cap for 30m bars, so 1mo it is.
+  "30m":{ range: "1mo", interval: "30m", aggregate: 1, deviation: 0.90, maxBars: 800 },
+  "1h": { range: "6mo", interval: "60m", aggregate: 1, deviation: 1.20, maxBars: 900 },
+  "2h": { range: "1y",  interval: "60m", aggregate: 2, deviation: 1.70, maxBars: 800 },
+  "4h": { range: "2y",  interval: "60m", aggregate: 4, deviation: 2.20, maxBars: 800 },
+  "1d": { range: "5y",  interval: "1d",  aggregate: 1, deviation: 3.50, maxBars: 1000 },
+  "1w": { range: "10y", interval: "1wk", aggregate: 1, deviation: 6.00, maxBars: 700 },
+  "1M": { range: "max", interval: "1mo", aggregate: 1, deviation: 10.0, maxBars: 400 },
 };
 
 // Wave degree per timeframe (Elliott/NeoWave fractal nesting: large → small).
 // Each degree uses its own standard notation so counts stay consistent across timeframes:
 //   1W Cycle I-V · 1D Primary ①-⑤ · 4H Intermediate (1)-(5) · 1H Minor 1-5 · 15m Minute (i)-(v)
 const DEGREE: Record<ElliottTF, { name: string; nameTh: string; glyph: Record<string, string> }> = {
-  "1w":  { name: "Cycle", nameTh: "Cycle (ดีกรีใหญ่ — เหนือ Primary)",
+  "1M":  { name: "Supercycle", nameTh: "Supercycle (ดีกรีใหญ่สุด)",
+    glyph: { "0":"◦", "1":"(I)","2":"(II)","3":"(III)","4":"(IV)","5":"(V)","A":"(a)","B":"(b)","C":"(c)","D":"(d)","E":"(e)" } },
+  "1w":  { name: "Cycle", nameTh: "Cycle",
     glyph: { "0":"◦", "1":"I","2":"II","3":"III","4":"IV","5":"V","A":"a","B":"b","C":"c","D":"d","E":"e" } },
   "1d":  { name: "Primary", nameTh: "Primary",
     glyph: { "0":"◦", "1":"①","2":"②","3":"③","4":"④","5":"⑤","A":"Ⓐ","B":"Ⓑ","C":"Ⓒ","D":"Ⓓ","E":"Ⓔ" } },
   "4h":  { name: "Intermediate", nameTh: "Intermediate",
     glyph: { "0":"◦", "1":"(1)","2":"(2)","3":"(3)","4":"(4)","5":"(5)","A":"(A)","B":"(B)","C":"(C)","D":"(D)","E":"(E)" } },
-  "1h":  { name: "Minor", nameTh: "Minor",
+  "2h":  { name: "Minor", nameTh: "Minor",
     glyph: { "0":"◦", "1":"1","2":"2","3":"3","4":"4","5":"5","A":"A","B":"B","C":"C","D":"D","E":"E" } },
-  "15m": { name: "Minute", nameTh: "Minute (ดีกรีเล็ก)",
+  "1h":  { name: "Minute", nameTh: "Minute",
     glyph: { "0":"◦", "1":"(i)","2":"(ii)","3":"(iii)","4":"(iv)","5":"(v)","A":"(a)","B":"(b)","C":"(c)","D":"(d)","E":"(e)" } },
+  "30m": { name: "Minuette", nameTh: "Minuette",
+    glyph: { "0":"◦", "1":"i","2":"ii","3":"iii","4":"iv","5":"v","A":"a","B":"b","C":"c","D":"d","E":"e" } },
+  "15m": { name: "Subminuette", nameTh: "Subminuette",
+    glyph: { "0":"◦", "1":"¹","2":"²","3":"³","4":"⁴","5":"⁵","A":"ᵃ","B":"ᵇ","C":"ᶜ","D":"ᵈ","E":"ᵉ" } },
+  "5m":  { name: "Micro", nameTh: "Micro",
+    glyph: { "0":"◦", "1":"[1]","2":"[2]","3":"[3]","4":"[4]","5":"[5]","A":"[a]","B":"[b]","C":"[c]","D":"[d]","E":"[e]" } },
+  "1m":  { name: "Submicro", nameTh: "Submicro (ดีกรีเล็กสุด)",
+    glyph: { "0":"◦", "1":"{1}","2":"{2}","3":"{3}","4":"{4}","5":"{5}","A":"{a}","B":"{b}","C":"{c}","D":"{d}","E":"{e}" } },
 };
 
 async function fetchGold(tf: ElliottTF) {
@@ -480,11 +505,16 @@ const CACHE: Record<string, { data: ElliottWavePayload; ts: number }> = {};
 // always lands on a fresh computation instead of being handed the cached copy
 // it already has.
 const TTL_BY_TF: Record<ElliottTF, number> = {
+  "1m":  5_000,
+  "5m":  8_000,
   "15m": 8_000,
+  "30m": 10_000,
   "1h":  12_000,
+  "2h":  20_000,
   "4h":  25_000,
   "1d":  25_000,
   "1w":  50_000,
+  "1M":  60_000,
 };
 
 // Count sensitivity → multiplier on the ZigZag deviation. Lower = finer (more waves).
@@ -493,7 +523,7 @@ const SENS: Record<string, number> = { fine: 0.6, normal: 1.0, coarse: 1.7 };
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const tfParam = (url.searchParams.get("tf") ?? "1d") as ElliottTF;
-  const tf: ElliottTF = ["15m","1h","4h","1d","1w"].includes(tfParam) ? tfParam : "1d";
+  const tf: ElliottTF = ELLIOTT_TFS.includes(tfParam) ? tfParam : "1d";
   const sensParam = url.searchParams.get("sens") ?? "normal";
   const sens = SENS[sensParam] ? sensParam : "normal";
 

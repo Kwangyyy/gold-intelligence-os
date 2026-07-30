@@ -17,7 +17,7 @@ export function OiLevelsPanel({ pollMs = 60_000 }: { pollMs?: number }) {
 
   useEffect(() => {
     let alive = true;
-    fetch("/api/oi-levels", { cache: "no-store" })
+    fetch(`/api/oi-levels?t=${Date.now()}`, { cache: "no-store" })
       .then((r) => r.json())
       .then((j) => { if (!alive) return; if (j.error) setErr(String(j.error)); else { setOi(j); setAt(new Date()); } })
       .catch((e) => alive && setErr(String(e)));
@@ -30,6 +30,16 @@ export function OiLevelsPanel({ pollMs = 60_000 }: { pollMs?: number }) {
     }, pollMs);
     return () => clearInterval(id);
   }, [pollMs]);
+
+  // Refresh as soon as the tab is looked at again — background timers get
+  // throttled to a minute or more, so returning to the tab otherwise showed a
+  // stale "LIVE" time until the next tick landed.
+  useEffect(() => {
+    const wake = () => { if (document.visibilityState === "visible") setTick((t) => t + 1); };
+    document.addEventListener("visibilitychange", wake);
+    window.addEventListener("focus", wake);
+    return () => { document.removeEventListener("visibilitychange", wake); window.removeEventListener("focus", wake); };
+  }, []);
 
   if (err) return (
     <div className="panel p-4 text-xs text-red-400">โหลด OI ไม่สำเร็จ: {err}</div>

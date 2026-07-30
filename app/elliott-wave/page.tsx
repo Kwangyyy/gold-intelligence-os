@@ -285,39 +285,74 @@ export default function ElliottWavePage() {
   const oscSeriesRef = useRef<any[]>([]);
   const syncing = useRef(false);
 
-  const load = useCallback(async (timeframe: ElliottTF, sensitivity: string) => {
-    setLoading(true); setErr("");
+  // `silent` keeps a background refresh from raising the full-screen loading
+  // overlay every few seconds — that made a live chart look like it was
+  // constantly reloading. Only a first load or a timeframe change shows it.
+  const load = useCallback(async (timeframe: ElliottTF, sensitivity: string, silent = false) => {
+    if (!silent) setLoading(true);
+    setErr("");
     try {
-      const r = await fetch(`/api/elliott-wave?tf=${timeframe}&sens=${sensitivity}`, { cache: "no-store" });
+      const r = await fetch(`/api/elliott-wave?tf=${timeframe}&sens=${sensitivity}&t=${Date.now()}`, { cache: "no-store" });
       const j = await r.json();
       if (j.error) throw new Error(j.error);
       setData(j);
       setUpdatedAt(new Date());
-    } catch (e) { setErr(String(e)); } finally { setLoading(false); }
+    } catch (e) { setErr(String(e)); } finally { if (!silent) setLoading(false); }
   }, []);
-  useEffect(() => { load(tf, sens); }, [load, tf, sens, tick]);
 
-  // Live poll, cadence matched to the bar size so every timeframe stays current.
-  // Pauses while the tab is hidden so a backgrounded chart isn't burning fetches.
+  // Timeframe / sensitivity change → visible load. Poll tick → silent refresh.
+  const tickRef = useRef(0);
   useEffect(() => {
-    const everyMs = tf === "15m" ? 20_000 : tf === "1h" ? 30_000 : tf === "4h" ? 60_000 : 60_000;
+    const silent = tickRef.current !== tick;
+    tickRef.current = tick;
+    load(tf, sens, silent);
+  }, [load, tf, sens, tick]);
+
+  const POLL_MS: Record<ElliottTF, number> = {
+    "15m": 10_000, "1h": 15_000, "4h": 30_000, "1d": 30_000, "1w": 60_000,
+  };
+
+  // Live poll. Skipped while hidden so a backgrounded tab isn't burning fetches.
+  useEffect(() => {
     const id = setInterval(() => {
       if (document.visibilityState === "visible") setTick(t => t + 1);
-    }, everyMs);
+    }, POLL_MS[tf]);
     return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tf]);
+
+  // Refresh the moment the tab is looked at again. Without this the chart sat on
+  // whatever it had when you switched away — browsers throttle background timers
+  // to a minute or more, so coming back showed a visibly stale "LIVE" time.
+  useEffect(() => {
+    const wake = () => { if (document.visibilityState === "visible") setTick(t => t + 1); };
+    document.addEventListener("visibilitychange", wake);
+    window.addEventListener("focus", wake);
+    return () => { document.removeEventListener("visibilitychange", wake); window.removeEventListener("focus", wake); };
+  }, []);
+
+  // Drives the "Ns ago" readout so staleness is always visible at a glance.
+  const [nowTs, setNowTs] = useState(Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNowTs(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
 
   // Pull the OI chain only when the overlay is switched on.
   useEffect(() => {
     if (!oiOn) return;
     let alive = true;
-    setOiLoading(true); setOiErr("");
-    fetch(`/api/oi-levels${oiExpiry ? `?expiry=${oiExpiry}` : ""}`, { cache: "no-store" })
+    if (!oi) setOiLoading(true);   // spinner on first fetch only, not on every poll
+    setOiErr("");
+    fetch(`/api/oi-levels?t=${Date.now()}${oiExpiry ? `&expiry=${oiExpiry}` : ""}`, { cache: "no-store" })
       .then(r => r.json())
       .then(j => { if (!alive) return; if (j.error) setOiErr(String(j.error)); else setOi(j); })
       .catch(e => { if (alive) setOiErr(String(e)); })
       .finally(() => { if (alive) setOiLoading(false); });
     return () => { alive = false; };
+    // `oi` is intentionally omitted: it is only read to decide whether to show
+    // the first-load spinner, and including it would refetch on every response.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [oiOn, oiExpiry, tick]);
 
   // Draw OI strikes + expected-range bands as labeled price lines on the candles.
@@ -581,7 +616,7 @@ export default function ElliottWavePage() {
           <span className="flex items-center gap-1.5 text-[9px] px-2 py-1 rounded-lg"
             style={{ background: "rgba(52,211,153,0.1)", color: "#34d399" }}>
             <span className="h-1.5 w-1.5 rounded-full" style={{ background: "#34d399", animation: "pulse 1.6s infinite" }} />
-            LIVE{updatedAt ? ` · ${updatedAt.toLocaleTimeString("th-TH")}` : ""}
+            LIVE{updatedAt ? ` · ${Math.max(0, Math.round((nowTs - updatedAt.getTime()) / 1000))}s` : ""}
           </span>
         </div>
         <div className="flex items-center gap-2">

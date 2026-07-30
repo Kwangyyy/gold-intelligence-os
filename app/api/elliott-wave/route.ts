@@ -476,12 +476,15 @@ const CACHE: Record<string, { data: ElliottWavePayload; ts: number }> = {};
 // Cache lifetime scaled to the bar size. A flat 30 min meant a 15m chart could
 // show a price half an hour stale — the analysis barely moves intrabar but the
 // last candle and the spot print do, and those are what the user reads.
+// Kept just under the client's poll interval for the same timeframe, so a poll
+// always lands on a fresh computation instead of being handed the cached copy
+// it already has.
 const TTL_BY_TF: Record<ElliottTF, number> = {
-  "15m": 20_000,
-  "1h":  30_000,
-  "4h":  60_000,
-  "1d":  60_000,
-  "1w":  120_000,
+  "15m": 8_000,
+  "1h":  12_000,
+  "4h":  25_000,
+  "1d":  25_000,
+  "1w":  50_000,
 };
 
 // Count sensitivity → multiplier on the ZigZag deviation. Lower = finer (more waves).
@@ -496,7 +499,10 @@ export async function GET(req: Request) {
 
   const cacheKey = `${tf}:${sens}`;
   const cached = CACHE[cacheKey];
-  if (cached && Date.now() - cached.ts < TTL_BY_TF[tf]) return NextResponse.json(cached.data);
+  const NO_STORE = { "Cache-Control": "no-store" };
+  if (cached && Date.now() - cached.ts < TTL_BY_TF[tf]) {
+    return NextResponse.json(cached.data, { headers: NO_STORE });
+  }
 
   try {
     const cfg = TF_CONFIG[tf];
@@ -559,7 +565,7 @@ export async function GET(req: Request) {
     };
 
     CACHE[cacheKey] = { data, ts: Date.now() };
-    return NextResponse.json(data);
+    return NextResponse.json(data, { headers: NO_STORE });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });
   }

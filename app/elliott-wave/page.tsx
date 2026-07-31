@@ -315,6 +315,9 @@ export default function ElliottWavePage() {
   });
   const [osc, setOsc] = useState<Osc>("rsi");
   const [sens, setSens] = useState<"fine" | "normal" | "coarse">("normal");
+  // Off by default: the gold market is shut at weekends, so those bars exist on
+  // PAXG but never on a broker chart.
+  const [weekend, setWeekend] = useState(false);
 
   // Option open-interest levels + expected range (CBOE GLD chain → gold-equivalent)
   const [oiOn, setOiOn] = useState(false);
@@ -343,11 +346,11 @@ export default function ElliottWavePage() {
   // `silent` keeps a background refresh from raising the full-screen loading
   // overlay every few seconds — that made a live chart look like it was
   // constantly reloading. Only a first load or a timeframe change shows it.
-  const load = useCallback(async (timeframe: ElliottTF, sensitivity: string, silent = false) => {
+  const load = useCallback(async (timeframe: ElliottTF, sensitivity: string, wk: boolean, silent = false) => {
     if (!silent) setLoading(true);
     setErr("");
     try {
-      const r = await fetch(`/api/elliott-wave?tf=${timeframe}&sens=${sensitivity}&t=${Date.now()}`, { cache: "no-store" });
+      const r = await fetch(`/api/elliott-wave?tf=${timeframe}&sens=${sensitivity}${wk ? "&weekend=1" : ""}&t=${Date.now()}`, { cache: "no-store" });
       const j = await r.json();
       if (j.error) throw new Error(j.error);
       setData(j);
@@ -360,8 +363,8 @@ export default function ElliottWavePage() {
   useEffect(() => {
     const silent = tickRef.current !== tick;
     tickRef.current = tick;
-    load(tf, sens, silent);
-  }, [load, tf, sens, tick]);
+    load(tf, sens, weekend, silent);
+  }, [load, tf, sens, weekend, tick]);
 
   const POLL_MS: Record<ElliottTF, number> = {
     "1m": 6_000, "5m": 10_000, "15m": 10_000, "30m": 12_000, "1h": 15_000,
@@ -478,9 +481,10 @@ export default function ElliottWavePage() {
     const maxOi = Math.max(...top.map(s => s.total), 1);
     for (const s of top) {
       const weight = s.total / maxOi;
-      const color = s.side === "call" ? `rgba(239,68,68,${0.3 + weight * 0.55})`
-                  : s.side === "put"  ? `rgba(34,197,94,${0.3 + weight * 0.55})`
-                  :                     `rgba(245,196,81,${0.3 + weight * 0.55})`;
+      // QuikStrike's convention: calls blue, puts orange.
+      const color = s.side === "call" ? `rgba(59,130,246,${0.35 + weight * 0.55})`
+                  : s.side === "put"  ? `rgba(245,158,11,${0.35 + weight * 0.55})`
+                  :                     `rgba(148,163,184,${0.35 + weight * 0.55})`;
       add({
         price: s.strike, color,
         lineWidth: weight > 0.6 ? 3 : weight > 0.3 ? 2 : 1,
@@ -745,6 +749,16 @@ export default function ElliottWavePage() {
             })}
           </div>
           {data && <span className="text-[9px] px-2 py-1 rounded-lg" style={{ background: "rgba(192,132,252,0.12)", color: "#c084fc" }}>ดีกรี: {data.degree}</span>}
+          {/* PAXG runs 24/7; the gold market does not. Off = broker hours. */}
+          <button onClick={() => setWeekend(v => !v)}
+            title={weekend ? "กำลังแสดงแท่งเสาร์-อาทิตย์ (ตลาดทองปิด)" : "ตัดแท่งเสาร์-อาทิตย์ออก ให้ตรงกับเวลาตลาดจริง"}
+            className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-[9px] font-bold transition-all"
+            style={weekend
+              ? { background: "rgba(251,146,60,0.15)", border: "1px solid rgba(251,146,60,0.45)", color: "#fb923c" }
+              : { background: "rgba(52,211,153,0.1)", border: "1px solid rgba(52,211,153,0.3)", color: "#34d399" }}>
+            <span className="h-1.5 w-1.5 rounded-full" style={{ background: weekend ? "#fb923c" : "#34d399" }} />
+            {weekend ? "รวมเสาร์-อาทิตย์" : "เวลาตลาดจริง"}
+          </button>
           {/* live poll indicator */}
           <span className="flex items-center gap-1.5 text-[9px] px-2 py-1 rounded-lg"
             style={{ background: "rgba(52,211,153,0.1)", color: "#34d399" }}>
@@ -847,7 +861,7 @@ export default function ElliottWavePage() {
         )}
         <div className="mt-2 flex flex-wrap items-center gap-3 text-[9px]" style={{ color: "rgba(175,185,215,0.4)" }}>
           <span style={{ color: "#c084fc" }}>— เส้นม่วง = NeoWave ZigZag</span>
-          {oiOn && <><span style={{ color: "#ef4444" }}>— แดง = Call wall</span><span style={{ color: "#22c55e" }}>— เขียว = Put wall</span><span>— ประ = 1/2/3SD</span></>}
+          {oiOn && <><span style={{ color: "#3b82f6" }}>— น้ำเงิน = Call wall</span><span style={{ color: "#f59e0b" }}>— ส้ม = Put wall</span><span>— ประ = 1/2/3SD</span></>}
           {divOn && DIV_OSCS.has(osc) && <span>ช่องล่าง: <span style={{ color: "#34d399" }}>เขียว = Bull div</span> · <span style={{ color: "#f87171" }}>แดง = Bear div</span></span>}
           <span>ลากเพื่อแพน · สกอร์ลเพื่อซูม · ลากซ้ายเพื่อดูย้อนหลัง</span>
         </div>
@@ -892,8 +906,8 @@ export default function ElliottWavePage() {
               {/* headline levels */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
                 {[
-                  { label: "Call Wall (แนวต้าน)", v: oi.callWall, c: "#f87171" },
-                  { label: "Put Wall (แนวรับ)",   v: oi.putWall,  c: "#34d399" },
+                  { label: "Call Wall (แนวต้าน)", v: oi.callWall, c: "#3b82f6" },
+                  { label: "Put Wall (แนวรับ)",   v: oi.putWall,  c: "#f59e0b" },
                   { label: "Max Pain",            v: oi.maxPain,  c: "#e2e8f0" },
                   { label: "Put/Call OI",         v: oi.pcRatio,  c: oi.pcRatio > 1 ? "#34d399" : "#f87171", raw: true },
                 ].map(s => (
@@ -996,12 +1010,12 @@ export default function ElliottWavePage() {
                       const near = Math.abs(s.pctFromSpot) < 1;
                       return (
                         <tr key={s.strikeGld} style={{ background: near ? "rgba(245,196,81,0.07)" : undefined, borderTop: "1px solid rgba(255,255,255,0.04)" }}>
-                          <td className="text-right py-1.5 px-2 font-mono font-bold" style={{ color: s.side === "call" ? "#f87171" : s.side === "put" ? "#34d399" : "#f5c451" }}>
+                          <td className="text-right py-1.5 px-2 font-mono font-bold" style={{ color: s.side === "call" ? "#3b82f6" : s.side === "put" ? "#f59e0b" : "#94a3b8" }}>
                             ${s.strike.toLocaleString()}
                           </td>
                           <td className="text-right py-1.5 px-2 font-mono" style={{ color: "rgba(175,185,215,0.35)" }}>{s.strikeGld}</td>
-                          <td className="text-right py-1.5 px-2 font-mono" style={{ color: "rgba(248,113,113,0.8)" }}>{s.calls.toLocaleString()}</td>
-                          <td className="text-right py-1.5 px-2 font-mono" style={{ color: "rgba(52,211,153,0.8)" }}>{s.puts.toLocaleString()}</td>
+                          <td className="text-right py-1.5 px-2 font-mono" style={{ color: "rgba(59,130,246,0.9)" }}>{s.calls.toLocaleString()}</td>
+                          <td className="text-right py-1.5 px-2 font-mono" style={{ color: "rgba(245,158,11,0.9)" }}>{s.puts.toLocaleString()}</td>
                           <td className="text-right py-1.5 px-2 font-mono font-bold" style={{ color: "#e2e8f0" }}>{s.total.toLocaleString()}</td>
                           <td className="text-right py-1.5 px-2 font-mono" style={{ color: "rgba(175,185,215,0.5)" }}>{s.iv.toFixed(3)}</td>
                           <td className="text-right py-1.5 px-2 font-bold" style={{ color: s.sd === 1 ? "#38bdf8" : s.sd === 2 ? "#c084fc" : "#94a3b8" }}>{s.sd}SD</td>
@@ -1098,7 +1112,7 @@ export default function ElliottWavePage() {
               <li>→ {data.disclaimer}</li>
             </ul>
             <div className="mt-2 flex justify-end">
-              <button onClick={() => load(tf, sens)} className="rounded-xl px-4 py-2 text-xs font-bold" style={{ background: "rgba(245,196,81,0.1)", border: "1px solid rgba(245,196,81,0.25)", color: "#f5c451" }}>🔄 วิเคราะห์ใหม่</button>
+              <button onClick={() => load(tf, sens, weekend)} className="rounded-xl px-4 py-2 text-xs font-bold" style={{ background: "rgba(245,196,81,0.1)", border: "1px solid rgba(245,196,81,0.25)", color: "#f5c451" }}>🔄 วิเคราะห์ใหม่</button>
             </div>
           </div>
         </div>

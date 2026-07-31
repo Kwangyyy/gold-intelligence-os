@@ -490,7 +490,11 @@ export async function GET(req: Request) {
   const sensParam = url.searchParams.get("sens") ?? "normal";
   const sens = SENS[sensParam] ? sensParam : "normal";
 
-  const cacheKey = `${tf}:${sens}`;
+  // Weekend bars are excluded unless explicitly asked for, so the chart matches
+  // the hours the user can actually trade.
+  const includeWeekend = url.searchParams.get("weekend") === "1";
+
+  const cacheKey = `${tf}:${sens}:${includeWeekend ? "wk" : "nowk"}`;
   const cached = CACHE[cacheKey];
   const NO_STORE = { "Cache-Control": "no-store" };
   if (cached && Date.now() - cached.ts < TTL_BY_TF[tf]) {
@@ -503,7 +507,7 @@ export async function GET(req: Request) {
 
     // Spot-equivalent, real-time candles (PAXG via Binance, Yahoo GC=F as
     // fallback). Everything below is source-agnostic.
-    const candles = await getGoldCandles(tf, cfg.maxBars);
+    const candles = await getGoldCandles(tf, cfg.maxBars, includeWeekend);
     const start = Math.max(0, candles.c.length - cfg.maxBars);
     const sOp = candles.o.slice(start), sHi = candles.h.slice(start), sLo = candles.l.slice(start),
           sCl = candles.c.slice(start), sVo = candles.v.slice(start), sTs = candles.t.slice(start);

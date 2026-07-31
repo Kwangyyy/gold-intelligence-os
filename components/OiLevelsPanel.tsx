@@ -77,8 +77,8 @@ export function OiLevelsPanel({ pollMs = 60_000 }: { pollMs?: number }) {
 
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-3">
         {[
-          { l: "Call Wall", v: `$${num(oi.callWall).toLocaleString()}`, c: "#f87171" },
-          { l: "Put Wall",  v: `$${num(oi.putWall).toLocaleString()}`,  c: "#34d399" },
+          { l: "Call Wall", v: `$${num(oi.callWall).toLocaleString()}`, c: "#3b82f6" },
+          { l: "Put Wall",  v: `$${num(oi.putWall).toLocaleString()}`,  c: "#f59e0b" },
           { l: "Max Pain",  v: `$${num(oi.maxPain).toLocaleString()}`,  c: "#e2e8f0" },
           { l: "γ Flip",    v: `$${num(oi.gammaFlip).toLocaleString()}`, c: "#fb923c" },
           { l: "Net GEX",   v: `${num(oi.totalGex) >= 0 ? "+" : ""}${num(oi.totalGex).toFixed(1)}`, c: oi.gammaRegime === "long" ? "#34d399" : "#f87171" },
@@ -115,9 +115,9 @@ export function OiLevelsPanel({ pollMs = 60_000 }: { pollMs?: number }) {
           <tbody>
             {rows.map((s) => (
               <tr key={s.strikeGld} style={{ borderTop: "1px solid rgba(255,255,255,0.04)", background: Math.abs(num(s.pctFromSpot)) < 1 ? "rgba(245,196,81,0.07)" : undefined }}>
-                <td className="text-right py-1 px-1.5 font-mono font-bold" style={{ color: s.side === "call" ? "#f87171" : s.side === "put" ? "#34d399" : "#f5c451" }}>${num(s.strike).toLocaleString()}</td>
-                <td className="text-right py-1 px-1.5 font-mono" style={{ color: "rgba(248,113,113,0.75)" }}>{num(s.calls).toLocaleString()}</td>
-                <td className="text-right py-1 px-1.5 font-mono" style={{ color: "rgba(52,211,153,0.75)" }}>{num(s.puts).toLocaleString()}</td>
+                <td className="text-right py-1 px-1.5 font-mono font-bold" style={{ color: s.side === "call" ? "#3b82f6" : s.side === "put" ? "#f59e0b" : "#94a3b8" }}>${num(s.strike).toLocaleString()}</td>
+                <td className="text-right py-1 px-1.5 font-mono" style={{ color: "rgba(59,130,246,0.9)" }}>{num(s.calls).toLocaleString()}</td>
+                <td className="text-right py-1 px-1.5 font-mono" style={{ color: "rgba(245,158,11,0.9)" }}>{num(s.puts).toLocaleString()}</td>
                 <td className="text-right py-1 px-1.5 font-mono font-bold" style={{ color: "#e2e8f0" }}>{num(s.total).toLocaleString()}</td>
                 <td className="text-right py-1 px-1.5 font-mono" style={{ color: num(s.gex) >= 0 ? "rgba(52,211,153,0.75)" : "rgba(248,113,113,0.75)" }}>{num(s.gex) >= 0 ? "+" : ""}{num(s.gex).toFixed(1)}</td>
                 <td className="text-right py-1 px-1.5 font-bold" style={{ color: s.sd === 1 ? "#38bdf8" : s.sd === 2 ? "#c084fc" : "#94a3b8" }}>{s.sd}SD</td>

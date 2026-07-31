@@ -128,13 +128,50 @@ async function fromYahoo(tf: GoldTF): Promise<Candles> {
   return { ...agg, source: "yahoo", delaySec: Math.max(0, Math.floor(Date.now() / 1000) - last) };
 }
 
-/** Candles for a timeframe, real-time when Binance is reachable. */
-export async function getGoldCandles(tf: GoldTF, limit = 1000): Promise<Candles> {
+// PAXG trades 24/7, so roughly 29% of its bars fall on a weekend when the gold
+// market is shut — measured on 1000 hourly bars: 288 weekend bars, averaging a
+// 0.078% range on a fifth of the weekday volume. Keeping them means the chart
+// shows bars a broker never printed, never gaps on Monday, and lets thin
+// weekend ticks shape the wave count. Dropped by default for that reason.
+//
+// XAUUSD week: closes Friday 21:00 UTC, reopens Sunday 22:00 UTC.
+function isMarketOpen(tsSec: number): boolean {
+  const d = new Date(tsSec * 1000);
+  const day = d.getUTCDay();     // 0 = Sunday … 6 = Saturday
+  const hour = d.getUTCHours();
+  if (day === 6) return false;             // Saturday — shut all day
+  if (day === 0) return hour >= 22;        // Sunday — reopens 22:00
+  if (day === 5) return hour < 21;         // Friday — shuts 21:00
+  return true;
+}
+
+function dropWeekend(c: Candles): Candles {
+  const keep: number[] = [];
+  for (let i = 0; i < c.t.length; i++) if (isMarketOpen(c.t[i])) keep.push(i);
+  if (keep.length === c.t.length) return c;
+  const pick = <T,>(a: T[]) => keep.map((i) => a[i]);
+  return { ...c, t: pick(c.t), o: pick(c.o), h: pick(c.h), l: pick(c.l), c: pick(c.c), v: pick(c.v) };
+}
+
+/**
+ * Candles for a timeframe, real-time when Binance is reachable.
+ * `includeWeekend` keeps the 24/7 bars; the default matches broker hours.
+ */
+export async function getGoldCandles(tf: GoldTF, limit = 1000, includeWeekend = false): Promise<Candles> {
+  let out: Candles;
   try {
-    return await fromBinance(tf, limit);
+    // Weekend bars are a chunk of the window, so ask for the maximum and trim
+    // afterwards rather than coming up short once they are removed.
+    out = await fromBinance(tf, includeWeekend ? limit : 1000);
   } catch {
-    return await fromYahoo(tf);
+    out = await fromYahoo(tf);
   }
+  // Daily needs the cut too — PAXG prints Saturday and Sunday daily bars
+  // (measured: 56 of 200). Weekly is safe, every bar opens on a Monday. Monthly
+  // must be left alone: its bar opens on the 1st, and whenever the 1st lands on
+  // a weekend the filter would delete an entire legitimate month.
+  const filterable = tf !== "1w" && tf !== "1M";
+  return includeWeekend || !filterable ? out : dropWeekend(out);
 }
 
 /** Latest spot-equivalent gold price, real-time. */

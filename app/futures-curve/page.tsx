@@ -191,7 +191,7 @@ export default function FuturesCurvePage() {
           </thead>
           <tbody>
             <tr style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}>
-              <td className="px-4 py-3 font-bold" style={{ color: "#f5c451" }}>Spot (GC=F)</td>
+              <td className="px-4 py-3 font-bold" style={{ color: "#f5c451" }}>Spot (XAUUSD)</td>
               <td className="px-4 py-3 font-mono" style={{ color: "#f5c451" }}>{fmtPrice(data.spot)}</td>
               <td className="px-4 py-3" style={{ color: "rgba(175,185,215,0.4)" }}>—</td>
               <td className="px-4 py-3" style={{ color: "rgba(175,185,215,0.4)" }}>—</td>

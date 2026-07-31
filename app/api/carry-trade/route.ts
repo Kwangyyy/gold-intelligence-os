@@ -68,7 +68,7 @@ export async function GET() {
   // Yahoo format for gold futures: GCQ26.CMX (Aug 2026), GCV26.CMX (Oct), GCZ26.CMX (Dec)
   //   GCG27.CMX (Feb 2027), GCM27.CMX (Jun 2027)
   const symbols = [
-    { label: "Spot (GC=F)", symbol: "GC=F",       monthsOut: 0  },
+    { label: "Spot (XAUUSD)", symbol: "GC=F",       monthsOut: 0  },
     { label: "Aug 2026",    symbol: "GCQ26.CMX",   monthsOut: 2  },
     { label: "Oct 2026",    symbol: "GCV26.CMX",   monthsOut: 4  },
     { label: "Dec 2026",    symbol: "GCZ26.CMX",   monthsOut: 6  },

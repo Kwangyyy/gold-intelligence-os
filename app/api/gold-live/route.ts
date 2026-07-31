@@ -41,11 +41,20 @@ const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/
 
 interface Quote { price: number; time: number; ts: number[]; closes: (number | null)[] }
 
+// Deliberately raw Yahoo, not yahooChartJson. This route's whole job is to
+// *compare* the delayed futures print against spot and report the lag and the
+// basis; routing GC=F to the spot feed made it answer "futures = spot, 0s late"
+// — the one place in the app where that answer is a lie.
 async function yahoo(symbol: string): Promise<Quote | null> {
   try {
-    const r = await yahooChartJson(symbol, "1d", "1m");
-    if (!r) return null;
-    const j = r;
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1d&interval=1m`;
+    const r = await fetch(url, {
+      headers: { "User-Agent": "Mozilla/5.0" },
+      cache: "no-store",
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!r.ok) return null;
+    const j = await r.json();
     const res = j?.chart?.result?.[0];
     const m = res?.meta;
     if (!m?.regularMarketPrice) return null;

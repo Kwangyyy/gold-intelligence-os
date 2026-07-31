@@ -27,7 +27,7 @@ interface CurveData {
 }
 
 const SYMBOLS = [
-  { symbol: "GC=F",   label: "Spot (GC=F)", monthsOut: 0 },
+  { symbol: "GC=F",   label: "Spot (XAUUSD)", monthsOut: 0 },
   { symbol: "GCQ25.CMX", label: "Aug 2025 (Q25)", monthsOut: 1 },
   { symbol: "GCV25.CMX", label: "Oct 2025 (V25)", monthsOut: 3 },
   { symbol: "GCZ25.CMX", label: "Dec 2025 (Z25)", monthsOut: 5 },

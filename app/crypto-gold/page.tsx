@@ -204,7 +204,7 @@ export default function CryptoGoldPage() {
 
           <div className="flex justify-between items-center">
             <p className="text-[10px]" style={{ color: "rgba(175,185,215,0.25)" }}>
-              ⚠ GC=F + BTC-USD จาก Yahoo Finance | {new Date(data.generatedAt).toLocaleString("th-TH", { hour: "2-digit", minute: "2-digit" })}
+              ⚠ ทองจากฟีด spot เรียลทาม · BTC-USD จาก Yahoo Finance | {new Date(data.generatedAt).toLocaleString("th-TH", { hour: "2-digit", minute: "2-digit" })}
             </p>
             <button onClick={load}
               className="rounded-xl px-4 py-2 text-xs font-bold"

@@ -182,7 +182,7 @@ export default function GoldStructurePage() {
       </div>
 
       <div className="text-[8px] text-right" style={{ color: "rgba(175,185,215,0.2)" }}>
-        {new Date(data.timestamp).toLocaleString()} · GC=F (10Y monthly) · Structural levels based on historical data · Not financial advice
+        {new Date(data.timestamp).toLocaleString()} · 10Y monthly history from GC=F, current price from spot · Structural levels based on historical data · Not financial advice
       </div>
     </div>
   );

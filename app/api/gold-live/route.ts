@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { getUserLiveData } from "@/lib/mt5Store";
 import { getGoldSpot } from "@/lib/goldSource";
+import { yahooChartJson } from "@/lib/goldSource";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -42,12 +43,9 @@ interface Quote { price: number; time: number; ts: number[]; closes: (number | n
 
 async function yahoo(symbol: string): Promise<Quote | null> {
   try {
-    const r = await fetch(
-      `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1m&range=1d`,
-      { headers: { "User-Agent": UA }, cache: "no-store", signal: AbortSignal.timeout(9_000) },
-    );
-    if (!r.ok) return null;
-    const j = await r.json();
+    const r = await yahooChartJson(symbol, "1d", "1m");
+    if (!r) return null;
+    const j = r;
     const res = j?.chart?.result?.[0];
     const m = res?.meta;
     if (!m?.regularMarketPrice) return null;

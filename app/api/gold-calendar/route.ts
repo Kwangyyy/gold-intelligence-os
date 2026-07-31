@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { yahooChartJson } from "@/lib/goldSource";
 
 export const dynamic = "force-dynamic";
 
@@ -75,10 +76,8 @@ async function fetchYahooAnnual(symbol: string, year: number) {
   const start = Math.floor(new Date(`${year}-01-01`).getTime() / 1000);
   const end   = Math.floor(new Date(`${year}-12-31`).getTime() / 1000);
   try {
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?period1=${start}&period2=${end}&interval=1mo`;
-    const r = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" }, cache: "no-store" });
-    if (!r.ok) return null;
-    return await r.json();
+    // gold is served from the real-time spot feed; other tickers stay on Yahoo
+    return await yahooChartJson(symbol, "1mo", "1mo");
   } catch { return null; }
 }
 

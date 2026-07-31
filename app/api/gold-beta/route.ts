@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { yahooChartJson } from "@/lib/goldSource";
 
 export const dynamic = "force-dynamic";
 
@@ -31,12 +32,9 @@ const TTL_MS = 6 * 60 * 60 * 1000; // 6h — beta is relatively stable
 async function fetchDailyCloses(symbol: string, days: number): Promise<number[] | null> {
   try {
     const range = days <= 30 ? "2mo" : "6mo";
-    const r = await fetch(
-      `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=1d`,
-      { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(6000) }
-    );
-    if (!r.ok) return null;
-    const j = await r.json();
+    const r = await yahooChartJson(symbol, range, "1d");
+    if (!r) return null;
+    const j = r;
     const closes: number[] = (j?.chart?.result?.[0]?.indicators?.quote?.[0]?.close ?? [])
       .filter((v: unknown): v is number => typeof v === "number" && !isNaN(v));
     return closes.slice(-days);

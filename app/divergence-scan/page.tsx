@@ -183,7 +183,7 @@ export default function DivergenceScanPage() {
       </div>
 
       <div className="text-[8px] text-right" style={{ color: "rgba(175,185,215,0.2)" }}>
-        {new Date(data.timestamp).toLocaleString()} · GC=F · RSI(14) + MACD(12,26,9) · 1H/4H/1D/1W
+        {new Date(data.timestamp).toLocaleString()} · XAUUSD spot · RSI(14) + MACD(12,26,9) · 1H/4H/1D/1W
       </div>
     </div>
   );

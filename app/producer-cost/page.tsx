@@ -84,7 +84,7 @@ export default function ProducerCostPage() {
       {/* Summary stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { label: "Gold Spot",        value: `$${data.goldPrice.toLocaleString()}`, sub: "COMEX GC=F",         color: "text-yellow-400" },
+          { label: "Gold Spot",        value: `$${data.goldPrice.toLocaleString()}`, sub: "spot, real-time",         color: "text-yellow-400" },
           { label: "Industry Avg AISC", value: `$${data.industryAvgAISC.toLocaleString()}`, sub: "Weighted avg", color: "text-blue-400" },
           { label: "Marginal Cost",    value: `$${data.marginalCost.toLocaleString()}`, sub: "90th %ile (floor)", color: "text-orange-400" },
           { label: "Profitable",       value: `${data.profitableMiners}%`,           sub: "of sampled production", color: "text-green-400" },

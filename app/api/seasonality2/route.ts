@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getGoldSpot } from "@/lib/goldSource";
 
 export const dynamic = "force-dynamic";
 
@@ -82,7 +83,12 @@ export async function GET() {
     const rawC: (number|null)[] = q.close ?? [];
     const rawO: (number|null)[] = q.open  ?? [];
 
-    const price = result.meta?.regularMarketPrice ?? rawC.filter(Boolean).at(-1) ?? 3000;
+    // History comes from the future (spot only reaches 2020 monthly), but the
+    // quoted price must match every other page: take it from the spot feed.
+    const spot = await getGoldSpot().catch(() => null);
+    const price = spot && spot.price > 0
+      ? spot.price
+      : result.meta?.regularMarketPrice ?? rawC.filter(Boolean).at(-1) ?? 3000;
 
     // Build monthly bars
     interface MonthBar { ts: number; o: number; h: number; l: number; c: number }

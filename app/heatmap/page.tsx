@@ -256,7 +256,7 @@ export default function HeatmapPage() {
           </div>
 
           <div className="mt-3 text-center text-[10px] text-silver/20">
-            ข้อมูล {data.symbol} · อิงจาก Yahoo Finance GC=F 1h candles · ชั่วโมงเป็น UTC
+            ข้อมูล {data.symbol} · อิงจากแท่ง 1 ชม. ของฟีด spot เรียลทาม · ชั่วโมงเป็น UTC
           </div>
         </>
       )}

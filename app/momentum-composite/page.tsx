@@ -166,7 +166,7 @@ export default function MomentumCompositePage() {
       </div>
 
       <div className="text-[8px] text-right" style={{ color: "rgba(175,185,215,0.2)" }}>
-        {new Date(data.timestamp).toLocaleString()} · GC=F 1Y daily · RSI/MACD/EMA/ROC computed · Not financial advice
+        {new Date(data.timestamp).toLocaleString()} · XAUUSD spot, 1Y daily · RSI/MACD/EMA/ROC computed · Not financial advice
       </div>
     </div>
   );

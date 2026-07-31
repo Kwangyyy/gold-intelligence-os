@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getGoldSpot } from "@/lib/goldSource";
+import { yahooChartJson } from "@/lib/goldSource";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -123,11 +124,7 @@ interface ParsedRow {
 // live gold print with CBOE's *previous* GLD close skewed strikes by ~2%.
 async function fetchYahooPrice(symbol: string): Promise<number> {
   try {
-    const r = await fetch(
-      `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=2d`,
-      { headers: { "User-Agent": UA }, cache: "no-store", signal: AbortSignal.timeout(10_000) },
-    );
-    const j = await r.json();
+    const j = await yahooChartJson(symbol, "2d", "1d");
     return Number(j?.chart?.result?.[0]?.meta?.regularMarketPrice ?? 0) || 0;
   } catch {
     return 0;

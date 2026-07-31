@@ -52,7 +52,7 @@ export default function GoldSP500Page() {
       {/* ── Header Prices ─── */}
       <div className="grid grid-cols-3 gap-3">
         <div className="panel px-4 py-4 space-y-1">
-          <div className="text-[7px] uppercase tracking-widest" style={{ color: "rgba(175,185,215,0.3)" }}>Gold (GC=F)</div>
+          <div className="text-[7px] uppercase tracking-widest" style={{ color: "rgba(175,185,215,0.3)" }}>Gold (spot)</div>
           <div className="text-xl font-black" style={{ color: "#f5c451" }}>
             ${data.goldPrice.toLocaleString(undefined, { maximumFractionDigits: 0 })}
           </div>

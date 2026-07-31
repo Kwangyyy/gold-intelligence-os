@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { yahooChartJson } from "@/lib/goldSource";
 
 export const dynamic = "force-dynamic";
 
@@ -85,11 +86,8 @@ type YJ = { chart?: { result?: Array<{ meta?: { regularMarketPrice?: number } }>
 
 async function yFetch(sym: string): Promise<number> {
   try {
-    const r = await fetch(
-      `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?range=5d&interval=1d`,
-      { headers: { "User-Agent": "Mozilla/5.0" }, cache: "no-store" },
-    );
-    const j = await r.json() as YJ;
+    const r = await yahooChartJson(sym, "5d", "1d");
+    const j = r as YJ;
     return j?.chart?.result?.[0]?.meta?.regularMarketPrice ?? 0;
   } catch { return 0; }
 }

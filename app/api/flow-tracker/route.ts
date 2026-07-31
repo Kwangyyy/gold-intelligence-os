@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { yahooChartJson } from "@/lib/goldSource";
 
 export const dynamic = "force-dynamic";
 
@@ -37,12 +38,9 @@ const TTL_MS = 10 * 60 * 1000; // 10m
 
 async function fetchAsset(symbol: string): Promise<{ price: number; chg1D: number } | null> {
   try {
-    const r = await fetch(
-      `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=5d&interval=1d`,
-      { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(5000) }
-    );
-    if (!r.ok) return null;
-    const j = await r.json();
+    const r = await yahooChartJson(symbol, "5d", "1d");
+    if (!r) return null;
+    const j = r;
     const meta = j?.chart?.result?.[0]?.meta;
     const price   = meta?.regularMarketPrice as number | undefined;
     const prevCls = meta?.chartPreviousClose as number | undefined;
@@ -53,12 +51,8 @@ async function fetchAsset(symbol: string): Promise<{ price: number; chg1D: numbe
 
 async function fetchWeeklyChange(symbol: string): Promise<number | null> {
   try {
-    const r = await fetch(
-      `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1mo&interval=1d`,
-      { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(5000) }
-    );
-    if (!r.ok) return null;
-    const j = await r.json();
+    const j = await yahooChartJson(symbol, "1mo", "1d");
+    if (!j) return null;
     const closes: number[] = (j?.chart?.result?.[0]?.indicators?.quote?.[0]?.close ?? []).filter(Boolean);
     if (closes.length < 6) return null;
     return ((closes[closes.length - 1] - closes[closes.length - 6]) / closes[closes.length - 6]) * 100;

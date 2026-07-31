@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { yahooChartJson } from "@/lib/goldSource";
 
 export const revalidate = 900; // 15-min cache
 
@@ -33,11 +34,8 @@ interface YFQuote {
 
 async function fetchQuote(symbol: string): Promise<YFQuote> {
   try {
-    const res = await fetch(
-      `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=5d`,
-      { headers: { "User-Agent": "Mozilla/5.0" }, next: { revalidate: 900 } }
-    );
-    const json = await res.json();
+    const res = await yahooChartJson(symbol, "5d", "1d");
+    const json = res;
     const meta = json?.chart?.result?.[0]?.meta;
     if (!meta) return { price: null, change: null };
     const prev = meta.chartPreviousClose ?? meta.previousClose ?? 0;

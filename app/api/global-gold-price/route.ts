@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { goldFetch } from "@/lib/goldSource";
+import { yahooChartJson } from "@/lib/goldSource";
 
 export const revalidate = 900;
 
@@ -34,11 +35,8 @@ interface FXQuote {
 
 async function fetchFX(symbol: string): Promise<FXQuote> {
   try {
-    const res = await fetch(
-      `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=5d`,
-      { headers: { "User-Agent": "Mozilla/5.0" }, next: { revalidate: 900 } }
-    );
-    const json = await res.json();
+    const res = await yahooChartJson(symbol, "5d", "1d");
+    const json = res;
     const meta = json?.chart?.result?.[0]?.meta;
     if (!meta) return { rate: null, change: null };
     const rate = meta.regularMarketPrice ?? null;

@@ -180,7 +180,7 @@ export default function BriefPage() {
           {/* Footer meta */}
           <div className="rounded-xl border border-base-border/30 bg-base-panel/30 px-4 py-3 flex flex-wrap gap-4 text-[11px] text-silver/35">
             <span>🤖 Gemini AI · {new Date(brief.generatedAt).toLocaleString("th-TH")}</span>
-            <span>📊 Data: Yahoo Finance GC=F + ForexFactory</span>
+            <span>📊 Data: PAXG spot-equivalent (real-time) + ForexFactory</span>
             <span className={`font-medium ${brief.confidence === "high" ? "text-emerald-400/60" : brief.confidence === "medium" ? "text-amber-400/60" : "text-red-400/60"}`}>
               Confidence: {brief.confidence}
             </span>

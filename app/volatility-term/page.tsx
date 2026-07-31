@@ -240,7 +240,7 @@ export default function VolatilityTermPage() {
       </div>
 
       <div className="text-[8px] text-right" style={{ color: "rgba(175,185,215,0.2)" }}>
-        {new Date(data.timestamp).toLocaleString()} · HV computed from live COMEX GC=F · IV estimated from OTC market quotes
+        {new Date(data.timestamp).toLocaleString()} · HV computed from the real-time XAUUSD spot feed · IV estimated from OTC market quotes
       </div>
     </div>
   );

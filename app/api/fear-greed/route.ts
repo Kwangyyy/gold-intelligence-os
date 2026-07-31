@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { yahooChartJson } from "@/lib/goldSource";
 
 export const dynamic = "force-dynamic";
 
@@ -33,18 +34,16 @@ function classify(score: number): { label: string; labelTh: string; color: strin
 }
 
 async function fetchPrice(symbol: string): Promise<number | null> {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?range=5d&interval=1d`;
-  const r = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" }, cache: "no-store" });
-  if (!r.ok) return null;
-  const j = await r.json();
+  // gold is served from the real-time spot feed; other tickers stay on Yahoo
+  const j = await yahooChartJson(symbol, "5d", "1d");
+  if (!j) return null;
   return j?.chart?.result?.[0]?.meta?.regularMarketPrice ?? null;
 }
 
 async function fetchReturns5d(symbol: string): Promise<{ returns: number[]; current: number } | null> {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?range=30d&interval=1d`;
-  const r = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" }, cache: "no-store" });
-  if (!r.ok) return null;
-  const j = await r.json();
+  // gold is served from the real-time spot feed; other tickers stay on Yahoo
+  const j = await yahooChartJson(symbol, "30d", "1d");
+  if (!j) return null;
   const result = j?.chart?.result?.[0];
   if (!result) return null;
   const closes: (number|null)[] = result.indicators?.quote?.[0]?.close ?? [];

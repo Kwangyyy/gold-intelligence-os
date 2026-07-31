@@ -187,7 +187,7 @@ export default function DrawdownTrackerPage() {
       </div>
 
       <p className="text-[10px]" style={{ color: "rgba(175,185,215,0.25)" }}>
-        Historical drawdowns from COMEX gold records (1975–2024) · Current data from Yahoo Finance GC=F · Not financial advice
+        Historical drawdowns from COMEX gold records (1975–2024) · current price from the real-time spot feed · Not financial advice
       </p>
     </div>
   );

@@ -153,6 +153,11 @@ function dropWeekend(c: Candles): Candles {
   return { ...c, t: pick(c.t), o: pick(c.o), h: pick(c.h), l: pick(c.l), c: pick(c.c), v: pick(c.v) };
 }
 
+// Last successful response per timeframe, and the last good spot print. Survives
+// a transient outage of both feeds within one server instance's lifetime.
+const LAST_GOOD_CANDLES = new Map<GoldTF, Candles>();
+let LAST_GOOD_SPOT: { price: number; at: number } | null = null;
+
 /**
  * Candles for a timeframe, real-time when Binance is reachable.
  * `includeWeekend` keeps the 24/7 bars; the default matches broker hours.
@@ -164,8 +169,18 @@ export async function getGoldCandles(tf: GoldTF, limit = 1000, includeWeekend = 
     // afterwards rather than coming up short once they are removed.
     out = await fromBinance(tf, includeWeekend ? limit : 1000);
   } catch {
-    out = await fromYahoo(tf);
+    try {
+      out = await fromYahoo(tf);
+    } catch (e) {
+      // Both feeds down. Callers catch this and fall back to a price constant
+      // written into the source months ago — around $3,300 while gold trades
+      // near $4,100 — and present it as live. Slightly stale beats 20% wrong.
+      const stale = LAST_GOOD_CANDLES.get(tf);
+      if (!stale) throw e;
+      out = stale;
+    }
   }
+  LAST_GOOD_CANDLES.set(tf, out);
   // Daily needs the cut too — PAXG prints Saturday and Sunday daily bars
   // (measured: 56 of 200). Weekly is safe, every bar opens on a Monday. Monthly
   // must be left alone: its bar opens on the 1st, and whenever the 1st lands on
@@ -298,8 +313,13 @@ export async function yahooChartJson(
   range = "1mo",
   interval = "1d",
 ): Promise<YahooShapedChart | null> {
-  if (GOLD_TICKERS.has(ticker.toUpperCase())) return goldChartJson(range, interval);
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?range=${range}&interval=${interval}`;
+  // Symbol tables are inconsistent about escaping — some list "GC=F" and "^VIX",
+  // others "GC%3DF" and "%5EVIX". Decoding first makes the encode idempotent, so
+  // a pre-escaped ticker does not become "GC%253DF" and 404.
+  let raw = ticker;
+  try { raw = decodeURIComponent(ticker); } catch { /* not escaped */ }
+  if (GOLD_TICKERS.has(raw.toUpperCase())) return goldChartJson(range, interval);
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(raw)}?range=${range}&interval=${interval}`;
   const r = await fetch(url, {
     headers: { "User-Agent": "Mozilla/5.0" },
     signal: AbortSignal.timeout(10_000),
@@ -315,18 +335,32 @@ export async function getGoldSpot(): Promise<{ price: number; source: "paxg" | "
     const j = (await binanceJson("/api/v3/ticker/price?symbol=PAXGUSDT")) as { price?: string };
     const price = Number(j?.price);
     if (!price) throw new Error("no price");
+    LAST_GOOD_SPOT = { price, at: Date.now() };
     return { price, source: "paxg", delaySec: 0 };
   } catch {
-    const r = await fetch("https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?interval=1m&range=1d", {
-      headers: { "User-Agent": UA }, cache: "no-store", signal: AbortSignal.timeout(8_000),
-    });
-    const j = await r.json();
-    const m = j?.chart?.result?.[0]?.meta;
-    const now = Math.floor(Date.now() / 1000);
-    return {
-      price: Number(m?.regularMarketPrice ?? 0),
-      source: "yahoo",
-      delaySec: m?.regularMarketTime ? Math.max(0, now - Number(m.regularMarketTime)) : 0,
-    };
+    try {
+      const r = await fetch("https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?interval=1m&range=1d", {
+        headers: { "User-Agent": UA }, cache: "no-store", signal: AbortSignal.timeout(8_000),
+      });
+      const j = await r.json();
+      const m = j?.chart?.result?.[0]?.meta;
+      const now = Math.floor(Date.now() / 1000);
+      const price = Number(m?.regularMarketPrice ?? 0);
+      if (!price) throw new Error("no price");
+      LAST_GOOD_SPOT = { price, at: Date.now() };
+      return {
+        price,
+        source: "yahoo",
+        delaySec: m?.regularMarketTime ? Math.max(0, now - Number(m.regularMarketTime)) : 0,
+      };
+    } catch (e) {
+      // See getGoldCandles: callers' own fallbacks are constants from 2024.
+      if (!LAST_GOOD_SPOT) throw e;
+      return {
+        price: LAST_GOOD_SPOT.price,
+        source: "yahoo",
+        delaySec: Math.floor((Date.now() - LAST_GOOD_SPOT.at) / 1000),
+      };
+    }
   }
 }

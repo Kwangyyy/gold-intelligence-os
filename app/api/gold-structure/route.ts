@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getGoldSpot } from "@/lib/goldSource";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -45,10 +46,9 @@ const TTL = 60 * 60 * 1000; // 1h
 
 async function fetchYearlyOHLC(): Promise<{ price: number; yearlyHighs: number[]; yearlyLows: number[] }> {
   try {
-    // spot-equivalent, real-time (was delayed COMEX futures)
-// Deliberately still on the COMEX future. The spot feed only reaches back to
-// 2023 daily / 2020 monthly, and a multi-year structure pattern needs decades. Delay and the
-// futures basis are irrelevant here — these are percentage-return statistics.
+    // The *history* stays on the COMEX future: the spot feed only reaches back
+    // to 2020 monthly and a multi-decade structure map needs more than that.
+    // The futures basis washes out of highs and lows measured in percent.
     const url = "https://query1.finance.yahoo.com/v8/finance/chart/GC=F?range=10y&interval=1mo";
     const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" }, next: { revalidate: 0 } });
     if (!res.ok) throw new Error("Failed");
@@ -92,7 +92,10 @@ export async function GET() {
 
   try {
     const { price, yearlyHighs, yearlyLows } = await fetchYearlyOHLC();
-    const currentPrice = price;
+    // …but "where are we now" must be the price the user can trade. Reading it
+    // off the futures history put this page $53 above every other page.
+    const spot = await getGoldSpot().catch(() => null);
+    const currentPrice = spot && spot.price > 0 ? spot.price : price;
 
     // ATH in data set
     const allTimeHighData = yearlyHighs.length > 0 ? Math.max(...yearlyHighs) : currentPrice;

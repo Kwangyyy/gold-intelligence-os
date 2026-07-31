@@ -1,6 +1,8 @@
 // Gold Seasonality engine — fetches 10 years of GC=F daily OHLC and derives
 // monthly, weekday, and annual pattern statistics. Server-side only.
 
+import { getGoldSpot } from "./goldSource";
+
 export interface MonthStat {
   month: number;       // 1-12
   nameEn: string;
@@ -92,7 +94,10 @@ export async function buildSeasonality(): Promise<SeasonalityResult> {
   if (bars.length < 200) throw new Error("insufficient data");
 
   const now   = new Date();
-  const price = bars[bars.length - 1].close;
+  // Seasonal statistics are computed from the futures history; the headline
+  // price still has to be the tradeable one.
+  const spot = await getGoldSpot().catch(() => null);
+  const price = spot && spot.price > 0 ? spot.price : bars[bars.length - 1].close;
 
   // ── Monthly statistics ────────────────────────────────────────────────────
 

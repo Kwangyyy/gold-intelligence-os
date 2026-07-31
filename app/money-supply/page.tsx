@@ -164,7 +164,7 @@ export default function MoneySupplyPage() {
               <div>
                 <div className="text-[8px] uppercase tracking-widest mb-0.5" style={{ color: "rgba(175,185,215,0.3)" }}>Gold</div>
                 <div className="text-2xl font-black" style={{ color: "#f5c451" }}>${data.goldPrice.toLocaleString()}</div>
-                <div className="text-[8px]" style={{ color: "rgba(175,185,215,0.3)" }}>GC=F</div>
+                <div className="text-[8px]" style={{ color: "rgba(175,185,215,0.3)" }}>spot</div>
               </div>
             </div>
 

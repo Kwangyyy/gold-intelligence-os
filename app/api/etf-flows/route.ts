@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { goldFetch } from "@/lib/goldSource";
+import { yahooChartJson } from "@/lib/goldSource";
 
 export const dynamic = "force-dynamic";
 
@@ -62,9 +63,8 @@ type YChart = {
 };
 
 async function fetchETF(sym: string) {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${sym}?range=60d&interval=1d`;
-  const r = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" }, cache: "no-store" });
-  const j = await r.json() as YChart;
+  // gold is served from the real-time spot feed; other tickers stay on Yahoo
+  const j = await yahooChartJson(sym, "60d", "1d") as YChart;
   const res = j?.chart?.result?.[0];
   if (!res) return null;
   const meta = res.meta ?? {};

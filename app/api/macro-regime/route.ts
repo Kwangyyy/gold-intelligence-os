@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { yahooChartJson } from "@/lib/goldSource";
 
 export const revalidate = 900; // 15-min
 
@@ -39,11 +40,8 @@ interface MacroRegimeData {
 
 async function fetchAsset(symbol: string): Promise<{ price: number; change1m: number }> {
   try {
-    const res = await fetch(
-      `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1mo&range=3mo`,
-      { headers: { "User-Agent": "Mozilla/5.0" }, next: { revalidate: 900 } }
-    );
-    const json = await res.json();
+    const res = await yahooChartJson(symbol, "3mo", "1mo");
+    const json = res;
     const closes: number[] = (json?.chart?.result?.[0]?.indicators?.quote?.[0]?.close ?? [])
       .filter((c: number | null) => c != null);
     const price = closes[closes.length - 1] ?? 0;

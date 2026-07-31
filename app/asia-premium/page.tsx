@@ -189,7 +189,7 @@ export default function AsiaPremiumPage() {
       </div>
 
       <p className="text-[10px]" style={{ color: "rgba(175,185,215,0.25)" }}>
-        SGE premium estimated from representative historical patterns · COMEX spot from Yahoo Finance GC=F · 30-min cache · Not financial advice
+        SGE premium estimated from representative historical patterns · gold from the real-time spot feed (PAXG) · 30-min cache · Not financial advice
       </p>
     </div>
   );

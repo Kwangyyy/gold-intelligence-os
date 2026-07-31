@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { yahooChartJson } from "@/lib/goldSource";
 
 export const revalidate = 900;
 
@@ -29,11 +30,8 @@ interface DollarMilkshakeData {
 
 async function fetchPrice(symbol: string, range = "3mo"): Promise<{ price: number; change1m: number; change3m: number }> {
   try {
-    const res = await fetch(
-      `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1mo&range=${range}`,
-      { headers: { "User-Agent": "Mozilla/5.0" }, next: { revalidate: 900 } }
-    );
-    const json = await res.json();
+    const res = await yahooChartJson(symbol, range, "1mo");
+    const json = res;
     const closes: number[] = (json?.chart?.result?.[0]?.indicators?.quote?.[0]?.close ?? []).filter((c: number | null) => c != null);
     const price = closes[closes.length - 1] ?? 0;
     const prev1m = closes[closes.length - 2] ?? price;

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { yahooChartJson } from "@/lib/goldSource";
 
 export const revalidate = 900;
 
@@ -27,11 +28,8 @@ interface YieldSpreadData {
 
 async function fetchYield(symbol: string): Promise<number | null> {
   try {
-    const res = await fetch(
-      `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=30d`,
-      { headers: { "User-Agent": "Mozilla/5.0" }, next: { revalidate: 900 } }
-    );
-    const json = await res.json();
+    const res = await yahooChartJson(symbol, "30d", "1d");
+    const json = res;
     const result = json?.chart?.result?.[0];
     if (!result) return null;
     return result.meta?.regularMarketPrice ?? null;
@@ -42,16 +40,10 @@ async function fetchYield(symbol: string): Promise<number | null> {
 
 async function fetchYieldHistory(symbol10y: string, symbol2y: string): Promise<SpreadDataPoint[]> {
   try {
-    const [r10, r2] = await Promise.all([
-      fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol10y)}?interval=1d&range=60d`, {
-        headers: { "User-Agent": "Mozilla/5.0" }, next: { revalidate: 900 },
-      }),
-      fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol2y)}?interval=1d&range=60d`, {
-        headers: { "User-Agent": "Mozilla/5.0" }, next: { revalidate: 900 },
-      }),
+    const [j10, j2] = await Promise.all([
+      yahooChartJson(symbol10y, "60d", "1d"),
+      yahooChartJson(symbol2y, "60d", "1d"),
     ]);
-    const j10 = await r10.json();
-    const j2  = await r2.json();
 
     const result10 = j10?.chart?.result?.[0];
     const result2  = j2?.chart?.result?.[0];

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { yahooChartJson } from "@/lib/goldSource";
 
 export const dynamic = "force-dynamic";
 
@@ -43,24 +44,16 @@ const TTL_MS = 15 * 60 * 1000; // 15m
 
 async function fetchYahooMeta(symbol: string): Promise<number | null> {
   try {
-    const r = await fetch(
-      `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=5d&interval=1d`,
-      { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(5000) }
-    );
-    if (!r.ok) return null;
-    const j = await r.json();
+    const j = await yahooChartJson(symbol, "5d", "1d");
+    if (!j) return null;
     return j?.chart?.result?.[0]?.meta?.regularMarketPrice ?? null;
   } catch { return null; }
 }
 
 async function fetchYahooChange1D(symbol: string): Promise<{ price: number; chgPct: number } | null> {
   try {
-    const r = await fetch(
-      `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=5d&interval=1d`,
-      { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(5000) }
-    );
-    if (!r.ok) return null;
-    const j = await r.json();
+    const j = await yahooChartJson(symbol, "5d", "1d");
+    if (!j) return null;
     const meta = j?.chart?.result?.[0]?.meta;
     if (!meta) return null;
     const price   = meta.regularMarketPrice as number;
@@ -207,7 +200,7 @@ export async function GET() {
           confidence: 55,
           lastUpdate: "live",
           detail: "Daily price momentum — simple directional signal. Filter noise with weekly trend.",
-          source: "Yahoo Finance GC=F",
+          source: "PAXG spot-equivalent · real-time",
         },
         {
           category: "Technical Signals",

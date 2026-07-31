@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { yahooChartJson } from "@/lib/goldSource";
 
 export const dynamic = "force-dynamic";
 
@@ -34,12 +35,9 @@ const TTL_MS = 15 * 60 * 1000;
 
 async function fetchChg(symbol: string): Promise<number | null> {
   try {
-    const r = await fetch(
-      `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=5d&interval=1d`,
-      { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(5000) }
-    );
-    if (!r.ok) return null;
-    const j  = await r.json();
+    const r = await yahooChartJson(symbol, "5d", "1d");
+    if (!r) return null;
+    const j = r;
     const meta = j?.chart?.result?.[0]?.meta;
     const p = meta?.regularMarketPrice as number | undefined;
     const c = meta?.chartPreviousClose as number | undefined;

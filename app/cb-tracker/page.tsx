@@ -164,7 +164,7 @@ export default function CBTrackerPage() {
                 <div className="text-lg font-black" style={{ color: "rgba(175,185,215,0.85)" }}>
                   ${data.goldPrice.toLocaleString()}
                 </div>
-                <div className="text-[9px]" style={{ color: "rgba(175,185,215,0.35)" }}>GC=F</div>
+                <div className="text-[9px]" style={{ color: "rgba(175,185,215,0.35)" }}>spot</div>
               </div>
             </div>
 

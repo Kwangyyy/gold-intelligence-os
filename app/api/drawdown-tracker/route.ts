@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getGoldSpot } from "@/lib/goldSource";
 
 export const runtime = "nodejs";
 export const revalidate = 1800; // 30 min
@@ -166,7 +167,12 @@ const HISTORICAL_DRAWDOWNS: DrawdownPeriod[] = [
 export async function GET() {
   const { prices, dates } = await fetchLongTermPrices();
 
-  const currentSpot = prices.length > 0 ? prices[prices.length - 1] : 4140;
+  // The 20-year series is COMEX futures; "where we are now" must be spot, or
+  // this page reports a drawdown measured against a price nobody can trade.
+  const live = await getGoldSpot().catch(() => null);
+  const currentSpot = live && live.price > 0
+    ? live.price
+    : prices.length > 0 ? prices[prices.length - 1] : 4140;
   const analysisResult = prices.length > 20
     ? analyzeDrawdowns(prices, dates)
     : { periods: [] as ReturnType<typeof analyzeDrawdowns>["periods"], ath: currentSpot, athDate: "2026", athIdx: 0 };

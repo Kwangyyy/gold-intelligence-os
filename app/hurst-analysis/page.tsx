@@ -253,7 +253,7 @@ export default function HurstAnalysisPage() {
       </div>
 
       <p className="text-[10px]" style={{ color: "rgba(175,185,215,0.25)" }}>
-        Hurst computed via R/S analysis on GC=F Yahoo Finance data · Simulated fallback if data unavailable · Updated every 30 min · Not financial advice
+        Hurst computed via R/S analysis on XAUUSD spot data · Simulated fallback if data unavailable · Updated every 30 min · Not financial advice
       </p>
     </div>
   );

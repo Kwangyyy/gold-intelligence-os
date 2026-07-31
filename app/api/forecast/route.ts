@@ -13,7 +13,7 @@ async function fetchT(url: string, opts: RequestInit = {}, ms = 8000): Promise<R
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), ms);
   try {
-    return await goldFetch(url);
+    return await fetch(url, { ...opts, signal: ctrl.signal });
   } finally {
     clearTimeout(timer);
   }

@@ -1,6 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { promises as fs } from "node:fs";
-import path from "node:path";
+import { kvGet, kvSet, kvDurable } from "@/lib/kvStore";
 import { getMarketSnapshot } from "@/lib/marketSnapshot";
 import { buildTechnicalScore } from "@/lib/technical";
 import { buildMultiTimeframe } from "@/lib/timeframes";
@@ -18,22 +17,19 @@ export const dynamic = "force-dynamic";
 
 const MIN_CONFIDENCE = 55;
 const DEDUP_MS = 6 * 60 * 60_000; // don't repeat the same call within 6h
-const ALERT_FILE = path.join(process.cwd(), ".data", "council-alert.json");
+// This marker used to live in .data/council-alert.json. On Vercel each
+// invocation gets its own filesystem, so the read almost always missed and both
+// the dedup window and the 60s rate limit below were decorative — every cron
+// tick could re-send the same standing call to the channel. It is a shared key
+// now, expiring on its own once the dedup window has passed.
+const ALERT_KEY = "gios:council-alert";
 
 async function lastAlert(): Promise<{ sig: string; ts: number } | null> {
-  try {
-    return JSON.parse(await fs.readFile(ALERT_FILE, "utf8"));
-  } catch {
-    return null;
-  }
+  return kvGet<{ sig: string; ts: number }>(ALERT_KEY);
 }
+
 async function saveAlert(sig: string): Promise<void> {
-  try {
-    await fs.mkdir(path.dirname(ALERT_FILE), { recursive: true });
-    await fs.writeFile(ALERT_FILE, JSON.stringify({ sig, ts: Date.now() }), "utf8");
-  } catch {
-    /* best effort */
-  }
+  await kvSet(ALERT_KEY, { sig, ts: Date.now() }, Math.ceil(DEDUP_MS / 1000));
 }
 
 // Convene the council, and — if the decision is actionable and new — push a
@@ -113,7 +109,17 @@ export async function GET(req: NextRequest) {
 
     const send = await sendTelegramMessage(chatId, text);
     if (send.ok) await saveAlert(sig);
-    return NextResponse.json({ sent: send.ok, decision: result.decision, confidence: result.confidence, error: send.error });
+    return NextResponse.json({
+      sent: send.ok,
+      decision: result.decision,
+      confidence: result.confidence,
+      error: send.error,
+      // Without Redis the marker cannot outlive the instance that wrote it, so
+      // on a serverless deploy neither guard above actually holds. Say so rather
+      // than letting the operator assume duplicate alerts are impossible.
+      dedupDurable: kvDurable(),
+      ...(kvDurable() ? {} : { warning: "dedup/rate-limit are per-instance only — set UPSTASH_REDIS_REST_URL + _TOKEN to make them hold across invocations" }),
+    });
   } catch (e) {
     return NextResponse.json({ sent: false, error: String(e) }, { status: 500 });
   }

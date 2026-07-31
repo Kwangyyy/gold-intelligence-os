@@ -44,13 +44,18 @@ export function OiLevelsPanel({ pollMs = 60_000 }: { pollMs?: number }) {
   if (err) return (
     <div className="panel p-4 text-xs text-red-400">โหลด OI ไม่สำเร็จ: {err}</div>
   );
-  if (!oi) return (
+  // Guard on the fields we actually dereference, not just on `oi` being truthy.
+  // A 200 response with an unexpected shape would otherwise throw inside render
+  // (spreading undefined, calling toFixed on undefined) and, with no boundary
+  // above it, blank the whole page instead of just this panel.
+  if (!oi || !Array.isArray(oi.strikes) || !oi.expectedRange?.sd1) return (
     <div className="panel p-4 text-xs animate-pulse" style={{ color: "rgba(175,185,215,0.4)" }}>
       กำลังโหลด option chain…
     </div>
   );
 
-  const rows = [...oi.strikes].sort((a, b) => b.total - a.total).slice(0, 12).sort((a, b) => b.strike - a.strike);
+  const num = (v: unknown, d = 0) => (typeof v === "number" && Number.isFinite(v) ? v : d);
+  const rows = [...oi.strikes].sort((a, b) => num(b.total) - num(a.total)).slice(0, 12).sort((a, b) => num(b.strike) - num(a.strike));
 
   return (
     <div className="panel p-4">
@@ -72,11 +77,11 @@ export function OiLevelsPanel({ pollMs = 60_000 }: { pollMs?: number }) {
 
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-3">
         {[
-          { l: "Call Wall", v: `$${oi.callWall.toLocaleString()}`, c: "#f87171" },
-          { l: "Put Wall",  v: `$${oi.putWall.toLocaleString()}`,  c: "#34d399" },
-          { l: "Max Pain",  v: `$${oi.maxPain.toLocaleString()}`,  c: "#e2e8f0" },
-          { l: "γ Flip",    v: `$${oi.gammaFlip.toLocaleString()}`, c: "#fb923c" },
-          { l: "Net GEX",   v: `${oi.totalGex >= 0 ? "+" : ""}${oi.totalGex.toFixed(1)}`, c: oi.gammaRegime === "long" ? "#34d399" : "#f87171" },
+          { l: "Call Wall", v: `$${num(oi.callWall).toLocaleString()}`, c: "#f87171" },
+          { l: "Put Wall",  v: `$${num(oi.putWall).toLocaleString()}`,  c: "#34d399" },
+          { l: "Max Pain",  v: `$${num(oi.maxPain).toLocaleString()}`,  c: "#e2e8f0" },
+          { l: "γ Flip",    v: `$${num(oi.gammaFlip).toLocaleString()}`, c: "#fb923c" },
+          { l: "Net GEX",   v: `${num(oi.totalGex) >= 0 ? "+" : ""}${num(oi.totalGex).toFixed(1)}`, c: oi.gammaRegime === "long" ? "#34d399" : "#f87171" },
         ].map((s) => (
           <div key={s.l}>
             <div className="text-[9px] uppercase tracking-widest mb-0.5" style={{ color: "rgba(175,185,215,0.35)" }}>{s.l}</div>
@@ -86,12 +91,14 @@ export function OiLevelsPanel({ pollMs = 60_000 }: { pollMs?: number }) {
       </div>
 
       <div className="space-y-1 mb-3">
-        {([["1SD", oi.expectedRange.sd1, "#38bdf8"], ["2SD", oi.expectedRange.sd2, "#c084fc"], ["3SD", oi.expectedRange.sd3, "#94a3b8"]] as const).map(([l, b, c]) => (
+        {([["1SD", oi.expectedRange.sd1, "#38bdf8"], ["2SD", oi.expectedRange.sd2, "#c084fc"], ["3SD", oi.expectedRange.sd3, "#94a3b8"]] as const)
+          .filter(([, b]) => b && typeof b.low === "number")
+          .map(([l, b, c]) => (
           <div key={l} className="flex items-center gap-2 text-[10px]">
             <span className="w-8 font-bold" style={{ color: c }}>{l}</span>
-            <span className="font-mono" style={{ color: "#34d399" }}>${b.low.toLocaleString()}</span>
+            <span className="font-mono" style={{ color: "#34d399" }}>${num(b.low).toLocaleString()}</span>
             <div className="flex-1 h-0.5 rounded" style={{ background: `${c}44` }} />
-            <span className="font-mono" style={{ color: "#f87171" }}>${b.high.toLocaleString()}</span>
+            <span className="font-mono" style={{ color: "#f87171" }}>${num(b.high).toLocaleString()}</span>
           </div>
         ))}
       </div>
@@ -107,12 +114,12 @@ export function OiLevelsPanel({ pollMs = 60_000 }: { pollMs?: number }) {
           </thead>
           <tbody>
             {rows.map((s) => (
-              <tr key={s.strikeGld} style={{ borderTop: "1px solid rgba(255,255,255,0.04)", background: Math.abs(s.pctFromSpot) < 1 ? "rgba(245,196,81,0.07)" : undefined }}>
-                <td className="text-right py-1 px-1.5 font-mono font-bold" style={{ color: s.side === "call" ? "#f87171" : s.side === "put" ? "#34d399" : "#f5c451" }}>${s.strike.toLocaleString()}</td>
-                <td className="text-right py-1 px-1.5 font-mono" style={{ color: "rgba(248,113,113,0.75)" }}>{s.calls.toLocaleString()}</td>
-                <td className="text-right py-1 px-1.5 font-mono" style={{ color: "rgba(52,211,153,0.75)" }}>{s.puts.toLocaleString()}</td>
-                <td className="text-right py-1 px-1.5 font-mono font-bold" style={{ color: "#e2e8f0" }}>{s.total.toLocaleString()}</td>
-                <td className="text-right py-1 px-1.5 font-mono" style={{ color: s.gex >= 0 ? "rgba(52,211,153,0.75)" : "rgba(248,113,113,0.75)" }}>{s.gex >= 0 ? "+" : ""}{s.gex.toFixed(1)}</td>
+              <tr key={s.strikeGld} style={{ borderTop: "1px solid rgba(255,255,255,0.04)", background: Math.abs(num(s.pctFromSpot)) < 1 ? "rgba(245,196,81,0.07)" : undefined }}>
+                <td className="text-right py-1 px-1.5 font-mono font-bold" style={{ color: s.side === "call" ? "#f87171" : s.side === "put" ? "#34d399" : "#f5c451" }}>${num(s.strike).toLocaleString()}</td>
+                <td className="text-right py-1 px-1.5 font-mono" style={{ color: "rgba(248,113,113,0.75)" }}>{num(s.calls).toLocaleString()}</td>
+                <td className="text-right py-1 px-1.5 font-mono" style={{ color: "rgba(52,211,153,0.75)" }}>{num(s.puts).toLocaleString()}</td>
+                <td className="text-right py-1 px-1.5 font-mono font-bold" style={{ color: "#e2e8f0" }}>{num(s.total).toLocaleString()}</td>
+                <td className="text-right py-1 px-1.5 font-mono" style={{ color: num(s.gex) >= 0 ? "rgba(52,211,153,0.75)" : "rgba(248,113,113,0.75)" }}>{num(s.gex) >= 0 ? "+" : ""}{num(s.gex).toFixed(1)}</td>
                 <td className="text-right py-1 px-1.5 font-bold" style={{ color: s.sd === 1 ? "#38bdf8" : s.sd === 2 ? "#c084fc" : "#94a3b8" }}>{s.sd}SD</td>
               </tr>
             ))}

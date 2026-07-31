@@ -64,6 +64,10 @@ export async function GET() {
 
   try {
     // Fetch 10 years of monthly data
+    // spot-equivalent, real-time (was delayed COMEX futures)
+// Deliberately still on the COMEX future. The spot feed only reaches back to
+// 2023 daily / 2020 monthly, and a seasonal pattern needs decades. Delay and the
+// futures basis are irrelevant here — these are percentage-return statistics.
     const url = "https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?range=10y&interval=1mo&includePrePost=false";
     const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" }, cache: "no-store" });
     if (!res.ok) throw new Error(`Yahoo ${res.status}`);

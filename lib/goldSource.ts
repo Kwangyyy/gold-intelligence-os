@@ -174,6 +174,141 @@ export async function getGoldCandles(tf: GoldTF, limit = 1000, includeWeekend = 
   return includeWeekend || !filterable ? out : dropWeekend(out);
 }
 
+// ── Yahoo-shaped adapter ─────────────────────────────────────────────────────
+// Around a hundred routes were written against Yahoo's chart JSON. Rather than
+// rewrite each one's parsing (and risk breaking analytics that already work),
+// this returns the identical shape built from the spot feed, so a route only has
+// to swap its fetch line and everything downstream keeps working.
+
+const TF_FOR_INTERVAL: Record<string, GoldTF> = {
+  "1m": "1m", "2m": "1m", "5m": "5m", "15m": "15m", "30m": "30m",
+  "60m": "1h", "1h": "1h", "90m": "1h", "2h": "2h", "4h": "4h",
+  "1d": "1d", "5d": "1d", "1wk": "1w", "1mo": "1M", "3mo": "1M",
+};
+
+// Roughly how many bars a Yahoo range implies, so callers that slice by count
+// still see a comparable window.
+const BARS_FOR_RANGE: Record<string, number> = {
+  "1d": 24, "5d": 120, "1mo": 300, "3mo": 500, "6mo": 700,
+  "1y": 800, "2y": 900, "5y": 1000, "10y": 1000, ytd: 800, max: 1000,
+};
+
+const TF_MINUTES: Record<GoldTF, number> = {
+  "1m": 1, "5m": 5, "15m": 15, "30m": 30, "1h": 60,
+  "2h": 120, "4h": 240, "1d": 1440, "1w": 10080, "1M": 43200,
+};
+
+// Callers pass range tokens Yahoo never accepted ("2mo", "60d"). Rather than
+// silently handing all of them the same default, derive the bar count from the
+// span the token names and the timeframe's bar length.
+function barsForRange(range: string, tf: GoldTF): number {
+  const known = BARS_FOR_RANGE[range];
+  if (known) return known;
+  const m = /^(\d+)(d|wk|mo|y)$/.exec(range);
+  if (!m) return 500;
+  const days = Number(m[1]) * ({ d: 1, wk: 7, mo: 30, y: 365 }[m[2] as "d" | "wk" | "mo" | "y"]);
+  return Math.min(1000, Math.max(30, Math.ceil((days * 1440) / TF_MINUTES[tf])));
+}
+
+export interface YahooShapedChart {
+  chart: {
+    result: [{
+      meta: {
+        symbol: string; currency: string;
+        regularMarketPrice: number; chartPreviousClose: number; previousClose: number;
+        regularMarketDayHigh: number; regularMarketDayLow: number; regularMarketTime: number;
+        regularMarketVolume?: number;
+      };
+      timestamp: number[];
+      indicators: { quote: [{ open: number[]; high: number[]; low: number[]; close: number[]; volume: number[] }] };
+    }];
+  };
+}
+
+/** Yahoo-chart-shaped gold data, sourced from the real-time spot feed. */
+export async function goldChartJson(range = "1mo", interval = "1d"): Promise<YahooShapedChart> {
+  const tf = TF_FOR_INTERVAL[interval] ?? "1d";
+  const want = barsForRange(range, tf);
+  const c = await getGoldCandles(tf, Math.min(want, 1000));
+  const start = Math.max(0, c.c.length - want);
+  const t = c.t.slice(start), o = c.o.slice(start), h = c.h.slice(start),
+        l = c.l.slice(start), cl = c.c.slice(start), v = c.v.slice(start);
+
+  let price = cl[cl.length - 1] ?? 0;
+  try {
+    const spot = await getGoldSpot();
+    if (spot.price > 0) price = spot.price;
+  } catch { /* last close stands in */ }
+
+  return {
+    chart: {
+      result: [{
+        meta: {
+          symbol: "XAUUSD", currency: "USD",
+          regularMarketPrice: price,
+          chartPreviousClose: cl[cl.length - 2] ?? price,
+          previousClose: cl[cl.length - 2] ?? price,
+          regularMarketDayHigh: Math.max(h[h.length - 1] ?? price, price),
+          regularMarketDayLow: Math.min(l[l.length - 1] ?? price, price),
+          regularMarketTime: t[t.length - 1] ?? Math.floor(Date.now() / 1000),
+        },
+        timestamp: t,
+        indicators: { quote: [{ open: o, high: h, low: l, close: cl, volume: v }] },
+      }],
+    },
+  };
+}
+
+/**
+ * Drop-in replacement for `fetch(<Yahoo GC=F chart url>)`.
+ *
+ * Dozens of routes fetch the gold chart in their own shape — inside a
+ * `Promise.all`, through a timeout wrapper, guarded by `res.ok`, reading
+ * `res.status` in the error message. Swapping the fetch call alone leaves all
+ * of that untouched, so the migration off delayed futures cannot disturb
+ * control flow it does not understand. Returns a real Response, so `.ok`,
+ * `.status`, and `.json()` all behave.
+ */
+export async function goldFetch(url: string): Promise<Response> {
+  let range = "1mo", interval = "1d";
+  try {
+    const q = new URL(url).searchParams;
+    range = q.get("range") ?? range;
+    interval = q.get("interval") ?? interval;
+  } catch { /* keep the defaults */ }
+  const json = await goldChartJson(range, interval);
+  return new Response(JSON.stringify(json), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+// Gold tickers that appear in the app's symbol tables. Anything else is a
+// genuinely different instrument and still belongs to Yahoo.
+const GOLD_TICKERS = new Set(["GC=F", "GC%3DF", "XAUUSD", "XAUUSD=X", "XAU=", "GOLD"]);
+
+/**
+ * Yahoo-chart-shaped data for any ticker, with gold transparently served from
+ * the real-time spot feed. Multi-asset routes that loop over a symbol table can
+ * call this instead of fetching Yahoo directly and gold stops being the one
+ * quote on the page that is ten minutes late and $60 too high.
+ */
+export async function yahooChartJson(
+  ticker: string,
+  range = "1mo",
+  interval = "1d",
+): Promise<YahooShapedChart | null> {
+  if (GOLD_TICKERS.has(ticker.toUpperCase())) return goldChartJson(range, interval);
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?range=${range}&interval=${interval}`;
+  const r = await fetch(url, {
+    headers: { "User-Agent": "Mozilla/5.0" },
+    signal: AbortSignal.timeout(10_000),
+    cache: "no-store",
+  });
+  if (!r.ok) return null;
+  return (await r.json()) as YahooShapedChart;
+}
+
 /** Latest spot-equivalent gold price, real-time. */
 export async function getGoldSpot(): Promise<{ price: number; source: "paxg" | "yahoo"; delaySec: number }> {
   try {

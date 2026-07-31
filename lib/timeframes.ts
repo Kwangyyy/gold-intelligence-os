@@ -1,7 +1,8 @@
-// Multi-Timeframe engine (Module 2). Fetches XAUUSD (GC=F) candles per timeframe
-// from Yahoo, computes indicators, and aggregates an overall bias.
+// Multi-Timeframe engine (Module 2). Pulls real-time spot-equivalent XAUUSD
+// candles per timeframe, computes indicators, and aggregates an overall bias.
 // Server-side only.
 
+import { goldChartJson, yahooChartJson } from "./goldSource";
 import {
   adx as calcAdx,
   atr as calcAtr,
@@ -83,13 +84,9 @@ export async function fetchCandlesByTicker(ticker: string, interval: string, ran
   const cached = candleCache.get(key);
   if (cached && Date.now() - cached.at < ttlFor(interval)) return cached.candles;
 
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=${interval}&range=${range}`;
-  const res = await fetch(url, {
-    headers: { "User-Agent": UA, Accept: "application/json" },
-    cache: "no-store",
-  });
-  if (!res.ok) throw new Error(`Yahoo ${ticker} ${interval}/${range} -> ${res.status}`);
-  const json = await res.json();
+  // gold is served from the real-time spot feed; other tickers stay on Yahoo
+  const json = await yahooChartJson(ticker, range, interval);
+  if (!json) throw new Error(`${ticker} ${interval}/${range} unavailable`);
   const q = json?.chart?.result?.[0]?.indicators?.quote?.[0];
   if (!q) throw new Error("no quote");
 
@@ -110,13 +107,10 @@ export async function fetchCandles(interval: string, range: string): Promise<Can
   const cached = candleCache.get(key);
   if (cached && Date.now() - cached.at < ttlFor(interval)) return cached.candles;
 
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=${interval}&range=${range}`;
-  const res = await fetch(url, {
-    headers: { "User-Agent": UA, Accept: "application/json" },
-    cache: "no-store",
-  });
-  if (!res.ok) throw new Error(`Yahoo ${interval}/${range} -> ${res.status}`);
-  const json = await res.json();
+  // Was Yahoo's COMEX future: ten minutes late and ~$60 above spot, so every
+  // page built on these candles (MTF, technical score, S/R levels, SMC) quoted a
+  // price the user could not trade at. Same real-time spot feed as the charts now.
+  const json = await goldChartJson(range, interval);
   const q = json?.chart?.result?.[0]?.indicators?.quote?.[0];
   if (!q) throw new Error("no quote");
 
@@ -372,7 +366,7 @@ export async function buildMultiTimeframe(): Promise<MultiTimeframe> {
 
   return {
     symbol: "XAUUSD",
-    source: "Yahoo Finance · COMEX GC=F",
+    source: "PAXG spot-equivalent · real-time",
     rows,
     overall: { bias, bullishCount, bearishCount, neutralCount, explanation },
     timestamp: new Date().toISOString(),

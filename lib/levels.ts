@@ -197,7 +197,7 @@ export async function buildSupportResistance(): Promise<SupportResistance> {
 
   return {
     symbol: "XAUUSD",
-    source: "Yahoo Finance · COMEX GC=F",
+    source: "PAXG spot-equivalent · real-time",
     price: +price.toFixed(2),
     resistances,
     supports,

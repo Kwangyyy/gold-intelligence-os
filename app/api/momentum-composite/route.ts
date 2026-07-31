@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { goldChartJson } from "@/lib/goldSource";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -46,10 +47,8 @@ const TTL = 15 * 60 * 1000;
 
 async function fetchGoldHistory(): Promise<{ price: number; closes: number[] } | null> {
   try {
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/GC=F?range=1y&interval=1d`;
-    const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" }, next: { revalidate: 0 } });
-    if (!res.ok) return null;
-    const j = await res.json();
+    // spot-equivalent, real-time (was delayed COMEX futures)
+    const j = await goldChartJson("1y", "1d");
     const r = j.chart?.result?.[0];
     if (!r) return null;
     const closes: number[] = (r.indicators?.quote?.[0]?.close ?? []).filter(Boolean);

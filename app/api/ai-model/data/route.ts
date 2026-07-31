@@ -9,6 +9,7 @@ import {
 import type { OHLC } from "@/lib/backtest";
 import { FEATURE_NAMES } from "@/lib/aiModelTypes";
 import type { ModelDataPayload } from "@/lib/aiModelTypes";
+import { goldChartJson } from "@/lib/goldSource";
 
 export const dynamic = "force-dynamic";
 
@@ -19,10 +20,8 @@ const LABEL_HORIZON = 5;   // bars ahead to look for label
 const LABEL_THRESH  = 0.5; // % move to classify as BUY/SELL
 
 async function fetchOHLC(): Promise<OHLC[]> {
-  const url = "https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?range=2y&interval=1d&includePrePost=false";
-  const r = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(12_000) });
-  if (!r.ok) throw new Error(`Yahoo ${r.status}`);
-  const json = await r.json();
+  // spot-equivalent, real-time (was delayed COMEX futures)
+  const json = await goldChartJson("2y", "1d");
   const result = json?.chart?.result?.[0];
   const ts: number[] = result?.timestamp ?? [];
   const q  = result?.indicators?.quote?.[0] ?? {};

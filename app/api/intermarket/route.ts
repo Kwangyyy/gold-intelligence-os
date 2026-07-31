@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { yahooChartJson } from "@/lib/goldSource";
 
 export const dynamic = "force-dynamic";
 
@@ -30,10 +31,9 @@ let CACHE: { data: IntermarketAsset[]; ts: number } | null = null;
 const TTL = 60_000; // 1 min
 
 async function fetchYahoo(ticker: string): Promise<{ price: number; change: number; changePct: number }> {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=2d`;
-  const r = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(6_000) });
-  if (!r.ok) throw new Error(`${r.status}`);
-  const json = await r.json();
+  // gold is served from the real-time spot feed; other tickers stay on Yahoo
+  const json = await yahooChartJson(ticker, "2d", "1d");
+  if (!json) throw new Error(`${ticker} unavailable`);
   const res  = json?.chart?.result?.[0];
   if (!res) throw new Error("no result");
   const meta     = res.meta ?? {};

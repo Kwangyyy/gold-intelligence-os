@@ -3,6 +3,7 @@ import { generateWeeklyForecast, type WeeklyForecastInput } from "@/lib/gemini";
 import { calcRSI } from "@/lib/backtest";
 import type { AiModelSignalEntry } from "@/app/api/ai-model/signal/route";
 import type { MarketRegimePayload } from "@/app/api/market-regime/route";
+import { goldFetch } from "@/lib/goldSource";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -12,7 +13,7 @@ async function fetchT(url: string, opts: RequestInit = {}, ms = 8000): Promise<R
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), ms);
   try {
-    return await fetch(url, { ...opts, signal: ctrl.signal });
+    return await goldFetch(url);
   } finally {
     clearTimeout(timer);
   }
@@ -36,7 +37,7 @@ function ema(data: number[], period: number): number {
 
 async function fetchMarket() {
   const url = "https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?range=3mo&interval=1d&includePrePost=false";
-  const res = await fetchT(url, { headers: { "User-Agent": "Mozilla/5.0" }, cache: "no-store" });
+  const res = await goldFetch(url);
   if (!res.ok) throw new Error(`Yahoo ${res.status}`);
   const json = await res.json();
   const result = json?.chart?.result?.[0];

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { yahooChartJson } from "@/lib/goldSource";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -49,10 +50,9 @@ export async function GET() {
   if (CACHE && Date.now() - CACHE.ts < TTL) return NextResponse.json(CACHE.data);
 
   try {
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent("GC=F")}?range=3mo&interval=1d`;
-    const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" }, next: { revalidate: 0 } });
-    if (!res.ok) throw new Error(`Yahoo ${res.status}`);
-    const j = await res.json();
+    // gold is served from the real-time spot feed; other tickers stay on Yahoo
+    const j = await yahooChartJson("GC=F", "3mo", "1d");
+    if (!j) throw new Error("gold feed unavailable");
     const r = j.chart?.result?.[0];
     if (!r) throw new Error("No result");
 

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { goldFetch } from "@/lib/goldSource";
 
 export const runtime = "nodejs";
 export const revalidate = 1800; // 30 min
@@ -28,10 +29,7 @@ interface PositionHeatData {
 async function fetchSpotData(): Promise<{ price: number; high: number; low: number }> {
   try {
     const url = "https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=1d&range=1d";
-    const res = await fetch(url, {
-      headers: { "User-Agent": "Mozilla/5.0" },
-      signal: AbortSignal.timeout(6000),
-    });
+    const res = await goldFetch(url);
     if (!res.ok) throw new Error("fetch failed");
     const json = await res.json() as {
       chart?: {

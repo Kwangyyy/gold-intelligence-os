@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { goldChartJson } from "@/lib/goldSource";
 
 export const dynamic = "force-dynamic";
 
@@ -29,11 +30,18 @@ export interface MacroScorePayload {
   generatedAt: string;
 }
 
-async function fetchGoldData() {
-  const url = "https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?range=45d&interval=1d";
-  const r   = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" }, cache: "no-store" });
+// Only gold moves to the spot feed. DXY / VIX / TLT stay on Yahoo — they are
+// different instruments, and a ten-minute delay is immaterial to a macro score.
+async function yahoo(symbol: string, range: string) {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?range=${range}&interval=1d`;
+  const r = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" }, cache: "no-store" });
   if (!r.ok) return null;
-  const j   = await r.json();
+  return r.json();
+}
+
+async function fetchGoldData() {
+  // spot-equivalent, real-time (was delayed COMEX futures)
+  const j = await goldChartJson("45d", "1d");
   const res = j?.chart?.result?.[0];
   if (!res) return null;
   const closes = (res.indicators?.quote?.[0]?.close ?? []).filter((c: unknown): c is number => c != null);
@@ -43,30 +51,24 @@ async function fetchGoldData() {
 }
 
 async function fetchDXY() {
-  const url = "https://query1.finance.yahoo.com/v8/finance/chart/DX-Y.NYB?range=3m&interval=1d";
-  const r   = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" }, cache: "no-store" });
-  if (!r.ok) return null;
-  const j   = await r.json();
+  const j = await yahoo("DX-Y.NYB", "5d");
   const res = j?.chart?.result?.[0];
   if (!res) return null;
-  const price    = res.meta?.regularMarketPrice ?? 104;
-  const prevClose = res.meta?.chartPreviousClose ?? price;
+  const closes = (res.indicators?.quote?.[0]?.close ?? []).filter((c: unknown): c is number => c != null);
+  const price = res.meta?.regularMarketPrice ?? closes.at(-1) ?? 104;
+  // `chartPreviousClose` is the close before the *range*, not yesterday, so on a
+  // multi-month range it reported a whole quarter's move as a one-day change.
+  const prevClose = closes.at(-2) ?? price;
   return { price: +price.toFixed(2), change1d: +((price - prevClose) / prevClose * 100).toFixed(2) };
 }
 
 async function fetchVIX() {
-  const url = "https://query1.finance.yahoo.com/v8/finance/chart/%5EVIX?range=5d&interval=1d";
-  const r   = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" }, cache: "no-store" });
-  if (!r.ok) return null;
-  const j   = await r.json();
+  const j = await yahoo("%5EVIX", "5d");
   return j?.chart?.result?.[0]?.meta?.regularMarketPrice ?? null;
 }
 
 async function fetchTLT() {
-  const url = "https://query1.finance.yahoo.com/v8/finance/chart/TLT?range=45d&interval=1d";
-  const r   = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" }, cache: "no-store" });
-  if (!r.ok) return null;
-  const j   = await r.json();
+  const j = await yahoo("TLT", "45d");
   const res = j?.chart?.result?.[0];
   if (!res) return null;
   const closes = (res.indicators?.quote?.[0]?.close ?? []).filter((c: unknown): c is number => c != null);

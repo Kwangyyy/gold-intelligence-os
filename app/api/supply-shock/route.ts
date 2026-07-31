@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { goldFetch } from "@/lib/goldSource";
 
 export const revalidate = 3600; // 1h
 
@@ -42,10 +43,7 @@ interface SupplyShockData {
 
 async function fetchGoldSpot(): Promise<number> {
   try {
-    const res = await fetch(
-      "https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=1d&range=2d",
-      { headers: { "User-Agent": "Mozilla/5.0" }, next: { revalidate: 3600 } }
-    );
+    const res = await goldFetch("https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=1d&range=2d");
     const json = await res.json();
     return json?.chart?.result?.[0]?.meta?.regularMarketPrice ?? 3320;
   } catch {

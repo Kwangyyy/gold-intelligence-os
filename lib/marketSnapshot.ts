@@ -16,6 +16,7 @@ import {
 } from "./marketLogic";
 import { getNewsRisk } from "./mockNews";
 import { getNewsRiskLive } from "./newsRisk";
+import { getGoldCandles, getGoldSpot } from "./goldSource";
 import {
   geminiEnabled,
   generateNewsImpact,
@@ -209,48 +210,33 @@ async function applyAi(s: MarketSnapshot): Promise<void> {
 export async function getMarketSnapshot(): Promise<MarketSnapshot> {
   let snapshot: MarketSnapshot;
   try {
-    const res = await fetch(YAHOO_URL, {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36",
-        Accept: "application/json",
-      },
-      next: { revalidate: 5 },
-    });
+    // Same spot-equivalent, real-time feed the charts use. This used to read
+    // Yahoo's COMEX future, which is ten minutes late and carries a basis of
+    // roughly $60 over spot — so every page built on this snapshot quoted a
+    // different gold price from the chart, and trade levels were struck against
+    // a number the user could not actually trade at.
+    const [candles, spot] = await Promise.all([getGoldCandles("1d", 40), getGoldSpot()]);
+    const n = candles.c.length;
+    if (!n) throw new Error("No candles");
 
-    if (!res.ok) throw new Error(`Yahoo responded ${res.status}`);
+    const price = spot.price > 0 ? spot.price : candles.c[n - 1];
+    const previousClose = candles.c[n - 2] ?? price;
+    const todayOpen = candles.o[n - 1] ?? price;
+    // The live tick can already be beyond the bar's stored extremes.
+    const todayHigh = Math.max(candles.h[n - 1] ?? price, price);
+    const todayLow = Math.min(candles.l[n - 1] ?? price, price);
 
-    const json = await res.json();
-    const result = json?.chart?.result?.[0];
-    const meta: YahooMeta = result?.meta ?? {};
-    const quote: YahooQuote | undefined = result?.indicators?.quote?.[0];
-
-    if (!quote) throw new Error("Missing quote data");
-
-    const highs = quote.high.filter((n): n is number => n != null);
-    const lows = quote.low.filter((n): n is number => n != null);
-    const closes = quote.close.filter((n): n is number => n != null);
-
-    const price = meta.regularMarketPrice ?? lastValid(quote.close);
-    const previousClose =
-      closes[closes.length - 2] ?? meta.previousClose ?? meta.chartPreviousClose ?? price;
-    const todayOpen = lastValid(quote.open) ?? price ?? 0;
-    const todayHigh = meta.regularMarketDayHigh ?? lastValid(quote.high) ?? price ?? 0;
-    const todayLow = meta.regularMarketDayLow ?? lastValid(quote.low) ?? price ?? 0;
-
-    if (price == null) throw new Error("Missing price");
-
-    const atr = computeATR(highs, lows, closes, 14);
+    const atr = computeATR(candles.h, candles.l, candles.c, 14);
 
     snapshot = buildSnapshot({
       price,
-      previousClose: previousClose ?? price,
+      previousClose,
       open: todayOpen,
       high: todayHigh,
       low: todayLow,
       atr: atr || todayHigh - todayLow,
       isLive: true,
-      source: "Yahoo Finance · COMEX GC=F",
+      source: spot.source === "paxg" ? "PAXG spot-equivalent · real-time" : "Yahoo Finance · COMEX GC=F",
     });
   } catch {
     snapshot = fallbackSnapshot();

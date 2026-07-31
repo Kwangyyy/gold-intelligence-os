@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { goldFetch } from "@/lib/goldSource";
 
 export const dynamic = "force-dynamic";
 
@@ -42,7 +43,7 @@ export interface ScalpPayload {
 
 async function fetchOHLC(range: string, interval: string) {
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?range=${range}&interval=${interval}`;
-  const r = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" }, cache: "no-store" });
+  const r = await goldFetch(url);
   if (!r.ok) return null;
   const j = await r.json();
   const result = j?.chart?.result?.[0];

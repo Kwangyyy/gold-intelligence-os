@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { goldChartJson } from "@/lib/goldSource";
 
 export const dynamic = "force-dynamic";
 
@@ -42,13 +43,8 @@ const TTL_MS = 30 * 60 * 1000; // 30m — IV updates intraday but slowly
 
 async function fetchSpotPrice(): Promise<number | null> {
   try {
-    const url = "https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?range=21d&interval=1d";
-    const r = await fetch(url, {
-      headers: { "User-Agent": "Mozilla/5.0" },
-      signal: AbortSignal.timeout(6000),
-    });
-    if (!r.ok) return null;
-    const j = await r.json();
+    // spot-equivalent, real-time (was delayed COMEX futures)
+    const j = await goldChartJson("21d", "1d");
     const res = j?.chart?.result?.[0];
     const spot = res?.meta?.regularMarketPrice as number | undefined;
     // Calculate realized vol from closing prices
@@ -62,13 +58,8 @@ async function fetchSpotPrice(): Promise<number | null> {
 async function fetchHV(days: number): Promise<number> {
   try {
     const range = days <= 21 ? "1mo" : days <= 63 ? "3mo" : days <= 126 ? "6mo" : "1y";
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?range=${range}&interval=1d`;
-    const r = await fetch(url, {
-      headers: { "User-Agent": "Mozilla/5.0" },
-      signal: AbortSignal.timeout(5000),
-    });
-    if (!r.ok) return 0;
-    const j = await r.json();
+    // spot-equivalent, real-time (was delayed COMEX futures)
+    const j = await goldChartJson(range, "1d");
     const closes: number[] = (j?.chart?.result?.[0]?.indicators?.quote?.[0]?.close ?? [])
       .filter((v: unknown): v is number => typeof v === "number" && !isNaN(v));
     if (closes.length < 2) return 0;

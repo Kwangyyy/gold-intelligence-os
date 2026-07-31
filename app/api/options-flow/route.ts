@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { goldChartJson } from "@/lib/goldSource";
 
 export const dynamic = "force-dynamic";
 
@@ -38,19 +39,15 @@ export interface OptionsFlowPayload {
 async function fetchPrice(symbol: string): Promise<number | null> {
   try {
     const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?range=5d&interval=1d`;
-    const r = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" }, cache: "no-store" });
-    if (!r.ok) return null;
-    const j = await r.json();
+    const j = await goldChartJson("40d", "1d");
     return j?.chart?.result?.[0]?.meta?.regularMarketPrice ?? null;
   } catch { return null; }
 }
 
 async function fetchRealizedVol(): Promise<number> {
   try {
-    const url = "https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?range=40d&interval=1d";
-    const r = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" }, cache: "no-store" });
-    if (!r.ok) return 15;
-    const j = await r.json();
+    // spot-equivalent, real-time (was delayed COMEX futures)
+    const j = await goldChartJson("40d", "1d");
     const closes: (number | null)[] = j?.chart?.result?.[0]?.indicators?.quote?.[0]?.close ?? [];
     const valid = closes.filter((c): c is number => c != null);
     if (valid.length < 21) return 15;

@@ -3,6 +3,7 @@ import { runBacktest, defaultBacktestConfig, type OHLC, type BacktestConfig } fr
 import { optimizeRobust } from "@/lib/robustness";
 import { STRATEGY_META, type StrategyId } from "@/lib/eaOptimizer";
 import { buildEaPortfolio, type EaCandidate } from "@/lib/eaPortfolio";
+import { goldChartJson } from "@/lib/goldSource";
 
 export const dynamic = "force-dynamic";
 
@@ -13,10 +14,8 @@ const TTL = 30 * 60_000;
 
 async function fetchOHLC(): Promise<OHLC[]> {
   if (CACHE && Date.now() - CACHE.ts < TTL) return CACHE.data;
-  const url = "https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?range=2y&interval=1d&includePrePost=false";
-  const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(10_000) });
-  if (!res.ok) throw new Error(`Yahoo ${res.status}`);
-  const json = await res.json();
+  // spot-equivalent, real-time (was delayed COMEX futures)
+  const json = await goldChartJson("2y", "1d");
   const r = json?.chart?.result?.[0];
   const ts: number[] = r?.timestamp ?? [];
   const q = r?.indicators?.quote?.[0] ?? {};

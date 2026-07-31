@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { goldChartJson } from "@/lib/goldSource";
 
 export const dynamic = "force-dynamic";
 
@@ -10,12 +11,8 @@ export async function GET() {
     if (CACHE && Date.now() - CACHE.ts < TTL) {
       return NextResponse.json({ price: CACHE.price });
     }
-    const url = "https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?range=1d&interval=1m";
-    const res = await fetch(url, {
-      headers: { "User-Agent": "Mozilla/5.0" },
-      cache: "no-store",
-    });
-    const json  = await res.json();
+    // spot-equivalent, real-time (was delayed COMEX futures)
+    const json  = await goldChartJson("1d", "1m");
     const meta  = json?.chart?.result?.[0]?.meta ?? {};
     const price = (meta.regularMarketPrice ?? 0) as number;
     CACHE = { price, ts: Date.now() };

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { yahooChartJson } from "@/lib/goldSource";
 
 export const runtime = "nodejs";
 export const revalidate = 900; // 15 min
@@ -23,22 +24,11 @@ interface MarketInternalsData {
   timestamp: string;
 }
 
+// gold is served from the real-time spot feed; other tickers stay on Yahoo
 async function fetchYahoo(symbol: string): Promise<number | null> {
   try {
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=2d`;
-    const res = await fetch(url, {
-      headers: { "User-Agent": "Mozilla/5.0" },
-      signal: AbortSignal.timeout(6000),
-    });
-    if (!res.ok) return null;
-    const json = await res.json() as {
-      chart?: {
-        result?: Array<{
-          meta?: { regularMarketPrice?: number; chartPreviousClose?: number };
-        }>;
-      };
-    };
-    return json.chart?.result?.[0]?.meta?.regularMarketPrice ?? null;
+    const json = await yahooChartJson(symbol, "2d", "1d");
+    return json?.chart?.result?.[0]?.meta?.regularMarketPrice ?? null;
   } catch {
     return null;
   }
@@ -46,20 +36,8 @@ async function fetchYahoo(symbol: string): Promise<number | null> {
 
 async function fetchYahooPrev(symbol: string): Promise<number | null> {
   try {
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=2d`;
-    const res = await fetch(url, {
-      headers: { "User-Agent": "Mozilla/5.0" },
-      signal: AbortSignal.timeout(6000),
-    });
-    if (!res.ok) return null;
-    const json = await res.json() as {
-      chart?: {
-        result?: Array<{
-          meta?: { chartPreviousClose?: number };
-        }>;
-      };
-    };
-    return json.chart?.result?.[0]?.meta?.chartPreviousClose ?? null;
+    const json = await yahooChartJson(symbol, "2d", "1d");
+    return json?.chart?.result?.[0]?.meta?.chartPreviousClose ?? null;
   } catch {
     return null;
   }

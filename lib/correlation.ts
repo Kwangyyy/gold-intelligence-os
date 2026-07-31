@@ -3,6 +3,7 @@
 // pressure for gold, and flags divergences. Server-side, no AI.
 
 import type { Bilingual, CorrelationInstrument, IntermarketCorrelation } from "./types";
+import { yahooChartJson } from "./goldSource";
 
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
@@ -42,10 +43,9 @@ async function fetchSeries(symbol: string): Promise<Series | null> {
   const cached = cache.get(symbol);
   if (cached && Date.now() - cached.at < TTL) return cached.series;
   try {
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=3mo`;
-    const res = await fetch(url, { headers: { "User-Agent": UA, Accept: "application/json" }, cache: "no-store" });
-    if (!res.ok) return null;
-    const json = await res.json();
+    // gold is served from the real-time spot feed; other tickers stay on Yahoo
+    const json = await yahooChartJson(symbol, "3mo", "1d");
+    if (!json) return null;
     const result = json?.chart?.result?.[0];
     const ts: number[] = result?.timestamp ?? [];
     const closes: (number | null)[] = result?.indicators?.quote?.[0]?.close ?? [];

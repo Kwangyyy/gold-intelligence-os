@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { OHLC } from "@/lib/backtest";
 import { assessRobustness } from "@/lib/robustness";
 import type { StrategyId } from "@/lib/eaOptimizer";
+import { goldFetch } from "@/lib/goldSource";
 
 export const dynamic = "force-dynamic";
 
@@ -34,7 +35,7 @@ async function fetchOHLC(range: string, interval: string): Promise<OHLC[]> {
 
   const yfInterval = interval === "1h" || interval === "4h" ? "60m" : "1d";
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?range=${range}&interval=${yfInterval}&includePrePost=false`;
-  const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" }, next: { revalidate: 1800 } });
+  const res = await goldFetch(url);
   if (!res.ok) throw new Error(`Yahoo Finance ${res.status}`);
   const json = await res.json();
   const result = json?.chart?.result?.[0];

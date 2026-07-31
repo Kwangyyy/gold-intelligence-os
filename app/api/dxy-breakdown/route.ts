@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { yahooChartJson } from "@/lib/goldSource";
+import { goldFetch } from "@/lib/goldSource";
 
 export const dynamic = "force-dynamic";
 
@@ -64,9 +66,8 @@ type YChart = {
 
 async function fetchRate(sym: string): Promise<{ price: number; prev1d: number; prev1w: number }> {
   try {
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?range=1mo&interval=1d`;
-    const r   = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" }, cache: "no-store" });
-    const j   = await r.json() as YChart;
+    // gold is served from the real-time spot feed; other tickers stay on Yahoo
+    const j = await yahooChartJson(sym, "1mo", "1d") as YChart;
     const res = j?.chart?.result?.[0];
     if (!res) return { price: 0, prev1d: 0, prev1w: 0 };
     const price = res.meta?.regularMarketPrice ?? 0;
@@ -164,10 +165,7 @@ export async function GET() {
     // Fetch live gold
     let goldPrice = 3200;
     try {
-      const r  = await fetch(
-        "https://query1.finance.yahoo.com/v8/finance/chart/GC=F?range=1d&interval=1d",
-        { headers: { "User-Agent": "Mozilla/5.0" }, cache: "no-store" }
-      );
+      const r  = await goldFetch("https://query1.finance.yahoo.com/v8/finance/chart/GC=F?range=1d&interval=1d");
       const j  = await r.json();
       goldPrice = j?.chart?.result?.[0]?.meta?.regularMarketPrice ?? goldPrice;
     } catch { /* fallback */ }

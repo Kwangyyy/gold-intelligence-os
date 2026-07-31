@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { goldFetch } from "@/lib/goldSource";
 
 export const revalidate = 300; // 5-min cache
 
@@ -35,10 +36,7 @@ interface TradeSetupData {
 
 async function fetchGoldOHLC(): Promise<{ spot: number; high: number; low: number; prev: number; history: number[] }> {
   try {
-    const res = await fetch(
-      "https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=1d&range=20d",
-      { headers: { "User-Agent": "Mozilla/5.0" }, next: { revalidate: 300 } }
-    );
+    const res = await goldFetch("https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=1d&range=20d");
     const json = await res.json();
     const result = json?.chart?.result?.[0];
     if (!result) return { spot: 3320, high: 3340, low: 3300, prev: 3310, history: [] };

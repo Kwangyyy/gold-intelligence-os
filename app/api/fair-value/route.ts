@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { yahooChartJson } from "@/lib/goldSource";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,10 +42,9 @@ const TTL = 60 * 60 * 1000; // 1h
 
 async function fetchClose(symbol: string, range = "1y"): Promise<{ price: number; closes: number[] } | null> {
   try {
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=1d`;
-    const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" }, next: { revalidate: 0 } });
-    if (!res.ok) return null;
-    const j = await res.json();
+    // gold is served from the real-time spot feed; other tickers stay on Yahoo
+    const j = await yahooChartJson(symbol, range, "1d");
+    if (!j) return null;
     const r = j.chart?.result?.[0];
     if (!r) return null;
     const closes: number[] = (r.indicators?.quote?.[0]?.close ?? []).filter(Boolean);

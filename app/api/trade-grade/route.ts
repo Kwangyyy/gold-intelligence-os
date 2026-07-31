@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { goldFetch } from "@/lib/goldSource";
 
 export const dynamic = "force-dynamic";
 
@@ -45,10 +46,7 @@ const TTL_MS = 15 * 60 * 1000; // 15m
 
 async function fetchGoldData(): Promise<{ price: number; chgPct: number; high: number; low: number } | null> {
   try {
-    const r = await fetch(
-      "https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?range=5d&interval=1d",
-      { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(6000) }
-    );
+    const r = await goldFetch("https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?range=5d&interval=1d");
     if (!r.ok) return null;
     const j = await r.json();
     const meta = j?.chart?.result?.[0]?.meta;

@@ -271,7 +271,7 @@ export async function buildTechnicalScore(tf: TimeframeCode): Promise<TechnicalS
 
   return {
     symbol: "XAUUSD",
-    source: "Yahoo Finance · COMEX GC=F",
+    source: "PAXG spot-equivalent · real-time",
     tf,
     price: +price.toFixed(2),
     technicalScore,

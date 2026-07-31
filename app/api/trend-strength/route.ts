@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { goldFetch } from "@/lib/goldSource";
 
 export const dynamic = "force-dynamic";
 
@@ -100,7 +101,7 @@ function classifyTrend(adx: number, diPlus: number, diMinus: number): {
 
 async function fetchBars(range: string, interval: string): Promise<{ h: number[]; l: number[]; c: number[]; last: number } | null> {
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?range=${range}&interval=${interval}&includePrePost=false`;
-  const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" }, cache: "no-store" });
+  const res = await goldFetch(url);
   if (!res.ok) return null;
   const json = await res.json();
   const result = json?.chart?.result?.[0];

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { generateDailyBrief, type BriefInput, type DailyBrief } from "@/lib/gemini";
 import { calcEMA, calcRSI } from "@/lib/backtest";
 import type { AiModelSignalEntry } from "@/app/api/ai-model/signal/route";
+import { goldChartJson } from "@/lib/goldSource";
 
 export const dynamic = "force-dynamic";
 
@@ -10,10 +11,8 @@ const TTL = 60 * 60 * 1000; // 1 hour
 
 async function fetchMarketData() {
   // Price + 30-day daily OHLC from Yahoo Finance
-  const url = "https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?range=2mo&interval=1d&includePrePost=false";
-  const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" }, cache: "no-store" });
-  if (!res.ok) throw new Error(`Yahoo ${res.status}`);
-  const json = await res.json();
+  // spot-equivalent, real-time (was delayed COMEX futures)
+  const json = await goldChartJson("2mo", "1d");
   const result = json?.chart?.result?.[0];
   if (!result) throw new Error("No Yahoo data");
 

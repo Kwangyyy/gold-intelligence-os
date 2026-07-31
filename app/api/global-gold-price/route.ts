@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { goldFetch } from "@/lib/goldSource";
 
 export const revalidate = 900;
 
@@ -51,10 +52,7 @@ async function fetchFX(symbol: string): Promise<FXQuote> {
 
 async function fetchGoldUSD(): Promise<{ price: number; change: number }> {
   try {
-    const res = await fetch(
-      "https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=1d&range=5d",
-      { headers: { "User-Agent": "Mozilla/5.0" }, next: { revalidate: 900 } }
-    );
+    const res = await goldFetch("https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=1d&range=5d");
     const json = await res.json();
     const meta = json?.chart?.result?.[0]?.meta;
     const price = meta?.regularMarketPrice ?? 3320;

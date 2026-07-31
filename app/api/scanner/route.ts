@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { runScan, type ScanResult } from "@/lib/scanner";
+import { goldFetch } from "@/lib/goldSource";
 
 export const dynamic = "force-dynamic";
 
@@ -9,10 +10,7 @@ const TTL = 3 * 60 * 1000;
 
 async function fetchPrice(): Promise<number> {
   try {
-    const res = await fetch(
-      "https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?range=1d&interval=1m&includePrePost=false",
-      { headers: { "User-Agent": "Mozilla/5.0" }, cache: "no-store" }
-    );
+    const res = await goldFetch("https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?range=1d&interval=1m&includePrePost=false");
     const j = await res.json();
     return j?.chart?.result?.[0]?.meta?.regularMarketPrice ?? 0;
   } catch {

@@ -45,7 +45,11 @@ const TTL = 60 * 60 * 1000; // 1h
 
 async function fetchYearlyOHLC(): Promise<{ price: number; yearlyHighs: number[]; yearlyLows: number[] }> {
   try {
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/GC=F?range=10y&interval=1mo`;
+    // spot-equivalent, real-time (was delayed COMEX futures)
+// Deliberately still on the COMEX future. The spot feed only reaches back to
+// 2023 daily / 2020 monthly, and a multi-year structure pattern needs decades. Delay and the
+// futures basis are irrelevant here — these are percentage-return statistics.
+    const url = "https://query1.finance.yahoo.com/v8/finance/chart/GC=F?range=10y&interval=1mo";
     const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" }, next: { revalidate: 0 } });
     if (!res.ok) throw new Error("Failed");
     const j = await res.json();

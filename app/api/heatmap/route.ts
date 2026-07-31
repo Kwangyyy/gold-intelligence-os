@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { goldChartJson } from "@/lib/goldSource";
 
 export const dynamic = "force-dynamic";
 
@@ -39,17 +40,12 @@ export async function GET() {
   }
 
   try {
-    const url = "https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=1h&range=60d";
-    const res = await fetch(url, {
-      headers: { "User-Agent": "Mozilla/5.0" },
-      signal: AbortSignal.timeout(12_000),
-    });
-    if (!res.ok) throw new Error(`Yahoo ${res.status}`);
-    const json = await res.json();
+    // spot-equivalent, real-time (was delayed COMEX futures)
+    const json = await goldChartJson("60d", "1h");
     const result = json?.chart?.result?.[0];
     if (!result) throw new Error("no result");
 
-    const timestamps: number[] = result.timestamps ?? result.timestamp ?? [];
+    const timestamps: number[] = result.timestamp ?? [];
     const quotes = result.indicators?.quote?.[0] ?? {};
     const highs: number[] = quotes.high ?? [];
     const lows: number[]  = quotes.low  ?? [];

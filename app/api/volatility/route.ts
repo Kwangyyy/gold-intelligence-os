@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { goldFetch } from "@/lib/goldSource";
 
 export const dynamic = "force-dynamic";
 
@@ -55,8 +56,8 @@ export async function GET() {
     const intradayUrl = "https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?range=1d&interval=1h&includePrePost=false";
 
     const [dailyRes, intradayRes] = await Promise.all([
-      fetch(dailyUrl, { headers: { "User-Agent": "Mozilla/5.0" }, cache: "no-store" }),
-      fetch(intradayUrl, { headers: { "User-Agent": "Mozilla/5.0" }, cache: "no-store" }),
+      goldFetch(dailyUrl),
+      goldFetch(intradayUrl),
     ]);
 
     if (!dailyRes.ok) throw new Error(`Yahoo daily ${dailyRes.status}`);

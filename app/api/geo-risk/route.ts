@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { goldFetch } from "@/lib/goldSource";
 
 export const dynamic = "force-dynamic";
 
@@ -42,8 +43,7 @@ async function fetchVixAndGold() {
     const [vixR, goldR] = await Promise.all([
       fetch("https://query1.finance.yahoo.com/v8/finance/chart/%5EVIX?range=5d&interval=1d",
         { headers: { "User-Agent": "Mozilla/5.0" }, cache: "no-store" }),
-      fetch("https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?range=2d&interval=1d",
-        { headers: { "User-Agent": "Mozilla/5.0" }, cache: "no-store" }),
+      goldFetch("https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?range=2d&interval=1d"),
     ]);
     type YJ = { chart?: { result?: Array<{ meta?: { regularMarketPrice?: number } }> } } | null;
     const vixJ = await vixR.json() as YJ;

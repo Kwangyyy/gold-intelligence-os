@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { goldFetch } from "@/lib/goldSource";
 
 export const dynamic = "force-dynamic";
 
@@ -94,10 +95,7 @@ type YJ = { chart?: { result?: Array<{ meta?: { regularMarketPrice?: number } }>
 
 async function fetchGold(): Promise<number> {
   try {
-    const r = await fetch(
-      "https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?range=2d&interval=1d",
-      { headers: { "User-Agent": "Mozilla/5.0" }, cache: "no-store" },
-    );
+    const r = await goldFetch("https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?range=2d&interval=1d");
     const j = await r.json() as YJ;
     return j?.chart?.result?.[0]?.meta?.regularMarketPrice ?? 3200;
   } catch { return 3200; }

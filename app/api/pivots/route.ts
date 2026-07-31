@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { goldFetch } from "@/lib/goldSource";
 
 export const dynamic = "force-dynamic";
 
@@ -133,8 +134,8 @@ export async function GET() {
     // Weekly OHLC (last 2 weeks)
     const weeklyUrl = "https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?range=8wk&interval=1wk&includePrePost=false";
     const [dr, wr] = await Promise.all([
-      fetch(dailyUrl,  { headers: { "User-Agent": "Mozilla/5.0" }, cache: "no-store" }),
-      fetch(weeklyUrl, { headers: { "User-Agent": "Mozilla/5.0" }, cache: "no-store" }),
+      goldFetch(dailyUrl),
+      goldFetch(weeklyUrl),
     ]);
     if (!dr.ok) throw new Error(`Yahoo daily ${dr.status}`);
     const dj = await dr.json();

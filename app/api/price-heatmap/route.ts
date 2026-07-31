@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { goldFetch } from "@/lib/goldSource";
 
 export const dynamic = "force-dynamic";
 
@@ -63,7 +64,7 @@ const MONTH_LABELS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct
 async function fetchGold() {
   try {
     const url = `https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?range=1y&interval=1d`;
-    const r = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" }, cache: "no-store" });
+    const r = await goldFetch(url);
     if (!r.ok) return null;
     return await r.json();
   } catch { return null; }

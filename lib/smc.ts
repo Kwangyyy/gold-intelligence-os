@@ -226,7 +226,7 @@ export async function buildSmc(tf: TimeframeCode): Promise<SmcAnalysis> {
 
   return {
     symbol: "XAUUSD",
-    source: "Yahoo Finance · COMEX GC=F",
+    source: "PAXG spot-equivalent · real-time",
     tf,
     price: round2(price),
     bias,

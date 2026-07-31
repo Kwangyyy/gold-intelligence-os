@@ -3,6 +3,7 @@
 
 import { NextResponse } from "next/server";
 import { SYMBOLS } from "@/lib/symbolConfig";
+import { yahooChartJson } from "@/lib/goldSource";
 
 export const dynamic = "force-dynamic";
 
@@ -18,18 +19,10 @@ export interface SymbolPrice {
 }
 
 async function fetchOne(yahooTicker: string): Promise<{ price: number; prevClose: number; high: number; low: number } | null> {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooTicker)}?interval=1d&range=2d`;
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 6000);
   try {
-    const res = await fetch(url, {
-      signal: ctrl.signal,
-      headers: { "User-Agent": "Mozilla/5.0" },
-      cache: "no-store",
-    });
-    clearTimeout(timer);
-    if (!res.ok) return null;
-    const json = await res.json();
+    // gold is served from the real-time spot feed; other tickers stay on Yahoo
+    const json = await yahooChartJson(yahooTicker, "2d", "1d");
+    if (!json) return null;
     const meta = json?.chart?.result?.[0]?.meta ?? {};
     const price     = meta.regularMarketPrice ?? null;
     const prevClose = meta.chartPreviousClose ?? meta.previousClose ?? null;
@@ -38,7 +31,6 @@ async function fetchOne(yahooTicker: string): Promise<{ price: number; prevClose
     if (!price) return null;
     return { price, prevClose: prevClose ?? price, high: high ?? price, low: low ?? price };
   } catch {
-    clearTimeout(timer);
     return null;
   }
 }

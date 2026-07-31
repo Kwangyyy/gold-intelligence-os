@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { yahooChartJson } from "@/lib/goldSource";
 
 export const runtime = "nodejs";
 export const revalidate = 1800; // 30 min
@@ -30,13 +31,8 @@ interface HurstData {
 
 async function fetchPrices(symbol: string, period: string): Promise<number[]> {
   try {
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=${period}&range=2y`;
-    const res = await fetch(url, {
-      headers: { "User-Agent": "Mozilla/5.0" },
-      signal: AbortSignal.timeout(8000),
-    });
-    if (!res.ok) return [];
-    const json = await res.json() as {
+    // gold is served from the real-time spot feed; other tickers stay on Yahoo
+    const json = await yahooChartJson(symbol, "2y", period) as {
       chart?: {
         result?: Array<{
           indicators?: {
@@ -45,6 +41,7 @@ async function fetchPrices(symbol: string, period: string): Promise<number[]> {
         }>;
       };
     };
+    if (!json) return [];
     const closes = json.chart?.result?.[0]?.indicators?.quote?.[0]?.close ?? [];
     return closes.filter((c): c is number => c !== null && !isNaN(c));
   } catch {

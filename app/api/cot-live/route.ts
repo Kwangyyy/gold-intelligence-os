@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { goldFetch } from "@/lib/goldSource";
 
 export const revalidate = 3600;
 
@@ -41,10 +42,7 @@ interface COTLiveData {
 
 async function fetchGoldData(): Promise<{ price: number; change1w: number }> {
   try {
-    const res = await fetch(
-      "https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=1d&range=10d",
-      { headers: { "User-Agent": "Mozilla/5.0" }, next: { revalidate: 3600 } }
-    );
+    const res = await goldFetch("https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=1d&range=10d");
     const json = await res.json();
     const result = json?.chart?.result?.[0];
     const closes: number[] = (result?.indicators?.quote?.[0]?.close ?? []).filter((c: number | null) => c != null);

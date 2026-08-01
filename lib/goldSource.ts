@@ -343,7 +343,7 @@ export async function yahooChartJson(
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(raw)}?range=${range}&interval=${interval}`;
   const r = await fetch(url, {
     headers: { "User-Agent": "Mozilla/5.0" },
-    signal: AbortSignal.timeout(10_000),
+    signal: AbortSignal.timeout(6_000),
     cache: "no-store",
   });
   if (!r.ok) return null;

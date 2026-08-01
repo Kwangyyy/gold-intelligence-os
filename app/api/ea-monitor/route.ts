@@ -35,7 +35,7 @@ async function fetchMQL5RSS(): Promise<EaListing[]> {
   const url = "https://www.mql5.com/en/market/product/list/expert?rss=1";
   const r = await fetch(url, {
     headers: { "User-Agent": "Mozilla/5.0", "Accept": "application/rss+xml,application/xml" },
-    signal: AbortSignal.timeout(10_000),
+    signal: AbortSignal.timeout(6_000),
   });
   if (!r.ok) throw new Error(`MQL5 RSS: ${r.status}`);
   const xml = await r.text();

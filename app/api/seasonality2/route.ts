@@ -71,7 +71,7 @@ export async function GET() {
 // futures basis are irrelevant here — these are percentage-return statistics.
     const url = "https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?range=10y&interval=1mo&includePrePost=false";
     const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" }, cache: "no-store",
-      signal: AbortSignal.timeout(10_000),
+      signal: AbortSignal.timeout(6_000),
     });
     if (!res.ok) throw new Error(`Yahoo ${res.status}`);
     const json = await res.json();
@@ -147,7 +147,7 @@ export async function GET() {
     // For weekly precision, fetch weekly data
     const weekUrl = "https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?range=5y&interval=1wk&includePrePost=false";
     const weekRes = await fetch(weekUrl, { headers: { "User-Agent": "Mozilla/5.0" }, cache: "no-store",
-      signal: AbortSignal.timeout(10_000),
+      signal: AbortSignal.timeout(6_000),
     });
     const weekBuckets = new Map<number, { returns: number[]; ranges: number[] }>();
     if (weekRes.ok) {

@@ -51,7 +51,7 @@ async function fetchDXY5yHigh(): Promise<number> {
     const res = await fetch(
       "https://query1.finance.yahoo.com/v8/finance/chart/DX-Y.NYB?interval=1mo&range=5y",
       { headers: { "User-Agent": "Mozilla/5.0" }, next: { revalidate: 900 },
-      signal: AbortSignal.timeout(10_000),
+      signal: AbortSignal.timeout(6_000),
     });
     const json = await res.json();
     const highs: number[] = (json?.chart?.result?.[0]?.indicators?.quote?.[0]?.high ?? []).filter((h: number | null) => h != null);

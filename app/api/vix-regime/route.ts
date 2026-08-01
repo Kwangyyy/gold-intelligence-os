@@ -33,7 +33,7 @@ async function fetchVix(): Promise<{ price: number | null; change1d: number | nu
     const res = await fetch(
       "https://query1.finance.yahoo.com/v8/finance/chart/%5EVIX?interval=1d&range=14d",
       { headers: { "User-Agent": "Mozilla/5.0" }, next: { revalidate: 900 },
-      signal: AbortSignal.timeout(10_000),
+      signal: AbortSignal.timeout(6_000),
     });
     const json = await res.json();
     const result = json?.chart?.result?.[0];

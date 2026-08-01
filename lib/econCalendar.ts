@@ -30,7 +30,11 @@ async function load(week: Week): Promise<EconEvent[]> {
   const r = await fetch(`https://nfs.faireconomy.media/ff_calendar_${week}.json`, {
     headers: { "User-Agent": "Mozilla/5.0" },
     cache: "no-store",
-    signal: AbortSignal.timeout(10_000),
+    // Six seconds, not ten. A Vercel Hobby function gets ten seconds in total,
+    // so a ten-second fetch timeout can never fire — the platform kills the
+    // function first and the caller sees a 500 instead of the empty list this
+    // module is designed to return.
+    signal: AbortSignal.timeout(6_000),
   });
   if (!r.ok) throw new Error(`FF calendar ${r.status}`);
   const raw = (await r.json()) as EconEvent[];

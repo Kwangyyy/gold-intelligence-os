@@ -51,7 +51,7 @@ async function yahoo(symbol: string): Promise<Quote | null> {
     const r = await fetch(url, {
       headers: { "User-Agent": "Mozilla/5.0" },
       cache: "no-store",
-      signal: AbortSignal.timeout(10_000),
+      signal: AbortSignal.timeout(6_000),
     });
     if (!r.ok) return null;
     const j = await r.json();

@@ -20,7 +20,7 @@ async function getAiAnalysis(event: CalendarEvent): Promise<{ th: string; en: st
   try {
     const analysis = await generateCalendarGoldImpact(
       { title: event.title, country: event.country, impact: event.impact, forecast: event.forecast, previous: event.previous },
-      AbortSignal.timeout(10_000)
+      AbortSignal.timeout(6_000)
     );
     aiCache.set(event.id, { analysis, at: Date.now() });
     return analysis;
@@ -34,7 +34,7 @@ async function fetchWeek(url: string, fallbackOffset: 0 | 1): Promise<CalendarEv
     const res = await fetch(url, {
       headers: { "User-Agent": "Mozilla/5.0 Gold-Intelligence-OS/1.0" },
       next: { revalidate: 3600 },
-      signal: AbortSignal.timeout(10_000),
+      signal: AbortSignal.timeout(6_000),
     });
     if (!res.ok) throw new Error(`FF responded ${res.status}`);
     const raw = (await res.json()) as Parameters<typeof mapFF>[0][];

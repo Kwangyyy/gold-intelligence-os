@@ -72,7 +72,7 @@ async function fetchMarket() {
 async function fetchTechnical() {
   try {
     const base = process.env.NEXTAUTH_URL ?? "http://localhost:3100";
-    const res = await fetch(`${base}/api/technical/score`, { cache: "no-store" , signal: AbortSignal.timeout(10_000) });
+    const res = await fetch(`${base}/api/technical/score`, { cache: "no-store" , signal: AbortSignal.timeout(6_000) });
     if (!res.ok) return null;
     const data = await res.json();
     return { bias: data.overallBias as string, score: data.compositeScore as number };
@@ -92,7 +92,7 @@ async function fetchAiSignal() {
 async function fetchNewsSentiment() {
   try {
     const base = process.env.NEXTAUTH_URL ?? "http://localhost:3100";
-    const res = await fetch(`${base}/api/news`, { cache: "no-store" , signal: AbortSignal.timeout(10_000) });
+    const res = await fetch(`${base}/api/news`, { cache: "no-store" , signal: AbortSignal.timeout(6_000) });
     if (!res.ok) return null;
     const data = await res.json();
     return { sentiment: data.overallSentiment as string, score: data.overallScore as number };

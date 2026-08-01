@@ -52,7 +52,7 @@ export async function GET() {
   try {
     // Fetch news from our existing /api/news endpoint
     const base = process.env.NEXTAUTH_URL ?? "http://localhost:3100";
-    const newsRes = await fetch(`${base}/api/news`, { cache: "no-store" , signal: AbortSignal.timeout(10_000) });
+    const newsRes = await fetch(`${base}/api/news`, { cache: "no-store" , signal: AbortSignal.timeout(6_000) });
     if (!newsRes.ok) throw new Error(`news ${newsRes.status}`);
     const newsData = await newsRes.json();
     const rawArticles: { title?: string; source?: { name?: string }; publishedAt?: string; url?: string; description?: string }[] =

@@ -30,7 +30,7 @@ async function fetchFedFundsProxy(): Promise<number | null> {
     const res = await fetch(
       "https://query1.finance.yahoo.com/v8/finance/chart/%5EIRX?interval=1d&range=5d",
       { headers: { "User-Agent": "Mozilla/5.0" }, next: { revalidate: 3600 },
-      signal: AbortSignal.timeout(10_000),
+      signal: AbortSignal.timeout(6_000),
     });
     const json = await res.json();
     return json?.chart?.result?.[0]?.meta?.regularMarketPrice ?? null;

@@ -68,7 +68,7 @@ async function fetchDaily(): Promise<{ ts: number; open: number; close: number }
 // futures basis are irrelevant here — these are percentage-return statistics.
   const url = "https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?range=12y&interval=1d&includePrePost=false";
   const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" }, cache: "no-store",
-      signal: AbortSignal.timeout(10_000),
+      signal: AbortSignal.timeout(6_000),
     });
   if (!res.ok) throw new Error(`Yahoo ${res.status}`);
   const json = await res.json();

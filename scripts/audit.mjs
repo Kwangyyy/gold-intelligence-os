@@ -135,8 +135,15 @@ function topPrices(o) {
 }
 
 // ── 3. live: two calls seconds apart must agree ─────────────────────────────
-const VOLATILE = /"(timestamp|generatedAt|asOf|at|ts|lastUpdate|updatedAt|time)"\s*:\s*"[^"]*"/g;
-const normalise = (b) => b.replace(VOLATILE, '"_":""').replace(/(\d{4})\.\d+/g, "$1");
+// Fields that measure "how old is this", and the sentences that embed them,
+// tick every second by design — gold-live reports the futures feed as 64,729s
+// stale on a Saturday and that number is supposed to move.
+const VOLATILE_STR = /"(timestamp|generatedAt|asOf|at|ts|lastUpdate|updatedAt|time|sourceLabel|sourceLabelTh|source|methodology|vaultCaveat|insight|expiryInfo)"\s*:\s*"[^"]*"/g;
+const VOLATILE_NUM = /"(\w*[Dd]elaySec|\w*AgeDays|\w*Age|dte|reportAgeDays)"\s*:\s*-?\d+(\.\d+)?/g;
+const normalise = (b) =>
+  b.replace(VOLATILE_STR, '"_":""')
+   .replace(VOLATILE_NUM, '"_":0')
+   .replace(/(\d{4})\.\d+/g, "$1");
 
 async function liveChecks(list) {
   const spot = Number(

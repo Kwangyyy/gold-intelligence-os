@@ -24,6 +24,7 @@ export interface ChainRow {
   strike: number;   // raw GLD strike
   oi: number;
   iv: number;
+  delta: number;    // signed: calls positive, puts negative
   gamma: number;    // per-contract gamma from CBOE
 }
 
@@ -32,6 +33,7 @@ interface CboeContract {
   iv?: number | null;
   open_interest?: number | null;
   volume?: number | null;
+  delta?: number | null;
   gamma?: number | null;
 }
 
@@ -67,6 +69,7 @@ async function fetchChain(): Promise<Chain> {
       strike: Number(kk) / 1000,
       oi: Number(o.open_interest ?? 0) || 0,
       iv: Number(o.iv ?? 0) || 0,
+      delta: Number(o.delta ?? 0) || 0,
       gamma: Number(o.gamma ?? 0) || 0,
     });
   }
@@ -167,4 +170,85 @@ export function gammaFlipOf(
     if (prev !== 0 && Math.sign(prev) !== Math.sign(running)) return s.strike;
   }
   return fallback;
+}
+
+// ── implied vol surface ──────────────────────────────────────────────────────
+// volatility-term built its whole term structure from `HV × 1.12` and then
+// multiplied that by fixed coefficients per tenor, with risk reversals and
+// butterflies typed in as constants — a Pro page about the options market
+// containing no option quotes. CBOE gives IV and a signed delta on every
+// contract, so the surface can be read rather than assumed.
+
+export interface VolSlice {
+  expiry: string;
+  dte: number;
+  atmIv: number;            // %, annualised
+  riskReversal25d: number;  // vol pts: 25d call IV − 25d put IV. Positive = calls bid.
+  butterfly25d: number;     // vol pts: mean wing IV − ATM IV
+  contracts: number;        // how many quotes backed this slice
+}
+
+/** IV at the contract whose |delta| is closest to `target`, on one side. */
+function ivAtDelta(legs: ChainRow[], target: number, calls: boolean): number | null {
+  const side = legs.filter((l) => l.isCall === calls && l.iv > 0 && l.delta !== 0);
+  if (!side.length) return null;
+  const best = side.reduce((a, b) =>
+    Math.abs(Math.abs(b.delta) - target) < Math.abs(Math.abs(a.delta) - target) ? b : a,
+  );
+  // Refuse to pass off a 40-delta quote as a 25-delta one.
+  return Math.abs(Math.abs(best.delta) - target) <= 0.12 ? best.iv * 100 : null;
+}
+
+/**
+ * One slice of the vol surface per expiry, nearest first. Skips expiries with
+ * too few quotes to say anything, and any slice whose 25-delta wings are
+ * missing reports the skew as 0 rather than inventing one.
+ */
+export function volSurface(rows: ChainRow[], minQuotes = 40): VolSlice[] {
+  const byExpiry = new Map<string, ChainRow[]>();
+  for (const r of rows) {
+    if (r.iv <= 0) continue;
+    const a = byExpiry.get(r.expiry) ?? [];
+    a.push(r);
+    byExpiry.set(r.expiry, a);
+  }
+
+  const out: VolSlice[] = [];
+  for (const [expiry, legs] of byExpiry) {
+    const dte = dteOf(expiry);
+    if (dte < 1 || legs.length < minQuotes) continue;
+
+    // ATM is the 50-delta contract, which is where the market puts it —
+    // more robust than "strike nearest spot" when the chain is coarse.
+    const atmCall = ivAtDelta(legs, 0.5, true);
+    const atmPut = ivAtDelta(legs, 0.5, false);
+    const atm = atmCall != null && atmPut != null ? (atmCall + atmPut) / 2 : (atmCall ?? atmPut);
+    if (atm == null) continue;
+
+    const c25 = ivAtDelta(legs, 0.25, true);
+    const p25 = ivAtDelta(legs, 0.25, false);
+    const rr = c25 != null && p25 != null ? c25 - p25 : 0;
+    const bf = c25 != null && p25 != null ? (c25 + p25) / 2 - atm : 0;
+
+    out.push({
+      expiry,
+      dte,
+      atmIv: +atm.toFixed(2),
+      riskReversal25d: +rr.toFixed(2),
+      butterfly25d: +bf.toFixed(2),
+      contracts: legs.length,
+    });
+  }
+  return out.sort((a, b) => a.dte - b.dte);
+}
+
+/** The surface slice closest to `days` out, or null if nothing is near it. */
+export function sliceNear(surface: VolSlice[], days: number, tolerance = 0.6): VolSlice | null {
+  if (!surface.length) return null;
+  const best = surface.reduce((a, b) =>
+    Math.abs(b.dte - days) < Math.abs(a.dte - days) ? b : a,
+  );
+  // A "12M" tenor served by a 90-day expiry would be a lie; require the match
+  // to be within `tolerance` of the requested horizon.
+  return Math.abs(best.dte - days) <= Math.max(7, days * tolerance) ? best : null;
 }

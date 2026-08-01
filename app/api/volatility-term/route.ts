@@ -1,15 +1,19 @@
 import { NextResponse } from "next/server";
-import { goldChartJson } from "@/lib/goldSource";
+import { goldChartJson, getGoldSpot } from "@/lib/goldSource";
+import { getOptionChain, volSurface, sliceNear } from "@/lib/optionChain";
 
 export const dynamic = "force-dynamic";
 
 export interface IVPoint {
   tenor: string;       // "1W", "1M", "2M", "3M", "6M", "12M"
   days: number;
-  atmIV: number;       // ATM implied volatility %
+  atmIV: number;       // ATM implied volatility %, from the 50-delta quote
   riskReversal25d: number; // 25-delta risk reversal (calls - puts) — positive = call skew
   butterfly25d: number;    // 25-delta butterfly (wings vs ATM)
   termSlope: number;       // slope vs prior tenor (positive = term premium)
+  expiry: string;          // the expiry that actually backs this tenor
+  dte: number;             // and how far out it really is
+  contracts: number;       // how many live quotes the slice was read from
 }
 
 export interface HVPoint {
@@ -21,7 +25,7 @@ export interface HVPoint {
 export interface VolRegime {
   regime: "low vol" | "normal" | "elevated" | "high vol" | "extreme";
   ivHvSpread: number;   // IV - HV (vol premium or discount)
-  ivPercentile: number; // where current 1M IV sits vs 252d history (0-100)
+  ivPercentile: number; // where current 21d realised vol sits vs a year of rolling readings (0-100)
   implication: string;
 }
 
@@ -34,6 +38,7 @@ export interface VolatilityTermPayload {
   skewSignal: "call skew" | "put skew" | "neutral"; // calls more expensive = market expects upside
   volSignalForGold: "bullish" | "neutral" | "bearish";
   volInterpretation: string;
+  source: string;
   tier: "pro";
   timestamp: string;
 }
@@ -74,6 +79,35 @@ async function fetchHV(days: number): Promise<number> {
   }
 }
 
+// Where today's 21-day realised vol sits against the past year of rolling
+// 21-day readings. Replaces a percentile taken against an assumed 10-22% band:
+// that band was calibrated when IV was fabricated at ~15%, and against the real
+// chain — currently near 20% — it pinned the page at "high vol" permanently.
+async function hvPercentile(): Promise<{ pctile: number; samples: number } | null> {
+  try {
+    const j = await goldChartJson("1y", "1d");
+    const closes: number[] = (j?.chart?.result?.[0]?.indicators?.quote?.[0]?.close ?? [])
+      .filter((v: unknown): v is number => typeof v === "number" && !isNaN(v));
+    if (closes.length < 60) return null;
+
+    const rets = closes.slice(1).map((c, i) => Math.log(c / closes[i]));
+    const window = 21;
+    const rolling: number[] = [];
+    for (let i = window; i <= rets.length; i++) {
+      const w = rets.slice(i - window, i);
+      const mean = w.reduce((a, b) => a + b, 0) / w.length;
+      const varr = w.reduce((a, b) => a + (b - mean) ** 2, 0) / (w.length - 1);
+      rolling.push(Math.sqrt(varr * 252) * 100);
+    }
+    if (rolling.length < 30) return null;
+    const now = rolling[rolling.length - 1];
+    const below = rolling.filter((v) => v <= now).length;
+    return { pctile: Math.round((below / rolling.length) * 100), samples: rolling.length };
+  } catch {
+    return null;
+  }
+}
+
 export async function GET() {
   if (CACHE && Date.now() - CACHE.ts < TTL_MS) {
     return NextResponse.json(CACHE.data);
@@ -85,7 +119,8 @@ export async function GET() {
     fetchHV(5), fetchHV(21), fetchHV(63), fetchHV(126), fetchHV(252),
   ]);
 
-  const spotPrice = spot ?? 3_320;
+  const live = await getGoldSpot().catch(() => null);
+  const spotPrice = spot ?? (live && live.price > 0 ? live.price : 0);
 
   const hvHistory: HVPoint[] = [
     { window: "5D",   days: 5,   hv: hv5   || 14.8 },
@@ -95,33 +130,74 @@ export async function GET() {
     { window: "252D", days: 252, hv: hv252 || 13.1 },
   ];
 
-  // Implied volatility term structure — sourced from COMEX/OTC gold options market
-  // Typical gold IV range: 10-25% annualized; in H2 2026 environment ~14-18%
-  // Risk reversals: positive = calls more expensive (bullish expectations)
-  const hv21Actual = hvHistory[1].hv;
-  const baseIV = Math.max(hv21Actual * 1.12, 12); // IV typically 10-15% above HV
+  // Real implied vol, read off the CBOE GLD chain. This was `HV × 1.12` scaled
+  // by fixed per-tenor coefficients, with the risk reversals and butterflies
+  // typed in as constants — a Pro page about the options market that contained
+  // no option quotes. Every contract carries an IV and a signed delta, so ATM is
+  // the 50-delta quote and the skew is measured between the real 25-delta wings.
+  const chain = await getOptionChain().catch(() => null);
+  const surface = chain ? volSurface(chain.rows) : [];
+  if (!surface.length) {
+    return NextResponse.json(
+      { error: "Option chain unavailable — no implied vol to report" },
+      { status: 503 },
+    );
+  }
 
-  const ivTermStructure: IVPoint[] = [
-    { tenor: "1W",  days: 7,   atmIV: parseFloat((baseIV * 0.92).toFixed(1)), riskReversal25d: +0.6, butterfly25d: 0.4, termSlope: 0    },
-    { tenor: "1M",  days: 30,  atmIV: parseFloat((baseIV).toFixed(1)),         riskReversal25d: +0.8, butterfly25d: 0.5, termSlope: +0.8 },
-    { tenor: "2M",  days: 60,  atmIV: parseFloat((baseIV * 1.03).toFixed(1)), riskReversal25d: +1.0, butterfly25d: 0.6, termSlope: +0.5 },
-    { tenor: "3M",  days: 90,  atmIV: parseFloat((baseIV * 1.06).toFixed(1)), riskReversal25d: +1.1, butterfly25d: 0.7, termSlope: +0.6 },
-    { tenor: "6M",  days: 180, atmIV: parseFloat((baseIV * 1.10).toFixed(1)), riskReversal25d: +1.2, butterfly25d: 0.8, termSlope: +0.5 },
-    { tenor: "12M", days: 365, atmIV: parseFloat((baseIV * 1.14).toFixed(1)), riskReversal25d: +1.0, butterfly25d: 0.9, termSlope: +0.4 },
+  const TENORS: { tenor: string; days: number }[] = [
+    { tenor: "1W", days: 7 }, { tenor: "1M", days: 30 }, { tenor: "2M", days: 60 },
+    { tenor: "3M", days: 90 }, { tenor: "6M", days: 180 }, { tenor: "12M", days: 365 },
   ];
 
-  const currentIV1M = ivTermStructure[1].atmIV;
+  // A tenor with no expiry near it is dropped rather than filled in. The chain
+  // does not always quote every horizon, and a 3M row served by a 90-day-away
+  // expiry is fine while one served by a 30-day expiry is not.
+  const ivTermStructure: IVPoint[] = [];
+  const usedExpiries = new Set<string>();
+  for (const t of TENORS) {
+    const slice = sliceNear(surface, t.days);
+    if (!slice || usedExpiries.has(slice.expiry)) continue;
+    usedExpiries.add(slice.expiry);
+    const prev = ivTermStructure[ivTermStructure.length - 1];
+    ivTermStructure.push({
+      tenor: t.tenor,
+      days: t.days,
+      atmIV: slice.atmIv,
+      riskReversal25d: slice.riskReversal25d,
+      butterfly25d: slice.butterfly25d,
+      termSlope: prev ? +(slice.atmIv - prev.atmIV).toFixed(2) : 0,
+      expiry: slice.expiry,
+      dte: slice.dte,
+      contracts: slice.contracts,
+    });
+  }
+  if (!ivTermStructure.length) {
+    return NextResponse.json(
+      { error: "No expiry in the chain matches any reported tenor" },
+      { status: 503 },
+    );
+  }
+
+  const hv21Actual = hvHistory[1].hv;
+
+  // Was `ivTermStructure[1]`, which assumed the 1M row always exists at that
+  // index. Tenors can now be dropped when no expiry backs them.
+  const oneMonth = ivTermStructure.find((p) => p.days === 30) ?? ivTermStructure[0];
+  const currentIV1M = oneMonth.atmIV;
   const ivHvSpread = currentIV1M - hv21Actual;
 
-  // Vol percentile: compare current IV to typical range 10-22%
-  const ivLow = 10, ivHigh = 22;
-  const ivPercentile = Math.round(((currentIV1M - ivLow) / (ivHigh - ivLow)) * 100);
+  // Percentile against a year of actual rolling vol, not an assumed band.
+  const hvp = await hvPercentile();
+  const ivPercentile = hvp?.pctile ?? 50;
 
+  // Regime follows the percentile, so it recalibrates itself as the vol
+  // environment moves instead of being pinned by absolute thresholds someone
+  // chose for a different market.
   const regime: VolRegime["regime"] =
-    currentIV1M < 11 ? "low vol" :
-    currentIV1M < 14 ? "normal" :
-    currentIV1M < 18 ? "elevated" :
-    currentIV1M < 22 ? "high vol" : "extreme";
+    ivPercentile >= 90 ? "extreme" :
+    ivPercentile >= 70 ? "high vol" :
+    ivPercentile >= 40 ? "elevated" :
+    ivPercentile >= 15 ? "normal" : "low vol";
 
   const volRegime: VolRegime = {
     regime,
@@ -135,7 +211,10 @@ export async function GET() {
   };
 
   // Skew: positive risk reversal = calls bid over puts = bullish market expectation
-  const avgRR = ivTermStructure.slice(0, 4).reduce((s, p) => s + p.riskReversal25d, 0) / 4;
+  // Averaged over however many near tenors exist, not a hardcoded four — the
+  // list is no longer guaranteed to have that many rows.
+  const near = ivTermStructure.slice(0, 4);
+  const avgRR = near.reduce((s, p) => s + p.riskReversal25d, 0) / near.length;
   const skewSignal: "call skew" | "put skew" | "neutral" =
     avgRR > 0.5 ? "call skew" : avgRR < -0.5 ? "put skew" : "neutral";
 
@@ -160,6 +239,7 @@ export async function GET() {
     skewSignal,
     volSignalForGold,
     volInterpretation,
+    source: `Implied vol read from the CBOE delayed GLD option chain: ATM is the 50-delta quote, skew is measured between the real 25-delta wings. ${ivTermStructure.length} of ${TENORS.length} tenors had an expiry close enough to report. Historical vol is computed from the spot feed, and the percentile is measured against ${hvp?.samples ?? 0} rolling 21-day readings over the past year.`,
     tier: "pro",
     timestamp: new Date().toISOString(),
   };

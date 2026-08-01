@@ -168,7 +168,15 @@ async function liveChecks(list) {
       }
     }
     if (b && normalise(a.body) !== normalise(b.body)) {
-      fail("deterministic", `${r} returned different data on two consecutive calls`);
+      // Retry once. Several routes cache an upstream for ten minutes, and a
+      // pair of calls straddling that expiry legitimately differs — the second
+      // one refetched. A route that fabricates its numbers fails both times;
+      // a cache boundary does not.
+      const c = await get(`${BASE}/api/${r}`);
+      const d = await get(`${BASE}/api/${r}`);
+      if (normalise(c.body) !== normalise(d.body)) {
+        fail("deterministic", `${r} returned different data on two consecutive calls, twice`);
+      }
     }
   }
 }

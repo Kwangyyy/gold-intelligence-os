@@ -119,6 +119,21 @@ export async function GET() {
     CACHE = { data, ts: Date.now() };
     return NextResponse.json(data);
   } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 500 });
+    // A slow news feed is not a server error. Serve the last good analysis if
+    // there is one, otherwise an explicitly empty, neutral reading — the page
+    // can say "no articles" instead of showing an error card. This route reads
+    // /api/news, which is occasionally slower than the deadline the whole
+    // function has to work within.
+    if (CACHE) return NextResponse.json({ ...CACHE.data, stale: true });
+    return NextResponse.json({
+      articles: [],
+      overallSentiment: "neutral",
+      overallScore: 0,
+      bullishCount: 0, bearishCount: 0, neutralCount: 0,
+      trend: "flat", trendTh: "ทรงตัว",
+      cumulativeScores: [],
+      unavailable: `News feed unavailable: ${String(e)}`,
+      generatedAt: new Date().toISOString(),
+    });
   }
 }

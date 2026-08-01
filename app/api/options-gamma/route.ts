@@ -1,195 +1,175 @@
 import { NextResponse } from "next/server";
-import { goldFetch, lastKnownGoldPrice } from "@/lib/goldSource";
+import { getGoldSpot } from "@/lib/goldSource";
+import { getOptionChain, chooseExpiry, gammaFlipOf, maxPainOf } from "@/lib/optionChain";
 
-export const revalidate = 3600; // 1-hour cache (options data is daily)
+export const revalidate = 900; // spot moves; the chain itself is cached in the lib
+
+// Dealer gamma positioning, built from the real CBOE GLD option chain.
+//
+// This route used to model the chain instead of fetching it: a bell curve around
+// spot, a bump for round numbers, then `Math.round(base * (0.85 + Math.random() *
+// 0.3))`. Two requests seconds apart returned 463 and 419 contracts of call OI at
+// the same strike with the market shut. It is a Pro feature, and /api/oi-levels
+// was already pulling the genuine chain a few files away.
 
 interface StrikeLevel {
-  strike: number;
-  callOI: number;       // estimated call open interest (lots)
-  putOI: number;        // estimated put open interest
-  netGamma: number;     // positive = dealers long gamma, negative = short gamma
-  gammaDollars: number; // $ value of gamma exposure
+  strike: number;       // gold-equivalent price
+  strikeGld: number;    // the raw GLD strike it came from
+  callOI: number;
+  putOI: number;
+  netGamma: number;     // call gamma − put gamma, OI-weighted
+  gammaDollars: number; // $mm per 1% move
   isMaxPain: boolean;
-  isMagnet: boolean;    // strong gamma cluster
-  isWall: boolean;      // large OI acts as resistance/support
+  isMagnet: boolean;
+  isWall: boolean;
 }
 
 interface OptionsGammaData {
   spotPrice: number;
   maxPain: number;
-  maxPainDistance: number; // % from spot
-  netDealerGamma: number;  // overall: positive = stable, negative = volatile
-  gammaFlipLevel: number;  // price where dealer gamma flips sign
+  maxPainDistance: number;
+  netDealerGamma: number;
+  gammaFlipLevel: number;
   regime: "long_gamma" | "short_gamma";
   strikes: StrikeLevel[];
   keyStrikes: { strike: number; role: string; note: string }[];
   interpretation: string;
   expiryInfo: string;
+  source: string;
   timestamp: string;
 }
 
-async function fetchSpot(): Promise<number> {
-  try {
-    const res = await goldFetch("https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=1d&range=2d");
-    const json = await res.json();
-    return json?.chart?.result?.[0]?.meta?.regularMarketPrice ?? lastKnownGoldPrice();
-  } catch {
-    return 3320;
-  }
-}
-
-function roundTo(n: number, step: number): number {
-  return Math.round(n / step) * step;
-}
-
-function buildStrikes(spot: number): StrikeLevel[] {
-  const base = roundTo(spot, 50);
-  const strikes: StrikeLevel[] = [];
-
-  // Generate strikes from spot - $300 to spot + $300 at $25 intervals
-  for (let s = base - 300; s <= base + 400; s += 25) {
-    const distFromSpot = s - spot;
-    const absDist = Math.abs(distFromSpot);
-
-    // Put/Call OI model:
-    // - Round numbers attract more OI
-    // - ATM has highest OI (bell curve)
-    // - Below spot: more puts (protection buying)
-    // - Above spot: more calls (upside speculation)
-    const roundnessFactor =
-      s % 100 === 0 ? 2.2 :
-      s % 50  === 0 ? 1.5 : 1.0;
-
-    const atmWeight = Math.exp(-(absDist ** 2) / (2 * 80 ** 2));
-
-    const callBase = distFromSpot > 0
-      ? Math.max(800, 5000 * atmWeight * 1.2) * roundnessFactor
-      : Math.max(300, 3000 * atmWeight * 0.8) * roundnessFactor;
-
-    const putBase = distFromSpot < 0
-      ? Math.max(800, 5000 * atmWeight * 1.2) * roundnessFactor
-      : Math.max(200, 2500 * atmWeight * 0.7) * roundnessFactor;
-
-    const callOI = Math.round(callBase * (0.85 + Math.random() * 0.3));
-    const putOI  = Math.round(putBase  * (0.85 + Math.random() * 0.3));
-
-    // Gamma: options near expiry at ATM have highest gamma
-    // Dealer gamma: when dealers sell calls, they're short call gamma (negative gamma at that strike)
-    // Market makers typically sell OTM calls and sell puts → they're short gamma
-    // Simplified: net dealer gamma is negative of net OI weighted gamma
-    const gammaMagnitude = atmWeight * (callOI + putOI) * 0.15;
-    // Below spot: dealers short puts (sold protection) → short gamma below
-    // Above spot: dealers short calls → short gamma above
-    const netGamma = distFromSpot < 0
-      ? -gammaMagnitude * 0.9   // dealers short gamma below spot (sold puts)
-      : -gammaMagnitude * 0.7;  // dealers short gamma above spot (sold calls)
-
-    const gammaDollars = Math.round(netGamma * spot * 0.01); // simplified $ gamma
-
-    strikes.push({
-      strike: s,
-      callOI,
-      putOI,
-      netGamma: parseFloat(netGamma.toFixed(1)),
-      gammaDollars,
-      isMaxPain: false,
-      isMagnet: callOI + putOI > 8000,
-      isWall: Math.max(callOI, putOI) > 7000,
-    });
-  }
-
-  return strikes;
-}
-
-function findMaxPain(strikes: StrikeLevel[]): number {
-  // Max pain = strike where total dollar value of expiring options is minimized for holders
-  let minPain = Infinity;
-  let maxPainStrike = 0;
-
-  for (const s of strikes) {
-    let totalPain = 0;
-    for (const other of strikes) {
-      // Call pain at strike s: calls ITM = max(0, other.strike - s)
-      const callPain = other.callOI * Math.max(0, other.strike - s.strike);
-      // Put pain at strike s: puts ITM = max(0, s - other.strike)
-      const putPain = other.putOI * Math.max(0, s.strike - other.strike);
-      totalPain += callPain + putPain;
-    }
-    if (totalPain < minPain) {
-      minPain = totalPain;
-      maxPainStrike = s.strike;
-    }
-  }
-  return maxPainStrike;
-}
-
-function findGammaFlip(strikes: StrikeLevel[], spot: number): number {
-  // Gamma flip = price where cumulative gamma goes from negative to positive
-  // Sort by strike, find crossing point
-  const sorted = [...strikes].sort((a, b) => a.strike - b.strike);
-  let cumGamma = 0;
-  for (const s of sorted) {
-    cumGamma += s.netGamma;
-    if (cumGamma >= 0 && s.strike >= spot - 100) return s.strike;
-  }
-  return roundTo(spot + 150, 25);
-}
-
 export async function GET() {
-  const spot = await fetchSpot();
-  const strikes = buildStrikes(spot);
-  const maxPain = findMaxPain(strikes);
+  try {
+    const [chain, spot] = await Promise.all([getOptionChain(), getGoldSpot()]);
+    const gold = spot.price;
+    if (!gold) throw new Error("no gold price");
 
-  // Mark max pain
-  const mpStrike = strikes.find(s => s.strike === maxPain);
-  if (mpStrike) mpStrike.isMaxPain = true;
+    // GLD holds roughly a tenth of an ounce per share, less accumulated fee
+    // drag, so the ratio is derived live rather than assumed.
+    const gld = chain.gldClose;
+    const ratio = gld > 0 ? gold / gld : 0;
+    if (!ratio) throw new Error("no GLD price to convert strikes");
 
-  const gammaFlip = findGammaFlip(strikes, spot);
-  const totalNetGamma = strikes.reduce((s, r) => s + r.netGamma, 0);
-  const regime: OptionsGammaData["regime"] = totalNetGamma >= 0 ? "long_gamma" : "short_gamma";
+    // Same expiry rule as oi-levels, from the shared lib, so the two pages
+    // cannot describe the same chain differently.
+    const chosen = chooseExpiry(chain.rows);
+    if (!chosen) throw new Error("no live expiries in the chain");
+    const legs = chain.rows.filter((r) => r.expiry === chosen.date);
+    if (!legs.length) throw new Error("no contracts for the chosen expiry");
 
-  const nearbyStrikes = strikes.filter(s => Math.abs(s.strike - spot) <= 200);
-  const keyStrikes: OptionsGammaData["keyStrikes"] = [
-    {
-      strike: maxPain,
-      role: "Max Pain",
-      note: `Option writers benefit most if price settles here. ${maxPain > spot ? "Upward" : "Downward"} pull of $${Math.abs(maxPain - spot).toFixed(0)}.`,
-    },
-    {
-      strike: gammaFlip,
-      role: "Gamma Flip",
-      note: `Above this level, dealer hedging becomes stabilizing (long gamma). Below = destabilizing moves amplified.`,
-    },
-    ...nearbyStrikes
-      .filter(s => s.isWall && s.strike !== maxPain)
-      .slice(0, 3)
-      .map(s => ({
-        strike: s.strike,
-        role: s.strike > spot ? "Call Wall" : "Put Wall",
-        note: `High OI cluster (${(s.callOI + s.putOI).toLocaleString()} contracts) acts as ${s.strike > spot ? "resistance" : "support"}.`,
-      })),
-  ];
+    // Aggregate per strike. Dealers are short what the public is long, so a
+    // strike's net gamma is call gamma minus put gamma, weighted by open
+    // interest — the same convention oi-levels uses.
+    const agg = new Map<number, { calls: number; puts: number; netGamma: number }>();
+    for (const l of legs) {
+      const a = agg.get(l.strike) ?? { calls: 0, puts: 0, netGamma: 0 };
+      if (l.isCall) { a.calls += l.oi; a.netGamma += l.gamma * l.oi; }
+      else          { a.puts  += l.oi; a.netGamma -= l.gamma * l.oi; }
+      agg.set(l.strike, a);
+    }
 
-  const maxPainDist = ((maxPain - spot) / spot) * 100;
+    const all: StrikeLevel[] = [...agg.entries()]
+      .map(([strikeGld, a]) => ({
+        strikeGld,
+        strike: Math.round(strikeGld * ratio),
+        callOI: Math.round(a.calls),
+        putOI: Math.round(a.puts),
+        netGamma: +a.netGamma.toFixed(1),
+        // Γ × OI × 100 × S² × 1%, in $mm — dealer hedging demand per 1% move.
+        // Scaled on GLD, not gold: these are GLD contracts, and oi-levels uses
+        // the same basis, so the two pages' GEX figures are comparable.
+        gammaDollars: +((a.netGamma * 100 * gld * gld * 0.01) / 1e6).toFixed(2),
+        isMaxPain: false,
+        isMagnet: false,
+        isWall: false,
+      }))
+      .filter((s) => s.callOI + s.putOI > 0)
+      .sort((a, b) => a.strike - b.strike);
+    if (!all.length) throw new Error("no open interest in the chain");
 
-  const data: OptionsGammaData = {
-    spotPrice: spot,
-    maxPain,
-    maxPainDistance: parseFloat(maxPainDist.toFixed(2)),
-    netDealerGamma: parseFloat(totalNetGamma.toFixed(1)),
-    gammaFlipLevel: gammaFlip,
-    regime,
-    strikes: nearbyStrikes,
-    keyStrikes,
-    interpretation:
-      `Gold options market shows dealers are in ${regime === "short_gamma" ? "short gamma" : "long gamma"} territory. ` +
-      (regime === "short_gamma"
-        ? "Short gamma means dealers must BUY as price rises and SELL as price falls — amplifying moves in both directions. Expect higher volatility."
-        : "Long gamma means dealers BUY dips and SELL rallies — acting as a stabilizing force that dampens volatility.") +
-      ` Max pain at $${maxPain.toLocaleString()} suggests price may gravitate toward this level near COMEX expiry.`,
-    expiryInfo: "COMEX Gold options expire on the 4th-to-last business day of the month. Max pain analysis is most relevant within 5 trading days of expiry.",
-    timestamp: new Date().toISOString(),
-  };
+    // Max pain on the GLD strikes, then converted — the strike grid is GLD's.
+    const maxPainGld = maxPainOf(all.map((s) => ({ strike: s.strikeGld, calls: s.callOI, puts: s.putOI })));
+    const maxPain = Math.round(maxPainGld * ratio);
 
-  return NextResponse.json(data);
+    const gammaFlip = gammaFlipOf(
+      all.map((s) => ({ strike: s.strike, gex: s.gammaDollars })),
+      Math.round(gold),
+    );
+
+    // Regime is the sign of total dollar gamma, the same quantity oi-levels
+    // reports as totalGex — not raw netGamma, which is on a different scale.
+    const totalGex = all.reduce((t, s) => t + s.gammaDollars, 0);
+    const regime: OptionsGammaData["regime"] = totalGex >= 0 ? "long_gamma" : "short_gamma";
+
+    // Walls and magnets are judged against this chain's own distribution rather
+    // than a fixed contract count, which does not transfer between expiries.
+    const totals = all.map((s) => s.callOI + s.putOI).sort((a, b) => b - a);
+    const wallCut = totals[Math.floor(totals.length * 0.1)] ?? 0;
+    const magnetCut = totals[Math.floor(totals.length * 0.25)] ?? 0;
+    for (const s of all) {
+      s.isWall = wallCut > 0 && s.callOI + s.putOI >= wallCut;
+      s.isMagnet = magnetCut > 0 && s.callOI + s.putOI >= magnetCut;
+      s.isMaxPain = s.strike === maxPain;
+    }
+
+    // Keep the readable window around spot; the far tail is noise on a chart.
+    const nearby = all.filter((s) => Math.abs(s.strike - gold) <= gold * 0.06);
+    const strikes = nearby.length >= 8 ? nearby : all;
+
+    const callWall = [...strikes].filter((s) => s.strike > gold).sort((a, b) => b.callOI - a.callOI)[0];
+    const putWall  = [...strikes].filter((s) => s.strike < gold).sort((a, b) => b.putOI - a.putOI)[0];
+
+    const keyStrikes: OptionsGammaData["keyStrikes"] = [
+      {
+        strike: maxPain,
+        role: "Max Pain",
+        note: `Option writers benefit most if price settles here. ${maxPain > gold ? "Upward" : "Downward"} pull of $${Math.abs(maxPain - gold).toFixed(0)}.`,
+      },
+      {
+        strike: gammaFlip,
+        role: "Gamma Flip",
+        note: "Above this level dealer hedging is stabilising (long gamma). Below it, moves are amplified.",
+      },
+      ...(callWall ? [{
+        strike: callWall.strike,
+        role: "Call Wall",
+        note: `Largest call OI above spot (${callWall.callOI.toLocaleString()} contracts) — hedging resistance.`,
+      }] : []),
+      ...(putWall ? [{
+        strike: putWall.strike,
+        role: "Put Wall",
+        note: `Largest put OI below spot (${putWall.putOI.toLocaleString()} contracts) — hedging support.`,
+      }] : []),
+    ];
+
+    const { date: expiry, dte } = chosen;
+    const data: OptionsGammaData = {
+      spotPrice: +gold.toFixed(2),
+      maxPain,
+      maxPainDistance: +(((maxPain - gold) / gold) * 100).toFixed(2),
+      netDealerGamma: +totalGex.toFixed(2),
+      gammaFlipLevel: gammaFlip,
+      regime,
+      strikes,
+      keyStrikes,
+      interpretation:
+        `Dealers are in ${regime === "short_gamma" ? "short" : "long"} gamma territory. ` +
+        (regime === "short_gamma"
+          ? "Short gamma means dealers buy as price rises and sell as it falls, amplifying moves in both directions — expect higher volatility."
+          : "Long gamma means dealers buy dips and sell rallies, damping volatility.") +
+        ` Max pain sits at $${maxPain.toLocaleString()}, ${Math.abs(maxPain - gold).toFixed(0)} away from spot.`,
+      expiryInfo: `GLD options expiring ${expiry} (${dte} days out), the nearest expiry at least 3 days from now.`,
+      source: "CBOE delayed GLD option chain · strikes converted to gold-equivalent at the live gold/GLD ratio. A liquid proxy for COMEX OG, not the OG chain itself.",
+      timestamp: new Date().toISOString(),
+    };
+
+    return NextResponse.json(data);
+  } catch (e) {
+    // No invented chain. If CBOE is unreachable the page says so.
+    return NextResponse.json(
+      { error: `Option chain unavailable: ${String(e)}` },
+      { status: 503 },
+    );
+  }
 }

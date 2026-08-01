@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getGoldSpot } from "@/lib/goldSource";
+import { getOptionChain, dteOf, chooseExpiry, gammaFlipOf, maxPainOf } from "@/lib/optionChain";
 import { yahooChartJson } from "@/lib/goldSource";
 
 export const dynamic = "force-dynamic";
@@ -69,57 +70,6 @@ export interface OiLevelsPayload {
   asOf: string;
 }
 
-const UA =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36";
-
-interface CboeContract {
-  option: string;
-  iv?: number | null;
-  open_interest?: number | null;
-  volume?: number | null;
-  gamma?: number | null;
-}
-
-async function fetchChain(): Promise<{ price: number; iv30: number; rows: ParsedRow[] }> {
-  const r = await fetch("https://cdn.cboe.com/api/global/delayed_quotes/options/GLD.json", {
-    headers: { "User-Agent": UA, Accept: "application/json" },
-    cache: "no-store",
-    signal: AbortSignal.timeout(20_000),
-  });
-  if (!r.ok) throw new Error(`CBOE ${r.status}`);
-  const j = await r.json();
-  const d = j?.data ?? {};
-  const price = Number(d.current_price ?? d.close ?? d.prev_day_close ?? 0);
-  const iv30 = Number(d.iv30 ?? 0) / 100; // CBOE reports iv30 in percent
-  const rows: ParsedRow[] = [];
-  // OCC symbol: ROOT + YYMMDD + C|P + strike×1000 (8 digits)
-  const re = /^([A-Z]+)(\d{6})([CP])(\d{8})$/;
-  for (const o of (d.options ?? []) as CboeContract[]) {
-    const m = re.exec(o.option ?? "");
-    if (!m) continue;
-    const [, , ymd, cp, kk] = m;
-    rows.push({
-      expiry: `20${ymd.slice(0, 2)}-${ymd.slice(2, 4)}-${ymd.slice(4, 6)}`,
-      isCall: cp === "C",
-      strike: Number(kk) / 1000,
-      oi: Number(o.open_interest ?? 0) || 0,
-      iv: Number(o.iv ?? 0) || 0,
-      gamma: Number(o.gamma ?? 0) || 0,
-    });
-  }
-  if (!rows.length) throw new Error("no contracts parsed");
-  return { price, iv30, rows };
-}
-
-interface ParsedRow {
-  expiry: string;
-  isCall: boolean;
-  strike: number;
-  oi: number;
-  iv: number;
-  gamma: number;
-}
-
 // Both legs of the ratio come from the same feed at the same moment. Mixing a
 // live gold print with CBOE's *previous* GLD close skewed strikes by ~2%.
 async function fetchYahooPrice(symbol: string): Promise<number> {
@@ -131,23 +81,6 @@ async function fetchYahooPrice(symbol: string): Promise<number> {
   }
 }
 
-const dteOf = (iso: string) =>
-  Math.round((Date.parse(`${iso}T21:00:00Z`) - Date.now()) / 86_400_000);
-
-// The 3.3 MB CBOE chain is itself delayed, so it is cached — but spot is not.
-// Everything downstream of spot (expected range, distance from spot, GEX, which
-// SD band a strike falls in) is recomputed on every request so the numbers track
-// the live market instead of whatever price was current when the chain was pulled.
-let CHAIN: { rows: ParsedRow[]; iv30: number; gldClose: number; ts: number } | null = null;
-const CHAIN_TTL = 10 * 60_000;
-
-async function getChain() {
-  if (CHAIN && Date.now() - CHAIN.ts < CHAIN_TTL) return CHAIN;
-  const { price, iv30, rows } = await fetchChain();
-  CHAIN = { rows, iv30, gldClose: price, ts: Date.now() };
-  return CHAIN;
-}
-
 export async function GET(req: Request) {
   const wanted = new URL(req.url).searchParams.get("expiry") ?? "";
 
@@ -157,7 +90,7 @@ export async function GET(req: Request) {
     // futures-derived ratio would place every strike about 1% too high and the
     // OI walls would line up against nothing on a spot-priced chart.
     const [chain, spot, gldLive] = await Promise.all([
-      getChain(),
+      getOptionChain(),
       getGoldSpot(),
       fetchYahooPrice("GLD"),
     ]);
@@ -180,16 +113,11 @@ export async function GET(req: Request) {
       .sort((a, b) => a.dte - b.dte);
     if (!expiries.length) throw new Error("no live expiries");
 
-    // Default expiry: the NEAREST expiry with enough open interest to read, not
-    // the heaviest. Picking max-OI inside a 7–60 day window kept selecting a
-    // ~50-day expiry, and over 50 days the 1SD band widens to roughly ±8%, which
-    // pushes the "walls" 25% away from spot where price will never test them.
-    // A near expiry keeps both the range and the walls actionable.
-    const chosen =
-      expiries.find((e) => e.date === wanted) ??
-      expiries.find((e) => e.dte >= 5 && e.totalOi >= 30_000) ??
-      expiries.find((e) => e.dte >= 2 && e.totalOi >= 20_000) ??
-      [...expiries].sort((a, b) => b.totalOi - a.totalOi)[0];
+    // Expiry choice lives in lib/optionChain so options-gamma cannot pick a
+    // different one off the same chain and contradict this page.
+    const picked = chooseExpiry(rows, wanted);
+    if (!picked) throw new Error("no live expiries");
+    const chosen = expiries.find((e) => e.date === picked.date) ?? expiries[0];
 
     const legs = rows.filter((r) => r.expiry === chosen.date);
 
@@ -271,15 +199,7 @@ export async function GET(req: Request) {
     const putWallRow = wallPool.reduce((m, s) => (s.puts > m.puts ? s : m), wallPool[0]);
 
     // Max pain: the strike at which the least intrinsic value is owed to holders.
-    let maxPain = atmStrike, best = Infinity;
-    for (const k of agg.keys()) {
-      let cost = 0;
-      for (const [k2, a] of agg) {
-        if (k > k2) cost += a.calls * (k - k2);
-        if (k < k2) cost += a.puts * (k2 - k);
-      }
-      if (cost < best) { best = cost; maxPain = k; }
-    }
+    const maxPain = maxPainOf([...agg.entries()].map(([strike, a]) => ({ strike, calls: a.calls, puts: a.puts })));
 
     const totalCallOi = Math.round(all.reduce((s, x) => s + x.calls, 0));
     const totalPutOi = Math.round(all.reduce((s, x) => s + x.puts, 0));
@@ -290,12 +210,7 @@ export async function GET(req: Request) {
     // approximation, not a full re-pricing of the book at every spot.
     const gexSorted = [...all].sort((a, b) => a.strike - b.strike);
     const totalGex = +gexSorted.reduce((s, x) => s + x.gex, 0).toFixed(2);
-    let running = 0, gammaFlip = gold;
-    for (const s of gexSorted) {
-      const prev = running;
-      running += s.gex;
-      if (prev !== 0 && Math.sign(prev) !== Math.sign(running)) { gammaFlip = s.strike; break; }
-    }
+    const gammaFlip = gammaFlipOf(gexSorted, gold);
     const gammaRegime: "long" | "short" = totalGex >= 0 ? "long" : "short";
 
     const cw = +(callWallRow.strike).toFixed(0);

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { yahooChartJson } from "@/lib/goldSource";
+import { yahooChartJson, lastKnownGoldPrice } from "@/lib/goldSource";
 
 export const runtime = "nodejs";
 export const revalidate = 1800; // 30 min
@@ -154,7 +154,7 @@ export async function GET() {
   const weeklyPrices = await fetchPrices("GC=F", "1wk");
   const monthlyPrices = await fetchPrices("GC=F", "1mo");
 
-  const spot = dailyPrices.length > 0 ? dailyPrices[dailyPrices.length - 1] : 3300;
+  const spot = dailyPrices.length > 0 ? dailyPrices[dailyPrices.length - 1] : lastKnownGoldPrice();
 
   const tfConfigs: Array<{ tf: string; label: string; prices: number[] }> = [
     { tf: "Daily",   label: "Daily (2yr)",   prices: dailyPrices.length >= 40 ? dailyPrices : [] },

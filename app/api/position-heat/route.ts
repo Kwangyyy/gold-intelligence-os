@@ -45,8 +45,8 @@ async function fetchSpotData(): Promise<{ price: number; high: number; low: numb
     const meta = json.chart?.result?.[0]?.meta;
     return {
       price: meta?.regularMarketPrice ?? lastKnownGoldPrice(),
-      high: meta?.regularMarketDayHigh ?? 3320,
-      low: meta?.regularMarketDayLow ?? 3280,
+      high: meta?.regularMarketDayHigh ?? lastKnownGoldPrice(),
+      low: meta?.regularMarketDayLow ?? lastKnownGoldPrice(),
     };
   } catch {
     return { price: lastKnownGoldPrice(), high: lastKnownGoldPrice(), low: lastKnownGoldPrice() };

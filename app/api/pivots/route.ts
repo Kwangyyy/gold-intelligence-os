@@ -153,10 +153,10 @@ export async function GET() {
 
     // Previous day (index -2 if today in progress, else -1)
     const prevIdx = dH.length - 2;
-    const prevH = dH[prevIdx] ?? dH.at(-1) ?? 3010;
+    const prevH = dH[prevIdx] ?? dH.at(-1) ?? lastKnownGoldPrice();
     const prevL = dL[prevIdx] ?? dL.at(-1) ?? 2990;
-    const prevC = dC[prevIdx] ?? dC.at(-1) ?? 3000;
-    const prevO = dO[prevIdx] ?? dO.at(-1) ?? 3000;
+    const prevC = dC[prevIdx] ?? dC.at(-1) ?? lastKnownGoldPrice();
+    const prevO = dO[prevIdx] ?? dO.at(-1) ?? lastKnownGoldPrice();
     const prevDate = new Date(dTs[prevIdx] * 1000).toISOString().slice(0, 10);
 
     // Weekly data

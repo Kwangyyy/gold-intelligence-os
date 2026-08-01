@@ -41,7 +41,10 @@ interface Props {
 }
 
 export function SmcChart({ data, tf, onTfChange, loading = false }: Props) {
-  const allCandles = (data.candles ?? []) as OHLC[];
+  // `data.candles ?? []` allocated a fresh array on every render whenever
+  // candles were absent, so the visible-slice memo below re-ran each time and
+  // handed a new array to everything downstream — the memo was doing nothing.
+  const allCandles = useMemo(() => (data.candles ?? []) as OHLC[], [data.candles]);
   const total = allCandles.length;
 
   // ── zoom / pan state ──────────────────────────────────────────────────────
@@ -124,7 +127,7 @@ export function SmcChart({ data, tf, onTfChange, loading = false }: Props) {
     data.liquidity.forEach(lq => { lo = Math.min(lo, lq.price); hi = Math.max(hi, lq.price); });
     const pad = (hi - lo) * 0.08;
     return { lo: lo - pad, hi: hi + pad };
-  }, [candles, data]);
+  }, [candles, n, data]);
 
   const span = hi - lo || 1;
   const px   = (i: number)     => ML + (i + 0.5) * (CW / n);
@@ -135,7 +138,7 @@ export function SmcChart({ data, tf, onTfChange, loading = false }: Props) {
   const yTicks = useMemo(() => {
     const step = span / 6;
     return Array.from({ length: 7 }, (_, i) => lo + i * step);
-  }, [lo, hi]);
+  }, [lo, span]);
 
   if (total < 5) return null;
 

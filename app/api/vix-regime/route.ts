@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { yahooChartJson } from "@/lib/goldSource";
 
 export const revalidate = 900; // 15-min cache
 
@@ -30,12 +31,7 @@ interface VixRegimeData {
 
 async function fetchVix(): Promise<{ price: number | null; change1d: number | null; change5d: number | null }> {
   try {
-    const res = await fetch(
-      "https://query1.finance.yahoo.com/v8/finance/chart/%5EVIX?interval=1d&range=14d",
-      { headers: { "User-Agent": "Mozilla/5.0" }, next: { revalidate: 900 },
-      signal: AbortSignal.timeout(6_000),
-    });
-    const json = await res.json();
+    const json = await yahooChartJson("^VIX", "14d", "1d");
     const result = json?.chart?.result?.[0];
     if (!result) return { price: null, change1d: null, change5d: null };
 

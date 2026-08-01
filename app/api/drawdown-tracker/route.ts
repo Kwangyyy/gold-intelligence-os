@@ -37,6 +37,7 @@ async function fetchLongTermPrices(): Promise<{ prices: number[]; dates: string[
     // Stays on the COMEX future: this walks 20 years of drawdowns and the spot
     // feed only reaches back to 2020 monthly. Delay is meaningless at this scale.
     const url = "https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=1mo&range=20y";
+    // audit-allow-raw-yahoo: 20 years of monthly history; the spot feed starts 2020.
     const res = await fetch(url, {
       headers: { "User-Agent": "Mozilla/5.0" },
       signal: AbortSignal.timeout(10000),

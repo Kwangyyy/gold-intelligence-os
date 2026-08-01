@@ -34,6 +34,7 @@ export interface MacroScorePayload {
 // different instruments, and a ten-minute delay is immaterial to a macro score.
 async function yahoo(symbol: string, range: string) {
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?range=${range}&interval=1d`;
+  // audit-allow-raw-yahoo: DXY, VIX and TLT — not gold, and never routed to spot.
   const r = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" }, cache: "no-store",
       signal: AbortSignal.timeout(6_000),
     });

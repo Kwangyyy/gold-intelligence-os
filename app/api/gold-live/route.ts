@@ -48,6 +48,7 @@ interface Quote { price: number; time: number; ts: number[]; closes: (number | n
 async function yahoo(symbol: string): Promise<Quote | null> {
   try {
     const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1d&interval=1m`;
+    // audit-allow-raw-yahoo: this route exists to measure the futures feed's own lag.
     const r = await fetch(url, {
       headers: { "User-Agent": "Mozilla/5.0" },
       cache: "no-store",

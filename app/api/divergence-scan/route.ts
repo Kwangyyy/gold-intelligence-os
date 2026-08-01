@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { yahooChartJson } from "@/lib/goldSource";
+import { yahooChartJson, lastKnownGoldPrice } from "@/lib/goldSource";
 
 export const dynamic = "force-dynamic";
 
@@ -160,7 +160,7 @@ export async function GET() {
     fetchOHLC("GC=F", "1y",   "1wk"),
   ]);
 
-  const spotPrice = d1?.closes.slice(-1)[0] ?? 3_320;
+  const spotPrice = d1?.closes.slice(-1)[0] ?? lastKnownGoldPrice();
   const divergences: DivergenceResult[] = [];
 
   // Scan divergences across timeframes and indicators

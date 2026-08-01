@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { yahooChartJson } from "@/lib/goldSource";
 
 export const revalidate = 3600; // 1h cache
 
@@ -27,12 +28,7 @@ interface FedDotPlotData {
 async function fetchFedFundsProxy(): Promise<number | null> {
   // Use 2-year treasury as proxy for fed funds expectations
   try {
-    const res = await fetch(
-      "https://query1.finance.yahoo.com/v8/finance/chart/%5EIRX?interval=1d&range=5d",
-      { headers: { "User-Agent": "Mozilla/5.0" }, next: { revalidate: 3600 },
-      signal: AbortSignal.timeout(6_000),
-    });
-    const json = await res.json();
+    const json = await yahooChartJson("^IRX", "5d", "1d");
     return json?.chart?.result?.[0]?.meta?.regularMarketPrice ?? null;
   } catch {
     return null;

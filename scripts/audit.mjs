@@ -82,6 +82,23 @@ function staticChecks() {
         fail("fetch-timeout", `${f}:${line} outbound fetch has no AbortSignal`);
       }
     }
+    // Nothing outside lib/ may reach Yahoo directly. Three helpers exist —
+    // goldChartJson, goldFetch, yahooChartJson — precisely so a route cannot
+    // quietly go back to the delayed futures feed the whole app moved off. The
+    // handful of deliberate exceptions (multi-decade history, and gold-live,
+    // which exists to measure the futures feed's own lag) carry a marker.
+    if (f.replace(/\\/g, "/").startsWith("app/")) {
+      const lines = src.split("\n");
+      lines.forEach((line, i) => {
+        if (!/await fetch\(/.test(line)) return;
+        const near = lines.slice(Math.max(0, i - 8), i + 10).join("\n");
+        if (!/query1\.finance\.yahoo\.com/.test(near)) return;
+        const marker = lines.slice(Math.max(0, i - 4), i + 1).join("\n");
+        if (/audit-allow-raw-yahoo/.test(marker)) return;
+        fail("yahoo-via-lib", `${f}:${i + 1} fetches Yahoo directly instead of via lib/goldSource`);
+      });
+    }
+
     // price constants from when gold traded near $3,300
     src.split("\n").forEach((line, i) => {
       const code = line.replace(/\r/g, "").replace(/\/\/.*/, "");

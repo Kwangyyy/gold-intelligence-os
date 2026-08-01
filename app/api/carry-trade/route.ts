@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { yahooChartJson } from "@/lib/goldSource";
+import { yahooChartJson, lastKnownGoldPrice } from "@/lib/goldSource";
 
 export const dynamic = "force-dynamic";
 
@@ -84,7 +84,7 @@ export async function GET() {
 
   const spotRaw = prices[0];
   // If spot unavailable, use a reasonable fallback estimate
-  const spotPrice = spotRaw ?? 3_320;
+  const spotPrice = spotRaw ?? lastKnownGoldPrice();
 
   // Build forward curve
   const forwardCurve: ForwardPoint[] = symbols.slice(1).map((s, i) => {

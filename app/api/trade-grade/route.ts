@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { yahooChartJson, lastKnownGoldPrice } from "@/lib/goldSource";
 import { goldFetch } from "@/lib/goldSource";
 
 export const dynamic = "force-dynamic";
@@ -67,12 +68,8 @@ async function fetchGoldData(): Promise<{ price: number; chgPct: number; high: n
 
 async function fetchVIX(): Promise<number | null> {
   try {
-    const r = await fetch(
-      "https://query1.finance.yahoo.com/v8/finance/chart/%5EVIX?range=1d&interval=1d",
-      { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(5000) }
-    );
-    if (!r.ok) return null;
-    return (await r.json())?.chart?.result?.[0]?.meta?.regularMarketPrice ?? null;
+    const j = await yahooChartJson("^VIX", "1d", "1d");
+    return j?.chart?.result?.[0]?.meta?.regularMarketPrice ?? null;
   } catch { return null; }
 }
 
@@ -98,7 +95,7 @@ export async function GET() {
 
   const [goldData, vix] = await Promise.all([fetchGoldData(), fetchVIX()]);
 
-  const price  = goldData?.price  ?? 3_320;
+  const price  = goldData?.price  ?? lastKnownGoldPrice();
   const chgPct = goldData?.chgPct ?? 0.2;
   const high   = goldData?.high   ?? price * 1.005;
   const low    = goldData?.low    ?? price * 0.995;

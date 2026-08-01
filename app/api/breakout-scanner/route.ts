@@ -168,7 +168,11 @@ function analyzeBreakout(
     pattern   = "Consolidation — No Clear Breakout";
     patternTh = "ราคาอยู่ในกรอบ — รอสัญญาณชัดเจน";
     direction = "neutral";
-    strength  = 30 + Math.floor(Math.random() * 15);
+    // Was `30 + Math.floor(Math.random() * 15)`. Tightness of the range against
+    // ATR is the actual signal here: a coil inside one ATR is a far more
+    // interesting consolidation than a 5-ATR drift, and it is reproducible.
+    const coil = lastAtr > 0 ? (dcHigh - dcLow) / lastAtr : 4;
+    strength  = Math.round(Math.max(20, Math.min(45, 45 - (coil - 1) * 6)));
     breakoutLevel = +(dcHigh * 0.5 + dcLow * 0.5).toFixed(1);
     targetLevel   = breakoutLevel;
     stopLevel     = breakoutLevel;

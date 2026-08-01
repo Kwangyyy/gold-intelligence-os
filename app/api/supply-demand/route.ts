@@ -10,6 +10,7 @@ export interface EtfFlowBar {
 }
 
 export interface SupplyDemandPayload {
+  etfFlowCaveat: string;
   // ETF proxy (GLD holdings proxy via price/AUM approximation)
   etfFlows: EtfFlowBar[];
   etfTrend: "inflows" | "outflows" | "neutral";
@@ -85,7 +86,12 @@ export async function GET() {
     let runningEtf = 880; // approximate GLD tonnes base
     for (let i = 1; i < last20.length; i++) {
       const ret    = (last20[i] - last20[i - 1]) / last20[i - 1] * 100;
-      const flow   = +(ret * 1.8 + (Math.random() - 0.5) * 0.8).toFixed(2);
+      // Modelled from the day's return, not measured. There is no free feed for
+      // daily ETF tonnage — SPDR publishes it behind a page that blocks
+      // server-side calls. The ±0.4t of Math.random() that used to sit here made
+      // the series look measured and changed on every refresh; it is gone, so at
+      // least the same day always reports the same number.
+      const flow   = +(ret * 1.8).toFixed(2);
       runningEtf  += flow;
       etfFlows.push({ date: last20d[i], goldPrice: +last20[i].toFixed(0), etfTonnes: flow });
     }
@@ -140,6 +146,7 @@ export async function GET() {
 
     const data: SupplyDemandPayload = {
       etfFlows, etfTrend, etfTrendTh, etfTotalChange: +totalFlow.toFixed(1),
+      etfFlowCaveat: "ETF tonnage is inferred from daily price moves, not reported holdings — no free feed publishes daily GLD tonnage server-side. Treat the direction as indicative and the magnitude as an estimate.",
       currentPrice, priceChange30d: +priceChange30d.toFixed(2),
       annualSupplyTonnes, annualDemandTonnes,
       supplyBreakdown, demandBreakdown,

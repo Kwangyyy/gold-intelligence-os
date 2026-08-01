@@ -137,16 +137,11 @@ function classifyHurst(H: number): HurstResult {
   return { exponent: H, regime, confidence, interpretation, tradingImplication };
 }
 
-// Simulate Hurst values for different timeframes when fetch fails
-function simulateHurst(tf: string): number {
-  const seeds: Record<string, number> = {
-    "1d": 0.62,
-    "1wk": 0.58,
-    "1mo": 0.55,
-  };
-  const base = seeds[tf] ?? 0.55;
-  return Math.max(0.3, Math.min(0.85, base + (Math.random() - 0.5) * 0.12));
-}
+// There is no simulated Hurst any more. It used to return a seed per timeframe
+// plus `(Math.random() - 0.5) * 0.12` whenever the price fetch came up short,
+// so a failed fetch produced a plausible exponent that changed on every refresh
+// — on a Pro page whose entire output is that one number. A timeframe without
+// enough data is now reported as unavailable.
 
 export async function GET() {
   // Fetch daily data (most reliable for Hurst)
@@ -162,17 +157,21 @@ export async function GET() {
     { tf: "Monthly", label: "Monthly (2yr)", prices: monthlyPrices.length >= 10 ? monthlyPrices : [] },
   ];
 
-  const timeframes: TimeframedHurst[] = tfConfigs.map((cfg) => {
-    const H = cfg.prices.length >= 20
-      ? computeHurst(cfg.prices)
-      : simulateHurst(cfg.tf.toLowerCase().replace(" ", ""));
-    return {
+  const timeframes: TimeframedHurst[] = tfConfigs
+    .filter((cfg) => cfg.prices.length >= 20)
+    .map((cfg) => ({
       tf: cfg.tf,
       label: cfg.label,
       periods: cfg.prices.length,
-      hurst: classifyHurst(H),
-    };
-  });
+      hurst: classifyHurst(computeHurst(cfg.prices)),
+    }));
+
+  if (!timeframes.length) {
+    return NextResponse.json(
+      { error: "Not enough price history to compute a Hurst exponent" },
+      { status: 503 },
+    );
+  }
 
   // Overall bias from daily Hurst (most data points)
   const overallHurst = timeframes[0].hurst.exponent;

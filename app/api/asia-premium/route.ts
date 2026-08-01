@@ -57,8 +57,11 @@ function generateSgePremiumHistory(comexBase: number): PremiumWeek[] {
     const d = new Date(now);
     d.setDate(d.getDate() + weekOffset * 7);
     const label = `${d.toLocaleString("en", { month: "short" })} W${Math.ceil(d.getDate() / 7)}`;
-    const noise = (Math.random() - 0.5) * 2; // small noise for realism
-    const finalPremium = Math.max(-5, premium + noise);
+    // The "noise for realism" that used to be added here was exactly that —
+    // realism, not information. It moved every value on every refresh while the
+    // underlying pattern is fixed. The Shanghai premium has no free feed, so
+    // this stays a representative pattern; it is at least a stable one now.
+    const finalPremium = Math.max(-5, premium);
     return {
       week: label,
       premium: parseFloat(finalPremium.toFixed(1)),

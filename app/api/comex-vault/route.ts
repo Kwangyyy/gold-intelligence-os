@@ -11,6 +11,7 @@ interface VaultEntry {
 }
 
 interface ComexVaultData {
+  dataCaveat: string;
   registeredTonnes: number;
   eligibleTonnes: number;
   totalTonnes: number;
@@ -25,10 +26,16 @@ interface ComexVaultData {
   timestamp: string;
 }
 
+// COMEX vault stocks cannot be fetched: CME's daily metal stocks report answers
+// 403 to server-side requests, the same wall that blocks QuikStrike. So this is
+// a representative pattern, not measured inventory, and the payload says so
+// instead of leaving the reader to assume.
+//
+// What did change: the ±20t of Math.random() per week is gone. It made a fixed
+// pattern look like a live series — every refresh moved the numbers, which is
+// the one thing a static model should never do.
 function generateVaultHistory(): VaultEntry[] {
-  // Representative COMEX vault data based on historical patterns
   // Registered typically 200-800 tonnes, eligible 8000-12000 tonnes
-  // 2024-2025 saw unusual drain as gold moved to London/NYC due to tariff concerns
   const baseRegistered = 420;
   const baseEligible = 9200;
   const weeks: VaultEntry[] = [];
@@ -39,11 +46,10 @@ function generateVaultHistory(): VaultEntry[] {
     d.setDate(d.getDate() - i * 7);
     const label = `W${d.toLocaleString("en", { month: "short" })}${Math.ceil(d.getDate() / 7)}`;
 
-    // Simulate drain trend (gold flowing into COMEX from London on tariff/arb concerns)
+    // Drain trend: gold flowing into COMEX from London on tariff/arb concerns.
     const trendAdj = i > 6 ? -i * 15 : i * 8;
-    const noise = Math.floor((Math.random() - 0.5) * 40);
-    const registered = Math.max(180, baseRegistered + trendAdj + noise);
-    const eligible = Math.max(7000, baseEligible + trendAdj * 3 + noise * 4);
+    const registered = Math.max(180, baseRegistered + trendAdj);
+    const eligible = Math.max(7000, baseEligible + trendAdj * 3);
 
     // Coverage ratio: registered vs approximate open interest (300k contracts × 100oz / 32150 = ~930t)
     const estimatedOITonnes = 930;
@@ -82,6 +88,7 @@ export async function GET() {
       : `COMEX registered inventory stable at ${current.registered.toLocaleString()}t. Coverage ratio ${(current.coverage * 100).toFixed(1)}% — neutral signal for gold price.`;
 
   const data: ComexVaultData = {
+    dataCaveat: "Representative pattern, not measured inventory. CME's daily metal stocks report blocks server-side requests, so no live COMEX vault figure is available to this app. Verify against cmegroup.com before acting on it.",
     registeredTonnes: current.registered,
     eligibleTonnes: current.eligible,
     totalTonnes: current.total,

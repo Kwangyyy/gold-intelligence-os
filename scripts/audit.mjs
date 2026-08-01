@@ -115,7 +115,7 @@ const MULTI_ASSET = new Set([
 // payload quotes many live instruments that genuinely tick between two calls.
 // Also anything whose upstream rate-limits a second call seconds later.
 const NON_DETERMINISTIC = new Set([
-  "brief", "forecast", "trade-ideas", "weekly-brief", "news-sentiment",
+  "brief", "forecast", "trade-ideas", "weekly-brief", "news-sentiment", "news",
   "gold-news-catalyst", "market-summary", "trade-setup", "plan",
   "market/symbols", "intermarket", "intermarket-heatmap", "leaderboard",
   "econ-impact", "calendar", "calendar-live", "ai-model/data",

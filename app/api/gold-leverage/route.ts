@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getGoldCot, CONTRACTS_TO_TONNES } from "@/lib/cftcCot";
 
 export const revalidate = 3600; // 1h cache
 
@@ -21,55 +22,45 @@ interface GoldLeverageData {
   history: LeverageHistory[];
   extremes: { date: string; leverage: number; priceAfter30d: number }[];
   insight: string;
+  source: string;
+  vaultCaveat: string;
   timestamp: string;
 }
 
-async function fetchGoldOI(): Promise<number | null> {
-  // Open interest for GC futures — approximate from Yahoo or fallback
-  // Yahoo doesn't directly expose OI, so we use representative data
-  // Real source: CME Group daily OI report
-  return null; // will use representative value
+// Registered vault tonnage has no free source: CME's daily metal stocks report
+// answers 403 to server-side calls, the same wall QuikStrike puts up. So the
+// paper leg of this ratio is real CFTC open interest and the physical leg is a
+// stated assumption. That split is reported in the payload rather than blurred,
+// because a ratio is only as honest as its weaker half.
+const ASSUMED_REGISTERED_TONNES = 420;
+
+function signalFor(leverage: number): LeverageHistory["signal"] {
+  return leverage > 6 ? "extreme" : leverage > 4 ? "high" : leverage > 2 ? "moderate" : "low";
 }
 
-function generateLeverageHistory(): LeverageHistory[] {
-  // Representative COMEX data patterns
-  // OI typically 350k-500k contracts × 100oz = 35M-50M oz = ~1090-1550 tonnes
-  // Registered vault typically 200-800 tonnes
-  // Leverage ratio (OI/registered) typically 1-10x
-
-  const baseOI = 420000; // contracts
-  const baseRegistered = 420; // tonnes
-  const history: LeverageHistory[] = [];
-  const now = new Date();
-
-  for (let i = 11; i >= 0; i--) {
-    const d = new Date(now);
-    d.setDate(d.getDate() - i * 7);
-    const label = `W${d.toLocaleString("en", { month: "short" })}${Math.ceil(d.getDate() / 7)}`;
-
-    const oiNoise = Math.floor((Math.random() - 0.5) * 30000);
-    const regNoise = Math.floor((Math.random() - 0.5) * 50);
-    const trendAdj = i > 6 ? i * 5000 : -i * 3000;
-
-    const oi = Math.max(300000, baseOI + trendAdj + oiNoise);
-    const reg = Math.max(150, baseRegistered - trendAdj / 200 + regNoise);
-    const oiTonnes = Math.round((oi * 100) / 32150); // 100 oz/contract ÷ 32150 oz/tonne
-    const leverage = parseFloat((oiTonnes / reg).toFixed(2));
-
-    const sig: LeverageHistory["signal"] =
-      leverage > 6  ? "extreme" :
-      leverage > 4  ? "high" :
-      leverage > 2  ? "moderate" : "low";
-
-    history.push({ week: label, openInterest: oi, oiTonnes, leverage, signal: sig });
-  }
-  return history;
+async function buildHistory(): Promise<LeverageHistory[]> {
+  // Twelve weekly CFTC reports — was a random walk seeded on a base of 420,000
+  // contracts with +/-15,000 of Math.random() noise per week.
+  const weeks = await getGoldCot(12);
+  return weeks.map((w) => {
+    const oiTonnes = Math.round(w.openInterest * CONTRACTS_TO_TONNES);
+    const leverage = +(oiTonnes / ASSUMED_REGISTERED_TONNES).toFixed(2);
+    const d = new Date(`${w.date}T00:00:00Z`);
+    return {
+      week: d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" }),
+      openInterest: w.openInterest,
+      oiTonnes,
+      leverage,
+      signal: signalFor(leverage),
+    };
+  });
 }
 
 export async function GET() {
-  await fetchGoldOI(); // fire (always null, just checking connectivity)
-
-  const history = generateLeverageHistory();
+  const history = await buildHistory();
+  if (history.length < 3) {
+    return NextResponse.json({ error: "CFTC open-interest data unavailable" }, { status: 503 });
+  }
   const current = history[history.length - 1];
   const prev = history[history.length - 3];
   const trend: GoldLeverageData["leverageTrend"] =
@@ -94,7 +85,7 @@ export async function GET() {
   const data: GoldLeverageData = {
     openInterestContracts: current.openInterest,
     openInterestTonnes: current.oiTonnes,
-    registeredVaultTonnes: Math.round(current.oiTonnes / current.leverage),
+    registeredVaultTonnes: ASSUMED_REGISTERED_TONNES,
     leverageRatio: current.leverage,
     leverageTrend: trend,
     signal,
@@ -107,6 +98,8 @@ export async function GET() {
       { date: "Oct 2023", leverage: 3.2,  priceAfter30d: -1.4 },
       { date: "Feb 2024", leverage: 8.5,  priceAfter30d: +12.3 },
     ],
+    source: "Open interest: CFTC disaggregated futures-only, GOLD (088691), weekly.",
+    vaultCaveat: `Registered vault tonnage is assumed at ${ASSUMED_REGISTERED_TONNES}t — CME's daily metal stocks report blocks server-side requests, so no live figure is available. The week-to-week shape of this ratio is real; its absolute level rests on that assumption.`,
     insight:
       `Current COMEX leverage: ${current.leverage.toFixed(1)}x (${current.oiTonnes}t paper vs ~${Math.round(current.oiTonnes / current.leverage)}t registered). ` +
       `Leverage is ${trend}. ` +

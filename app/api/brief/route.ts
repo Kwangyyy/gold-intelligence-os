@@ -58,6 +58,7 @@ async function fetchCalendarEvents() {
   try {
     const res = await fetch("https://nfs.faireconomy.media/ff_calendar_thisweek.json", {
       headers: { "User-Agent": "Mozilla/5.0" }, cache: "no-store",
+      signal: AbortSignal.timeout(10_000),
     });
     if (!res.ok) return [];
     const raw: Array<{ title: string; country: string; impact: string; forecast?: string; previous?: string; date: string }> = await res.json();

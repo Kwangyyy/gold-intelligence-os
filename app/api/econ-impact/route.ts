@@ -94,7 +94,9 @@ export async function GET() {
 
   try {
     const ffUrl = "https://nfs.faireconomy.media/ff_calendar_thisweek.json";
-    const res = await fetch(ffUrl, { headers: { "User-Agent": "Mozilla/5.0" }, cache: "no-store" });
+    const res = await fetch(ffUrl, { headers: { "User-Agent": "Mozilla/5.0" }, cache: "no-store",
+      signal: AbortSignal.timeout(10_000),
+    });
     if (!res.ok) throw new Error(`FF calendar ${res.status}`);
     const raw: { date: string; time: string; currency: string; impact: string; title: string; forecast: string | null; previous: string | null; actual: string | null }[] = await res.json();
 

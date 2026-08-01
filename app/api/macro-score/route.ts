@@ -34,7 +34,9 @@ export interface MacroScorePayload {
 // different instruments, and a ten-minute delay is immaterial to a macro score.
 async function yahoo(symbol: string, range: string) {
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?range=${range}&interval=1d`;
-  const r = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" }, cache: "no-store" });
+  const r = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" }, cache: "no-store",
+      signal: AbortSignal.timeout(10_000),
+    });
   if (!r.ok) return null;
   return r.json();
 }

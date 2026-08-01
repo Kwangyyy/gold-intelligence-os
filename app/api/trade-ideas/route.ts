@@ -71,7 +71,7 @@ async function fetchMarket() {
 async function fetchTechnical() {
   try {
     const base = process.env.NEXTAUTH_URL ?? "http://localhost:3100";
-    const res = await fetch(`${base}/api/technical/score`, { cache: "no-store" });
+    const res = await fetch(`${base}/api/technical/score`, { cache: "no-store" , signal: AbortSignal.timeout(10_000) });
     if (!res.ok) return null;
     const data = await res.json();
     return { bias: data.overallBias as string, score: data.compositeScore as number };
@@ -91,7 +91,7 @@ async function fetchAiSignal() {
 async function fetchNewsSentiment() {
   try {
     const base = process.env.NEXTAUTH_URL ?? "http://localhost:3100";
-    const res = await fetch(`${base}/api/news`, { cache: "no-store" });
+    const res = await fetch(`${base}/api/news`, { cache: "no-store" , signal: AbortSignal.timeout(10_000) });
     if (!res.ok) return null;
     const data = await res.json();
     return { sentiment: data.overallSentiment as string, score: data.overallScore as number };
@@ -102,6 +102,7 @@ async function fetchCalendar() {
   try {
     const res = await fetch("https://nfs.faireconomy.media/ff_calendar_thisweek.json", {
       headers: { "User-Agent": "Mozilla/5.0" }, cache: "no-store",
+      signal: AbortSignal.timeout(10_000),
     });
     if (!res.ok) return [];
     const raw: Array<{ title: string; country: string; impact: string; date: string }> = await res.json();

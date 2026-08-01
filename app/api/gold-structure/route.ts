@@ -50,7 +50,9 @@ async function fetchYearlyOHLC(): Promise<{ price: number; yearlyHighs: number[]
     // to 2020 monthly and a multi-decade structure map needs more than that.
     // The futures basis washes out of highs and lows measured in percent.
     const url = "https://query1.finance.yahoo.com/v8/finance/chart/GC=F?range=10y&interval=1mo";
-    const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" }, next: { revalidate: 0 } });
+    const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" }, next: { revalidate: 0 },
+      signal: AbortSignal.timeout(10_000),
+    });
     if (!res.ok) throw new Error("Failed");
     const j = await res.json();
     const r = j.chart?.result?.[0];

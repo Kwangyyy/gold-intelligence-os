@@ -70,7 +70,9 @@ export async function GET() {
 // 2023 daily / 2020 monthly, and a seasonal pattern needs decades. Delay and the
 // futures basis are irrelevant here — these are percentage-return statistics.
     const url = "https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?range=10y&interval=1mo&includePrePost=false";
-    const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" }, cache: "no-store" });
+    const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" }, cache: "no-store",
+      signal: AbortSignal.timeout(10_000),
+    });
     if (!res.ok) throw new Error(`Yahoo ${res.status}`);
     const json = await res.json();
     const result = json?.chart?.result?.[0];
@@ -144,7 +146,9 @@ export async function GET() {
     // Week-of-year seasonality (using ISO week from monthly data — approximate)
     // For weekly precision, fetch weekly data
     const weekUrl = "https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?range=5y&interval=1wk&includePrePost=false";
-    const weekRes = await fetch(weekUrl, { headers: { "User-Agent": "Mozilla/5.0" }, cache: "no-store" });
+    const weekRes = await fetch(weekUrl, { headers: { "User-Agent": "Mozilla/5.0" }, cache: "no-store",
+      signal: AbortSignal.timeout(10_000),
+    });
     const weekBuckets = new Map<number, { returns: number[]; ranges: number[] }>();
     if (weekRes.ok) {
       const wJson = await weekRes.json();

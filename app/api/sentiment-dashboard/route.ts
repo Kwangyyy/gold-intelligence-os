@@ -47,7 +47,9 @@ async function fetchBtcFunding(): Promise<number> {
   try {
     type PI = { lastFundingRate?: string };
     const r = await fetch("https://fapi.binance.com/fapi/v1/premiumIndex?symbol=BTCUSDT",
-      { headers: { "User-Agent": "Mozilla/5.0" }, cache: "no-store" });
+      { headers: { "User-Agent": "Mozilla/5.0" }, cache: "no-store",
+      signal: AbortSignal.timeout(10_000),
+    });
     const j = await r.json() as PI;
     return parseFloat(j?.lastFundingRate ?? "0.0001") * 100;
   } catch { return 0.01; }

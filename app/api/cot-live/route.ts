@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { goldFetch } from "@/lib/goldSource";
+import { goldFetch, lastKnownGoldPrice } from "@/lib/goldSource";
 import { getGoldCot, percentileOf, reportAgeDays, CONTRACTS_TO_TONNES } from "@/lib/cftcCot";
 
 export const revalidate = 3600;
@@ -48,11 +48,11 @@ async function fetchGoldData(): Promise<{ price: number; change1w: number }> {
     const json = await res.json();
     const result = json?.chart?.result?.[0];
     const closes: number[] = (result?.indicators?.quote?.[0]?.close ?? []).filter((c: number | null) => c != null);
-    const price = result?.meta?.regularMarketPrice ?? closes[closes.length - 1] ?? 3320;
+    const price = result?.meta?.regularMarketPrice ?? closes[closes.length - 1] ?? lastKnownGoldPrice();
     const prev5d = closes[closes.length - 6] ?? price;
     return { price, change1w: ((price - prev5d) / prev5d) * 100 };
   } catch {
-    return { price: 3320, change1w: 0 };
+    return { price: lastKnownGoldPrice(), change1w: 0 };
   }
 }
 

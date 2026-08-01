@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { goldChartJson } from "@/lib/goldSource";
+import { goldChartJson, lastKnownGoldPrice } from "@/lib/goldSource";
 
 export const dynamic = "force-dynamic";
 
@@ -72,7 +72,7 @@ export async function GET() {
     const prices   = goldData?.prices ?? [];
     const dates    = goldData?.dates ?? [];
 
-    const currentPrice  = prices.at(-1) ?? 3200;
+    const currentPrice  = prices.at(-1) ?? lastKnownGoldPrice();
     const price30dAgo   = prices.at(-31) ?? prices[0] ?? currentPrice;
     const priceChange30d = ((currentPrice - price30dAgo) / price30dAgo) * 100;
 

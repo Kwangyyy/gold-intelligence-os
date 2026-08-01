@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { yahooChartJson } from "@/lib/goldSource";
+import { yahooChartJson, lastKnownGoldPrice } from "@/lib/goldSource";
 
 export const revalidate = 900; // 15-min cache
 
@@ -103,7 +103,7 @@ function buildHistory(goldCloses: number[], tipCloses: number[], tltCloses: numb
     history.push({
       date: d.toISOString().slice(0, 10),
       breakeven: estimateBreakeven(tip, tlt),
-      goldPrice: parseFloat((g ?? 3300).toFixed(2)),
+      goldPrice: parseFloat((g ?? lastKnownGoldPrice()).toFixed(2)),
       realYield: estimateRealYield(tip, prev),
     });
   }
@@ -153,7 +153,7 @@ export async function GET() {
     breakevenChange1d: beChange,
     realYield10y: realYield,
     realYieldChange1d: realYieldChange,
-    goldPrice: gold.price ?? 3320,
+    goldPrice: gold.price ?? lastKnownGoldPrice(),
     goldChange1d: gold.change ?? 0,
     breakevenSignal: signal,
     goldImplication: goldImplication(signal, currentBreakeven, realYield),

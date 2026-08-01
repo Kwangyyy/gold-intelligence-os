@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getGoldSpot } from "@/lib/goldSource";
+import { getGoldSpot, lastKnownGoldPrice } from "@/lib/goldSource";
 
 export const dynamic = "force-dynamic";
 
@@ -88,7 +88,7 @@ export async function GET() {
     const spot = await getGoldSpot().catch(() => null);
     const price = spot && spot.price > 0
       ? spot.price
-      : result.meta?.regularMarketPrice ?? rawC.filter(Boolean).at(-1) ?? 3000;
+      : result.meta?.regularMarketPrice ?? rawC.filter(Boolean).at(-1) ?? lastKnownGoldPrice();
 
     // Build monthly bars
     interface MonthBar { ts: number; o: number; h: number; l: number; c: number }

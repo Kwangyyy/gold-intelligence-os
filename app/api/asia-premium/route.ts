@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { goldFetch } from "@/lib/goldSource";
+import { goldFetch, lastKnownGoldPrice } from "@/lib/goldSource";
 
 export const revalidate = 1800; // 30-min cache
 
@@ -89,7 +89,7 @@ function getGoldImplication(signal: AsiaPremiumData["signal"], premium: number):
 }
 
 export async function GET() {
-  const comexSpot = (await fetchComexSpot()) ?? 3320;
+  const comexSpot = (await fetchComexSpot()) ?? lastKnownGoldPrice();
   const history = generateSgePremiumHistory(comexSpot);
   const current = history[history.length - 1];
   const signal = classifySignal(current.premium);

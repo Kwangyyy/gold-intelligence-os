@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { yahooChartJson } from "@/lib/goldSource";
+import { yahooChartJson, lastKnownGoldPrice } from "@/lib/goldSource";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -90,7 +90,7 @@ export async function GET() {
     const gdx = data.get("GDX");
     const gdxj = data.get("GDXJ");
 
-    const goldPrice = goldFut?.price ?? gld?.price ?? 3350;
+    const goldPrice = goldFut?.price ?? gld?.price ?? lastKnownGoldPrice();
     const goldCloses = goldFut?.close90D ?? gld?.close90D ?? [];
 
     // GDX / GLD ratio

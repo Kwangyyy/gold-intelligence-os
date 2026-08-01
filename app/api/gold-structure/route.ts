@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getGoldSpot } from "@/lib/goldSource";
+import { getGoldSpot, lastKnownGoldPrice } from "@/lib/goldSource";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -57,7 +57,7 @@ async function fetchYearlyOHLC(): Promise<{ price: number; yearlyHighs: number[]
     if (!r) throw new Error("No result");
 
     const meta = r.meta ?? {};
-    const price: number = meta.regularMarketPrice ?? 3350;
+    const price: number = meta.regularMarketPrice ?? lastKnownGoldPrice();
     const highs: number[] = (r.indicators?.quote?.[0]?.high ?? []).filter(Boolean);
     const lows: number[] = (r.indicators?.quote?.[0]?.low ?? []).filter(Boolean);
     const timestamps: number[] = r.timestamp ?? [];
@@ -83,7 +83,7 @@ async function fetchYearlyOHLC(): Promise<{ price: number; yearlyHighs: number[]
 
     return { price, yearlyHighs: yHighs, yearlyLows: yLows };
   } catch {
-    return { price: 3350, yearlyHighs: [], yearlyLows: [] };
+    return { price: lastKnownGoldPrice(), yearlyHighs: [], yearlyLows: [] };
   }
 }
 

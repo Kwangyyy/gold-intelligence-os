@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { yahooChartJson } from "@/lib/goldSource";
+import { yahooChartJson, lastKnownGoldPrice } from "@/lib/goldSource";
 
 export const dynamic = "force-dynamic";
 
@@ -112,7 +112,7 @@ export async function GET() {
   try {
     const results = await Promise.all(SYMBOLS.map(s => fetchOHLC(s.sym)));
 
-    let goldPrice = 3200;
+    let goldPrice= lastKnownGoldPrice();
     const goldIdx = SYMBOLS.findIndex(s => s.sym === "GC=F");
     if (goldIdx >= 0 && results[goldIdx].price) goldPrice = results[goldIdx].price;
 

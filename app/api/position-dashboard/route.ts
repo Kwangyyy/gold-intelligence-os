@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { yahooChartJson } from "@/lib/goldSource";
+import { yahooChartJson, lastKnownGoldPrice } from "@/lib/goldSource";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -97,7 +97,7 @@ export async function GET() {
       fetchYahooClose("HYG"),
     ]);
 
-    const goldPrice = gold?.price ?? 3350;
+    const goldPrice = gold?.price ?? lastKnownGoldPrice();
     const goldChange1DPct = gold ? (gold.change1D / (gold.price - gold.change1D)) * 100 : 0;
 
     // ── Derive positioning signals from live data ──────────────

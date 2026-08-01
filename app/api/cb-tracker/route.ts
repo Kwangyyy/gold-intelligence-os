@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { goldFetch } from "@/lib/goldSource";
+import { goldFetch, lastKnownGoldPrice } from "@/lib/goldSource";
 
 export const dynamic = "force-dynamic";
 
@@ -137,12 +137,12 @@ export async function GET() {
 
   try {
     // Fetch live gold price only
-    let goldPrice = 3200;
+    let goldPrice= lastKnownGoldPrice();
     try {
       const r = await goldFetch("https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?range=2d&interval=1d");
       type YJ = { chart?: { result?: Array<{ meta?: { regularMarketPrice?: number } }> } };
       const j = await r.json() as YJ;
-      goldPrice = j?.chart?.result?.[0]?.meta?.regularMarketPrice ?? 3200;
+      goldPrice = j?.chart?.result?.[0]?.meta?.regularMarketPrice ?? lastKnownGoldPrice();
     } catch { /* use default */ }
 
     const totalCBGold = CB_DATA.reduce((s, e) => s + e.totalTonnes, 0);

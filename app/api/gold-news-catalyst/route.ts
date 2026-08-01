@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { goldFetch } from "@/lib/goldSource";
+import { goldFetch, lastKnownGoldPrice } from "@/lib/goldSource";
 
 export const revalidate = 1800; // 30-min
 
@@ -42,7 +42,7 @@ async function fetchGoldSpot(): Promise<number> {
   try {
     const res = await goldFetch("https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=1d&range=2d");
     const json = await res.json();
-    return json?.chart?.result?.[0]?.meta?.regularMarketPrice ?? 3320;
+    return json?.chart?.result?.[0]?.meta?.regularMarketPrice ?? lastKnownGoldPrice();
   } catch {
     return 3320;
   }

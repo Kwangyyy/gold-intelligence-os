@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { yahooChartJson } from "@/lib/goldSource";
+import { yahooChartJson, lastKnownGoldPrice } from "@/lib/goldSource";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -79,7 +79,7 @@ export async function GET() {
     ]);
 
     const copperPrice = copper?.price ?? 4.2;  // price in USD per lb
-    const goldPrice = gold?.price ?? 3350;
+    const goldPrice = gold?.price ?? lastKnownGoldPrice();
     const copperPrev = copper ? copperPrice - copper.change1D : copperPrice;
     const goldPrev = gold ? goldPrice - gold.change1D : goldPrice;
     const spxPrev = spx ? spx.price - spx.change1D : 5500;

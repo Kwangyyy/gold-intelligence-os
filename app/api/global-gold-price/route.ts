@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { goldFetch } from "@/lib/goldSource";
+import { goldFetch, lastKnownGoldPrice } from "@/lib/goldSource";
 import { yahooChartJson } from "@/lib/goldSource";
 
 export const revalidate = 900;
@@ -53,11 +53,11 @@ async function fetchGoldUSD(): Promise<{ price: number; change: number }> {
     const res = await goldFetch("https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=1d&range=5d");
     const json = await res.json();
     const meta = json?.chart?.result?.[0]?.meta;
-    const price = meta?.regularMarketPrice ?? 3320;
+    const price = meta?.regularMarketPrice ?? lastKnownGoldPrice();
     const prev = meta?.chartPreviousClose ?? price;
     return { price, change: ((price - prev) / prev) * 100 };
   } catch {
-    return { price: 3320, change: 0 };
+    return { price: lastKnownGoldPrice(), change: 0 };
   }
 }
 

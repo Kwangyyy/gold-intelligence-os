@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { yahooChartJson } from "@/lib/goldSource";
+import { yahooChartJson, lastKnownGoldPrice } from "@/lib/goldSource";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -108,7 +108,7 @@ export async function GET() {
       fetchYahoo("JPY=X",   "3mo"),
     ]);
 
-    const goldPrice = gold?.price ?? 3350;
+    const goldPrice = gold?.price ?? lastKnownGoldPrice();
     const goldChange3M = gold ? pctChange(gold.price, gold.closes[0] ?? gold.price) : 0;
 
     // ── 1. DOLLAR (DXY) — inverse for gold ──

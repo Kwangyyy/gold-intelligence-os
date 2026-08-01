@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { goldFetch } from "@/lib/goldSource";
+import { goldFetch, lastKnownGoldPrice } from "@/lib/goldSource";
 
 export const dynamic = "force-dynamic";
 
@@ -119,7 +119,7 @@ export async function GET() {
   if (CACHE && Date.now() - CACHE.ts < TTL) return NextResponse.json(CACHE.data);
 
   try {
-    let goldPrice = 3200;
+    let goldPrice= lastKnownGoldPrice();
     try {
       const r  = await goldFetch("https://query1.finance.yahoo.com/v8/finance/chart/GC=F?range=1d&interval=1d");
       const j  = await r.json();

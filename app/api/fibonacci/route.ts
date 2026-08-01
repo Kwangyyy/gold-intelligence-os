@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { goldChartJson } from "@/lib/goldSource";
+import { goldChartJson, lastKnownGoldPrice } from "@/lib/goldSource";
 
 export const dynamic = "force-dynamic";
 
@@ -80,7 +80,7 @@ export async function GET() {
     const rawL: (number|null)[] = q.low   ?? [];
     const rawC: (number|null)[] = q.close ?? [];
 
-    const price = result.meta?.regularMarketPrice ?? rawC.filter(Boolean).at(-1) ?? 3000;
+    const price = result.meta?.regularMarketPrice ?? rawC.filter(Boolean).at(-1) ?? lastKnownGoldPrice();
 
     // Filter nulls
     const bars: { ts: number; h: number; l: number; c: number }[] = [];

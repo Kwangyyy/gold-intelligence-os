@@ -275,6 +275,27 @@ export async function goldChartJson(range = "1mo", interval = "1d"): Promise<Yah
 }
 
 /**
+ * The most recent gold price this process actually saw, or 0 if it never got
+ * one. Synchronous, so it can stand in the `??` position where routes used to
+ * carry a literal.
+ *
+ * Those literals were written when gold traded near $3,300 and never revisited;
+ * with gold above $4,000 a feed outage would have quoted a price 20% low and
+ * called it live. Zero is the honest answer for "we have nothing": a page
+ * showing 0 is visibly broken, which is what the user needs to know, whereas a
+ * plausible wrong number is acted on. In practice this is populated, since every
+ * caller reaches here right after a successful fetch on the same request.
+ */
+export function lastKnownGoldPrice(): number {
+  if (LAST_GOOD_SPOT && LAST_GOOD_SPOT.price > 0) return LAST_GOOD_SPOT.price;
+  for (const c of LAST_GOOD_CANDLES.values()) {
+    const p = c.c[c.c.length - 1];
+    if (p > 0) return p;
+  }
+  return 0;
+}
+
+/**
  * Drop-in replacement for `fetch(<Yahoo GC=F chart url>)`.
  *
  * Dozens of routes fetch the gold chart in their own shape — inside a
@@ -330,7 +351,7 @@ export async function yahooChartJson(
 }
 
 /** Latest spot-equivalent gold price, real-time. */
-export async function getGoldSpot(): Promise<{ price: number; source: "paxg" | "yahoo"; delaySec: number }> {
+export async function getGoldSpot(): Promise<{ price: number; source: "paxg" | "yahoo" | "cache"; delaySec: number }> {
   try {
     const j = (await binanceJson("/api/v3/ticker/price?symbol=PAXGUSDT")) as { price?: string };
     const price = Number(j?.price);
@@ -356,9 +377,11 @@ export async function getGoldSpot(): Promise<{ price: number; source: "paxg" | "
     } catch (e) {
       // See getGoldCandles: callers' own fallbacks are constants from 2024.
       if (!LAST_GOOD_SPOT) throw e;
+      // Not "yahoo" — Yahoo is exactly what just failed. Saying so lets callers
+      // label the reading honestly instead of crediting a feed that is down.
       return {
         price: LAST_GOOD_SPOT.price,
-        source: "yahoo",
+        source: "cache",
         delaySec: Math.floor((Date.now() - LAST_GOOD_SPOT.at) / 1000),
       };
     }

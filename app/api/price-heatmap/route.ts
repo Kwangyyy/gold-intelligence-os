@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { goldFetch } from "@/lib/goldSource";
+import { goldFetch, lastKnownGoldPrice } from "@/lib/goldSource";
 
 export const dynamic = "force-dynamic";
 
@@ -91,7 +91,7 @@ export async function GET() {
 
     const timestamps = obj?.chart?.result?.[0]?.timestamp ?? [];
     const closes     = (obj?.chart?.result?.[0]?.indicators?.quote?.[0]?.close ?? []).filter((c): c is number => c != null);
-    const spot       = obj?.chart?.result?.[0]?.meta?.regularMarketPrice ?? closes.at(-1) ?? 3200;
+    const spot       = obj?.chart?.result?.[0]?.meta?.regularMarketPrice ?? closes.at(-1) ?? lastKnownGoldPrice();
 
     const cells: HeatCell[] = [];
     let bestDay   = { date: "", ret: -999 };

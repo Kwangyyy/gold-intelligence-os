@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { goldFetch } from "@/lib/goldSource";
+import { goldFetch, lastKnownGoldPrice } from "@/lib/goldSource";
 
 export const runtime = "nodejs";
 export const revalidate = 1800; // 30 min
@@ -44,12 +44,12 @@ async function fetchSpotData(): Promise<{ price: number; high: number; low: numb
     };
     const meta = json.chart?.result?.[0]?.meta;
     return {
-      price: meta?.regularMarketPrice ?? 3300,
+      price: meta?.regularMarketPrice ?? lastKnownGoldPrice(),
       high: meta?.regularMarketDayHigh ?? 3320,
       low: meta?.regularMarketDayLow ?? 3280,
     };
   } catch {
-    return { price: 3300, high: 3320, low: 3280 };
+    return { price: lastKnownGoldPrice(), high: lastKnownGoldPrice(), low: lastKnownGoldPrice() };
   }
 }
 

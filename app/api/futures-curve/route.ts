@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { yahooChartJson } from "@/lib/goldSource";
+import { yahooChartJson, lastKnownGoldPrice } from "@/lib/goldSource";
 
 export const runtime = "nodejs";
 export const revalidate = 1800; // 30 min
@@ -56,7 +56,7 @@ async function fetchPrice(symbol: string): Promise<number | null> {
 export async function GET() {
   // Fetch spot first, then others in parallel
   const spot = await fetchPrice("GC=F");
-  const basePrice = spot ?? 3300;
+  const basePrice = spot ?? lastKnownGoldPrice();
 
   // Realistic carry cost ~5% / year for gold (storage + financing)
   const carryRatePerMonth = 0.004; // ~4.8% annualized

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { goldFetch } from "@/lib/goldSource";
+import { goldFetch, lastKnownGoldPrice } from "@/lib/goldSource";
 import { yahooChartJson } from "@/lib/goldSource";
 
 export const dynamic = "force-dynamic";
@@ -129,7 +129,7 @@ export async function GET() {
 
     type GJ = { chart?: { result?: Array<{ meta?: { regularMarketPrice?: number } }> } };
     const goldJ = await goldR.json() as GJ;
-    const goldPrice = goldJ?.chart?.result?.[0]?.meta?.regularMarketPrice ?? 3200;
+    const goldPrice = goldJ?.chart?.result?.[0]?.meta?.regularMarketPrice ?? lastKnownGoldPrice();
 
     const entries: ETFEntry[] = [];
     for (let i = 0; i < ETF_META.length; i++) {

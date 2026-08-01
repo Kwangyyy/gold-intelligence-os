@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { goldFetch } from "@/lib/goldSource";
+import { goldFetch, lastKnownGoldPrice } from "@/lib/goldSource";
 
 export const dynamic = "force-dynamic";
 
@@ -50,9 +50,9 @@ async function fetchVixAndGold() {
     const goldJ = await goldR.json() as YJ;
     return {
       vix:  vixJ?.chart?.result?.[0]?.meta?.regularMarketPrice  ?? 20,
-      gold: goldJ?.chart?.result?.[0]?.meta?.regularMarketPrice ?? 3200,
+      gold: goldJ?.chart?.result?.[0]?.meta?.regularMarketPrice ?? lastKnownGoldPrice(),
     };
-  } catch { return { vix: 20, gold: 3200 }; }
+  } catch { return { vix: 20, gold: lastKnownGoldPrice() }; }
 }
 
 // Static geopolitical risk events (regularly updated in real app)

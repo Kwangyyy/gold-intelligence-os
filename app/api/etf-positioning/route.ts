@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { yahooChartJson } from "@/lib/goldSource";
+import { yahooChartJson, lastKnownGoldPrice } from "@/lib/goldSource";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -117,7 +117,7 @@ export async function GET() {
       ...ETF_DEFS.map(e => fetchETF(e.symbol)),
     ]);
 
-    const goldPrice = goldResult?.price ?? 3350;
+    const goldPrice = goldResult?.price ?? lastKnownGoldPrice();
     const goldChange1DPct = goldResult?.change1D ?? 0;
 
     const etfs: GoldETFData[] = ETF_DEFS.map((def, i) => {

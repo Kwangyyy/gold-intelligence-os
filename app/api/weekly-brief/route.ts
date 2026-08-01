@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { yahooChartJson } from "@/lib/goldSource";
+import { yahooChartJson, lastKnownGoldPrice } from "@/lib/goldSource";
 
 export const dynamic = "force-dynamic";
 
@@ -66,7 +66,7 @@ export async function GET() {
     const spxCloses  = getCloses(spxJ);
     const tltCloses  = getCloses(tltJ);
 
-    const goldPrice   = (goldJ as { chart?: { result?: Array<{ meta?: { regularMarketPrice?: number } }> } } | null)?.chart?.result?.[0]?.meta?.regularMarketPrice ?? goldCloses.at(-1) ?? 3200;
+    const goldPrice   = (goldJ as { chart?: { result?: Array<{ meta?: { regularMarketPrice?: number } }> } } | null)?.chart?.result?.[0]?.meta?.regularMarketPrice ?? goldCloses.at(-1) ?? lastKnownGoldPrice();
     const goldW  = goldCloses.length >= 6  ? ((goldCloses.at(-1)! - goldCloses.at(-6)!)  / goldCloses.at(-6)!  * 100) : 0;
     const goldM  = goldCloses.length >= 22 ? ((goldCloses.at(-1)! - goldCloses.at(-22)!) / goldCloses.at(-22)! * 100) : 0;
     const dxy    = dxyCloses.at(-1) ?? 104;

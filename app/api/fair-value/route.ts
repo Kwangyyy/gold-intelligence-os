@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { yahooChartJson } from "@/lib/goldSource";
+import { yahooChartJson, lastKnownGoldPrice } from "@/lib/goldSource";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -101,7 +101,7 @@ export async function GET() {
       fetchClose("^VIX", "2y"),
     ]);
 
-    const goldPrice = goldD?.price ?? 3350;
+    const goldPrice = goldD?.price ?? lastKnownGoldPrice();
     const tipPrice = tipD?.price ?? 110;
     const dxyPrice = dxyD?.price ?? 104;
     const vixPrice = vixD?.price ?? 18;

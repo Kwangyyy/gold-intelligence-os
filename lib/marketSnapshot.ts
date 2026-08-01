@@ -16,7 +16,7 @@ import {
 } from "./marketLogic";
 import { getNewsRisk } from "./mockNews";
 import { getNewsRiskLive } from "./newsRisk";
-import { getGoldCandles, getGoldSpot } from "./goldSource";
+import { getGoldCandles, getGoldSpot, lastKnownGoldPrice } from "./goldSource";
 import {
   geminiEnabled,
   generateNewsImpact,
@@ -109,15 +109,22 @@ function buildSnapshot(input: {
 }
 
 function fallbackSnapshot(): MarketSnapshot {
+  // Anchor on whatever price this process last really saw. The hardcoded sample
+  // that used to live here goes stale the moment gold moves, and `isLive: false`
+  // is easy to miss on a page that otherwise looks normal.
+  const last = lastKnownGoldPrice();
+  const price = last > 0 ? last : 0;
   return buildSnapshot({
-    price: 4033.6,
-    previousClose: 4047.6,
-    open: 4046.0,
-    high: 4051.6,
-    low: 3998.1,
-    atr: 38.5,
+    price,
+    previousClose: price,
+    open: price,
+    high: price,
+    low: price,
+    atr: 0,
     isLive: false,
-    source: "fallback (cached sample)",
+    source: last > 0
+      ? "fallback — last known price, feed unavailable"
+      : "fallback — no price available",
   });
 }
 
@@ -236,7 +243,10 @@ export async function getMarketSnapshot(): Promise<MarketSnapshot> {
       low: todayLow,
       atr: atr || todayHigh - todayLow,
       isLive: true,
-      source: spot.source === "paxg" ? "PAXG spot-equivalent · real-time" : "Yahoo Finance · COMEX GC=F",
+      source:
+        spot.source === "paxg" ? "PAXG spot-equivalent · real-time"
+        : spot.source === "cache" ? `last known price · feeds unavailable (${spot.delaySec}s old)`
+        : "Yahoo Finance · COMEX GC=F",
     });
   } catch {
     snapshot = fallbackSnapshot();

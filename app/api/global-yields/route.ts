@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { yahooChartJson } from "@/lib/goldSource";
+import { yahooChartJson, lastKnownGoldPrice } from "@/lib/goldSource";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -77,7 +77,7 @@ export async function GET() {
     // Try to get actual international yields; fall back to reasonable estimates
     const us10Y = us10?.price ?? 4.3;
     const us2Y = us2?.price ?? 5.1; // IRX is 3M but serves as short-end proxy
-    const goldPrice = gold?.price ?? 3350;
+    const goldPrice = gold?.price ?? lastKnownGoldPrice();
     const goldChange1DPct = gold ? (gold.change1D / (gold.price - gold.change1D)) * 100 : 0;
     const dxyPrice = dxy?.price ?? 104;
     const tipPrice = tipProxy?.price ?? 110;

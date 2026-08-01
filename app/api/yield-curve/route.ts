@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { yahooChartJson } from "@/lib/goldSource";
+import { yahooChartJson, lastKnownGoldPrice } from "@/lib/goldSource";
 
 export const dynamic = "force-dynamic";
 
@@ -88,7 +88,7 @@ export async function GET() {
     // Gold price
     const goldObj = jGold as YJ;
     const goldCloses = (goldObj?.chart?.result?.[0]?.indicators?.quote?.[0]?.close ?? []).filter((c): c is number => c != null);
-    const goldPrice  = goldObj?.chart?.result?.[0]?.meta?.regularMarketPrice ?? goldCloses.at(-1) ?? 3200;
+    const goldPrice  = goldObj?.chart?.result?.[0]?.meta?.regularMarketPrice ?? goldCloses.at(-1) ?? lastKnownGoldPrice();
 
     // VIX as inflation proxy (rough heuristic: high VIX → risk-off → ↓ real rates)
     const vixObj = jVix as YJ;

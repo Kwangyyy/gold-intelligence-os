@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { yahooChartJson } from "@/lib/goldSource";
+import { yahooChartJson, lastKnownGoldPrice } from "@/lib/goldSource";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -66,7 +66,7 @@ export async function GET() {
     const volumes: number[] = q.volume ?? [];
 
     const n = closes.length;
-    const goldPrice: number = meta.regularMarketPrice ?? closes[n - 1] ?? 3350;
+    const goldPrice: number = meta.regularMarketPrice ?? closes[n - 1] ?? lastKnownGoldPrice();
     const prevClose: number = meta.chartPreviousClose ?? closes[n - 2] ?? goldPrice;
     const change1DPct = ((goldPrice - prevClose) / prevClose) * 100;
 

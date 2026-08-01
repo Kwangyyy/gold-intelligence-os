@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { goldChartJson } from "@/lib/goldSource";
+import { goldChartJson, lastKnownGoldPrice } from "@/lib/goldSource";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -135,7 +135,7 @@ export async function GET() {
   try {
     const goldData = await fetchGoldHistory();
     const closes = goldData?.closes ?? [];
-    const currentPrice = goldData?.price ?? 3350;
+    const currentPrice = goldData?.price ?? lastKnownGoldPrice();
 
     if (closes.length < 50) {
       return NextResponse.json({ error: "Insufficient data" }, { status: 500 });

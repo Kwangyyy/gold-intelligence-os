@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { goldFetch } from "@/lib/goldSource";
+import { goldFetch, lastKnownGoldPrice } from "@/lib/goldSource";
 
 export const dynamic = "force-dynamic";
 
@@ -149,7 +149,7 @@ export async function GET() {
     const dC: (number|null)[] = dq.close ?? [];
     const dO: (number|null)[] = dq.open  ?? [];
 
-    const price = dResult.meta?.regularMarketPrice ?? dC.filter(Boolean).at(-1) ?? 3000;
+    const price = dResult.meta?.regularMarketPrice ?? dC.filter(Boolean).at(-1) ?? lastKnownGoldPrice();
 
     // Previous day (index -2 if today in progress, else -1)
     const prevIdx = dH.length - 2;

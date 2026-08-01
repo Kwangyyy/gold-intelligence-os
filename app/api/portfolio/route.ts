@@ -4,12 +4,13 @@ import { authOptions } from "@/lib/auth";
 import { buildPortfolio } from "@/lib/portfolio";
 import { getUserLiveData } from "@/lib/mt5Store";
 import { getMarketSnapshot } from "@/lib/marketSnapshot";
+import { lastKnownGoldPrice } from "@/lib/goldSource";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  let price = 4000;
+  let price= lastKnownGoldPrice();
   try {
     const m = await getMarketSnapshot();
     if (m?.price) price = m.price;

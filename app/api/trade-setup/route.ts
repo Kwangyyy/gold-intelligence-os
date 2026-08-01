@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { goldFetch } from "@/lib/goldSource";
+import { goldFetch, lastKnownGoldPrice } from "@/lib/goldSource";
 
 export const revalidate = 300; // 5-min cache
 
@@ -39,21 +39,21 @@ async function fetchGoldOHLC(): Promise<{ spot: number; high: number; low: numbe
     const res = await goldFetch("https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=1d&range=20d");
     const json = await res.json();
     const result = json?.chart?.result?.[0];
-    if (!result) return { spot: 3320, high: 3340, low: 3300, prev: 3310, history: [] };
+    if (!result) return { spot: lastKnownGoldPrice(), high: lastKnownGoldPrice(), low: lastKnownGoldPrice(), prev: lastKnownGoldPrice(), history: [] };
 
     const meta = result.meta;
     const closes: number[] = (result.indicators?.quote?.[0]?.close ?? []).filter((c: number | null) => c != null);
     const highs: number[]  = (result.indicators?.quote?.[0]?.high  ?? []).filter((h: number | null) => h != null);
     const lows: number[]   = (result.indicators?.quote?.[0]?.low   ?? []).filter((l: number | null) => l != null);
 
-    const spot = meta?.regularMarketPrice ?? closes[closes.length - 1] ?? 3320;
+    const spot = meta?.regularMarketPrice ?? closes[closes.length - 1] ?? lastKnownGoldPrice();
     const high = meta?.regularMarketDayHigh ?? highs[highs.length - 1] ?? spot * 1.005;
     const low  = meta?.regularMarketDayLow  ?? lows[lows.length - 1]  ?? spot * 0.995;
     const prev = meta?.chartPreviousClose ?? closes[closes.length - 2] ?? spot;
 
     return { spot, high, low, prev, history: closes };
   } catch {
-    return { spot: 3320, high: 3340, low: 3300, prev: 3310, history: [] };
+    return { spot: lastKnownGoldPrice(), high: lastKnownGoldPrice(), low: lastKnownGoldPrice(), prev: lastKnownGoldPrice(), history: [] };
   }
 }
 

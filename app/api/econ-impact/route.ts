@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getEconCalendar } from "@/lib/econCalendar";
 
 export const dynamic = "force-dynamic";
 
@@ -93,12 +94,11 @@ export async function GET() {
   if (CACHE && Date.now() - CACHE.ts < TTL) return NextResponse.json(CACHE.data);
 
   try {
-    const ffUrl = "https://nfs.faireconomy.media/ff_calendar_thisweek.json";
-    const res = await fetch(ffUrl, { headers: { "User-Agent": "Mozilla/5.0" }, cache: "no-store",
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!res.ok) throw new Error(`FF calendar ${res.status}`);
-    const raw: { date: string; time: string; currency: string; impact: string; title: string; forecast: string | null; previous: string | null; actual: string | null }[] = await res.json();
+    // Shared cache: seven files used to fetch this feed independently and a
+    // handful of concurrent page loads was enough to draw a 429, which this
+    // route turned into a 500.
+    const raw = (await getEconCalendar("thisweek")) as unknown as
+      { date: string; time: string; currency: string; impact: string; title: string; forecast: string | null; previous: string | null; actual: string | null }[];
 
     const now = Date.now();
     const events: EconEvent[] = raw

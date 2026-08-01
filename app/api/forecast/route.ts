@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getEconCalendar } from "@/lib/econCalendar";
 import { generateWeeklyForecast, type WeeklyForecastInput } from "@/lib/gemini";
 import { calcRSI } from "@/lib/backtest";
 import type { AiModelSignalEntry } from "@/app/api/ai-model/signal/route";
@@ -115,11 +116,9 @@ async function fetchNewsSentiment() {
 async function fetchWeekEvents() {
   try {
     const DAYS = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
-    const res = await fetchT("https://nfs.faireconomy.media/ff_calendar_thisweek.json", {
-      headers: { "User-Agent": "Mozilla/5.0" }, cache: "no-store",
-    });
-    if (!res.ok) return [];
-    const raw: Array<{ title: string; country: string; impact: string; date: string }> = await res.json();
+    // Shared, cached calendar — seven files used to fetch this feed
+    // independently and concurrent loads drew a 429.
+    const raw: Array<{ title: string; country: string; impact: string; date: string }> = (await getEconCalendar("thisweek")) as unknown as Array<{ title: string; country: string; impact: string; date: string }>;
     return raw
       .filter(e => e.country === "USD" || e.impact === "High")
       .slice(0, 8)

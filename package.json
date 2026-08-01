@@ -7,7 +7,10 @@
     "dev": "next dev -p 3100",
     "build": "next build",
     "start": "next start -p 3100",
-    "lint": "next lint"
+    "lint": "next lint",
+    "audit": "node scripts/audit.mjs",
+    "audit:prod": "node scripts/audit.mjs https://gold-intelligence-os.vercel.app",
+    "verify": "tsc --noEmit && next lint && next build"
   },
   "dependencies": {
     "@tensorflow/tfjs": "^4.22.0",

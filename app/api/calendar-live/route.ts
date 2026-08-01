@@ -1,6 +1,7 @@
 // Fetches Forex Factory public calendar JSON (no API key required).
 // Returns this week + next week events, filtered and enriched.
 import { NextResponse } from "next/server";
+import { getEconCalendar } from "@/lib/econCalendar";
 
 export const dynamic = "force-dynamic";
 
@@ -44,18 +45,13 @@ function mapImpact(raw: string): EventImpact {
 let CACHE: { events: EconEvent[]; ts: number } | null = null;
 const TTL = 30 * 60 * 1000; // 30 min
 
-async function fetchWeek(url: string): Promise<EconEvent[]> {
-  const res = await fetch(url, {
-    headers: { "User-Agent": "Mozilla/5.0", "Accept": "application/json" },
-    signal: AbortSignal.timeout(8_000),
-  });
-  if (!res.ok) throw new Error(`FF ${res.status}`);
-  const json = await res.json() as Array<{
-    date?: string; time?: string; country?: string; currency?: string;
-    impact?: string; title?: string; forecast?: string; previous?: string;
-    actual?: string;
-  }>;
-
+// Pure mapper: the fetching moved to lib/econCalendar so all seven consumers
+// share one cached request.
+function normalise(json: Array<{
+  date?: string; time?: string; country?: string; currency?: string;
+  impact?: string; title?: string; forecast?: string; previous?: string;
+  actual?: string;
+}>): EconEvent[] {
   return json.map((ev, i) => ({
     id: `${ev.date}-${i}`,
     date: ev.date ?? "",
@@ -79,19 +75,22 @@ export async function GET(req: Request) {
   }
 
   try {
-    const [thisWeek, nextWeek] = await Promise.allSettled([
-      fetchWeek("https://nfs.faireconomy.media/ff_calendar_thisweek.json"),
-      fetchWeek("https://nfs.faireconomy.media/ff_calendar_nextweek.json"),
+    // Both weeks through the shared cache. Fetching this feed directly from
+    // seven different files drew a 429 as soon as a couple of pages loaded
+    // together, and this route turned an empty result into a 500.
+    const [thisWeek, nextWeek] = await Promise.all([
+      getEconCalendar("thisweek"),
+      getEconCalendar("nextweek"),
     ]);
 
-    const events: EconEvent[] = [
-      ...(thisWeek.status === "fulfilled" ? thisWeek.value : []),
-      ...(nextWeek.status === "fulfilled" ? nextWeek.value : []),
-    ];
+    const events: EconEvent[] = normalise([...thisWeek, ...nextWeek]);
 
-    if (events.length === 0) throw new Error("both feeds failed");
-
-    CACHE = { events, ts: Date.now() };
+    // An empty calendar is not a server error. This used to throw, so a
+    // rate-limited upstream — or simply a quiet week — turned into a 500 and
+    // took the page down instead of showing "no events scheduled". Only cache
+    // a non-empty result, so the next request retries rather than serving the
+    // gap for half an hour.
+    if (events.length) CACHE = { events, ts: Date.now() };
     const out = gold ? events.filter(e => e.affectsGold) : events;
     return NextResponse.json(out, { headers: { "Cache-Control": "no-store" } });
   } catch (err) {

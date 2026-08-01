@@ -1,14 +1,16 @@
 import { NextResponse } from "next/server";
 import { goldFetch } from "@/lib/goldSource";
+import { getGoldCot, percentileOf, reportAgeDays, CONTRACTS_TO_TONNES } from "@/lib/cftcCot";
 
 export const revalidate = 3600;
 
 // COT Commitment of Traders — COMEX Gold Futures
-// Real COT is published by CFTC on Fridays. Here we use GC=F price action + historical patterns
-// to estimate positioning extremes and classify regime.
+// Real CFTC report, contract 088691. Positions are as of Tuesday's close and
+// publish Friday 15:30 ET, so the newest data is always a few days old.
 
 interface COTSnapshot {
-  asOf: string;
+  asOf: string;              // the Tuesday the positions were held
+  reportAgeDays: number;     // always 3-7; COT publishes Friday for Tuesday
   commercialsNet: number;       // tonnes net short (negative = more bearish signal for them)
   managedMoneyNet: number;      // tonnes net long (positive = spec longs dominant)
   openInterestTonnes: number;
@@ -67,36 +69,45 @@ const HISTORICAL_EXTREMES = [
 export async function GET() {
   const { price: goldPrice, change1w } = await fetchGoldData();
 
-  // Estimate current COT from price action proxies
-  // Gold up strongly → managed money likely adding longs
-  // Positive 1W price momentum correlates with MM net long expansion
-  const priceLevel = goldPrice;
-  const baseMmNet = 200_000; // baseline in contracts
-  const momentumAdj = change1w * 8_000;  // each 1% weekly move adjusts by 8k contracts
-  const priceAdj = (priceLevel - 2800) * 40; // higher price level = more specs long
+  // Positioning used to be *inferred from the gold price* — a baseline plus a
+  // momentum term plus a level term — and then stamped `asOf: today`. It was the
+  // freshest-looking COT page in the app and the only one with no COT in it.
+  const weeks = await getGoldCot(104);
+  const latest = weeks[weeks.length - 1];
+  if (!latest) {
+    return NextResponse.json(
+      { error: "CFTC COT data unavailable" },
+      { status: 503 },
+    );
+  }
 
-  const mmNetContracts = Math.round(baseMmNet + momentumAdj + priceAdj);
-  const commercialsNetContracts = -Math.round(mmNetContracts * 0.85); // commercials offset ~85%
+  const mmNetContracts = latest.largeSpecNet;
+  const commercialsNetContracts = latest.commercialNet;
+  const openInterestContracts = latest.openInterest;
 
-  // Convert to tonnes (1 COMEX contract = 100 troy oz; 1 tonne = 32,150 oz)
-  const contractToTonnes = 100 / 32150;
+  const contractToTonnes = CONTRACTS_TO_TONNES;
   const mmNetTonnes = Math.round(mmNetContracts * contractToTonnes);
-  const openInterestContracts = Math.round(Math.abs(mmNetContracts) * 1.8 + 150_000);
   const openInterestTonnes = Math.round(openInterestContracts * contractToTonnes);
 
-  // Positioning percentile (0–100, based on historical range ~-50k to +350k contracts)
-  const mmPositioningPct = Math.max(0, Math.min(100, ((mmNetContracts - (-50_000)) / (350_000 - (-50_000))) * 100));
+  // Percentile against actual reports rather than an assumed -50k…+350k band.
+  // Fixed at 52 weeks because that is the conventional COT window and because
+  // smart-money and cot-extremes use it — scoring the same position over two
+  // years here made this page read "bearish" while the other two read "neutral"
+  // off identical CFTC numbers.
+  const year = weeks.slice(-52).map((w) => w.largeSpecNet);
+  const mmPositioningPct = percentileOf(year, mmNetContracts);
   const commercialHedgePct = Math.round((Math.abs(commercialsNetContracts) / openInterestContracts) * 100);
 
   const snapshot: COTSnapshot = {
-    asOf: new Date().toISOString().split("T")[0],
+    asOf: latest.date,
+    reportAgeDays: reportAgeDays(latest.date),
     commercialsNet: Math.round(commercialsNetContracts * contractToTonnes),
     managedMoneyNet: mmNetTonnes,
     openInterestTonnes,
-    largeTradersLong: Math.round(mmNetContracts * 0.75),
-    largeTradersShort: Math.round(mmNetContracts * 0.08),
-    retailSmallLong: Math.round(mmNetContracts * 0.12),
-    retailSmallShort: Math.round(mmNetContracts * 0.05),
+    largeTradersLong: latest.largeSpecLong,
+    largeTradersShort: latest.largeSpecShort,
+    retailSmallLong: latest.smallSpecLong,
+    retailSmallShort: latest.smallSpecShort,
   };
 
   // Signals
@@ -148,12 +159,12 @@ export async function GET() {
     signals,
     historicalExtremes: HISTORICAL_EXTREMES,
     insight:
-      `Estimated MM net long: ~${mmNetContracts.toLocaleString()} contracts (${mmPositioningPct.toFixed(0)}th percentile). ` +
+      `MM net long: ${mmNetContracts.toLocaleString()} contracts (${mmPositioningPct.toFixed(0)}th percentile). ` +
       (mmPositioningPct > 80 ? "CROWDED LONG — contrarian risk." :
        mmPositioningPct < 20 ? "EXTREME SHORT — contrarian buy setup." :
        "Positioning moderate — no extreme signal."),
     methodology:
-      "Estimated from price level + weekly momentum proxy. Actual CFTC COT data published weekly (Tuesday close, released Friday). This is a model-based estimate — verify against official CFTC release at cftc.gov.",
+      `Official CFTC disaggregated futures-only report for GOLD (088691). Positions are as of ${latest.date} (Tuesday close), published the following Friday — so this reading is ${reportAgeDays(latest.date)} days old by design, not by staleness. Percentile is measured against the last 52 weekly reports.`,
     timestamp: new Date().toISOString(),
   };
 

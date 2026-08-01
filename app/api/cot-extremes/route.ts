@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getGoldCot } from "@/lib/cftcCot";
 
 export const runtime = "nodejs";
 export const revalidate = 3600; // 1 hour
@@ -24,38 +25,19 @@ interface COTData {
   timestamp: string;
 }
 
-// Simulated COT data — representative of real CFTC patterns for gold
-// Real data would be fetched from CFTC website or Quandl/Nasdaq Data Link
-function generateCOTHistory(): COTRecord[] {
-  const records: COTRecord[] = [];
-  const now = new Date("2026-07-02");
-
-  // Realistic baselines (in contracts × 100 oz = COMEX gold futures)
-  // Net longs: large specs typically 100k-300k, commercials opposite
-  let largeSpecsNet = 180000;
-  let commercialsNet = -190000;
-  let oi = 550000;
-
-  for (let i = 25; i >= 0; i--) {
-    const date = new Date(now);
-    date.setDate(date.getDate() - i * 7);
-
-    // Random walk with realistic drift
-    const weeklyChange = (Math.random() - 0.48) * 15000;
-    largeSpecsNet = Math.max(-50000, Math.min(350000, largeSpecsNet + weeklyChange));
-    commercialsNet = -largeSpecsNet * 1.05 + (Math.random() - 0.5) * 5000;
-    const smallSpecs = -largeSpecsNet - commercialsNet;
-    oi = Math.max(400000, Math.min(750000, oi + (Math.random() - 0.5) * 10000));
-
-    records.push({
-      date: date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
-      commercials: Math.round(commercialsNet),
-      largeSpecs: Math.round(largeSpecsNet),
-      smallSpecs: Math.round(smallSpecs),
-      openInterest: Math.round(oi),
-    });
-  }
-  return records;
+// This used to be a Math.random() walk seeded at a fixed date — every request
+// produced different "CFTC positioning", and the comment above it admitted real
+// data "would be" fetched. It is fetched now: CFTC disaggregated futures-only,
+// contract 088691.
+function toRecord(w: { date: string; commercialNet: number; largeSpecNet: number; smallSpecNet: number; openInterest: number }): COTRecord {
+  const d = new Date(`${w.date}T00:00:00Z`);
+  return {
+    date: d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }),
+    commercials: w.commercialNet,
+    largeSpecs: w.largeSpecNet,
+    smallSpecs: w.smallSpecNet,
+    openInterest: w.openInterest,
+  };
 }
 
 function percentile(arr: number[], value: number): number {
@@ -65,12 +47,21 @@ function percentile(arr: number[], value: number): number {
 }
 
 export async function GET() {
-  const history = generateCOTHistory();
-  const latest = history[history.length - 1];
-  const prev = history[history.length - 2];
+  const weeks = await getGoldCot(52);
+  if (weeks.length < 2) {
+    return NextResponse.json(
+      { error: "CFTC COT data unavailable — refusing to show positioning we do not have" },
+      { status: 503 },
+    );
+  }
+  // Percentiles are judged over the full year pulled; the table shows 26 weeks.
+  const yearly = weeks.map(toRecord);
+  const history = yearly.slice(-26);
+  const latest = yearly[yearly.length - 1];
+  const prev = yearly[yearly.length - 2];
 
-  const largeSpecsHistory = history.map(r => r.largeSpecs);
-  const commercialsHistory = history.map(r => r.commercials);
+  const largeSpecsHistory = yearly.map(r => r.largeSpecs);
+  const commercialsHistory = yearly.map(r => r.commercials);
 
   const largeSpecsNetPctile = percentile(largeSpecsHistory, latest.largeSpecs);
   const commercialsNetPctile = percentile(commercialsHistory, latest.commercials);

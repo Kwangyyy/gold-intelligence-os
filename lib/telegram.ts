@@ -33,7 +33,9 @@ export async function broadcastSignal(setup: Parameters<typeof formatSignalMessa
   const dirEmoji = setup.direction === "buy" ? "🟢" : setup.direction === "sell" ? "🔴" : "⏸";
   const dirLabel = setup.direction === "buy" ? "▲ BUY" : setup.direction === "sell" ? "▼ SELL" : "WAIT";
   const sym = setup.symbol ?? "XAUUSD";
-  const now = new Date().toLocaleString("th-TH", { dateStyle: "short", timeStyle: "short", timeZone: "Asia/Bangkok" });
+  // dateStyle "short" renders the Buddhist year two-digit — "1/8/69" reads as
+  // 1969 at a glance. Spell the month and year out instead.
+  const now = new Date().toLocaleString("th-TH", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Bangkok" });
 
   const lines = [
     `${dirEmoji} <b>${sym} ${dirLabel}</b>  ·  <b>${setup.setupType}</b>`,
@@ -85,7 +87,9 @@ export function formatCouncilAlert(a: CouncilAlertInput): string {
   const fmt = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const emoji =
     a.decision === "BUY" ? "🟢" : a.decision === "SELL" ? "🔴" : a.decision === "CLOSE" ? "⛔" : a.decision === "REDUCE_LOT" ? "🟠" : "⏸";
-  const now = new Date().toLocaleString("th-TH", { dateStyle: "short", timeStyle: "short", timeZone: "Asia/Bangkok" });
+  // dateStyle "short" renders the Buddhist year two-digit — "1/8/69" reads as
+  // 1969 at a glance. Spell the month and year out instead.
+  const now = new Date().toLocaleString("th-TH", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Bangkok" });
 
   const lines: string[] = [
     `🏛 <b>AI Council · ${a.symbol}</b>`,

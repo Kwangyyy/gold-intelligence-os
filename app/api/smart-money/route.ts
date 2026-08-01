@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
+import { getGoldCot, percentileOf, reportAgeDays } from "@/lib/cftcCot";
 
 export const dynamic = "force-dynamic";
 
 export interface COTSnapshot {
   reportDate: string;
+  reportAgeDays: number;       // COT is always 3-7 days old by design; say so
   largeSpecLong: number;
   largeSpecShort: number;
   largeSpecNet: number;        // thousands contracts
@@ -12,6 +14,7 @@ export interface COTSnapshot {
   openInterest: number;
   weeklyChange: number;        // net change vs prior week
   signal: "strongly bullish" | "bullish" | "neutral" | "bearish" | "strongly bearish";
+  source: string;
 }
 
 export interface ETFFlowEntry {
@@ -53,6 +56,42 @@ export interface SmartMoneyPayload {
   timestamp: string;
 }
 
+// The last CFTC report, plus where its net spec position sits against the past
+// year. Falls back to a clearly-labelled placeholder only if the CFTC is down.
+async function buildCot(): Promise<COTSnapshot> {
+  const weeks = await getGoldCot(104);
+  const latest = weeks[weeks.length - 1];
+  if (!latest) {
+    return {
+      reportDate: "unavailable", reportAgeDays: 0,
+      largeSpecLong: 0, largeSpecShort: 0, largeSpecNet: 0, largeSpecNetPctile: 50,
+      commercialNet: 0, openInterest: 0, weeklyChange: 0, signal: "neutral",
+      source: "CFTC unreachable — no positioning data",
+    };
+  }
+  const prev = weeks[weeks.length - 2];
+  const year = weeks.slice(-52).map((w) => w.largeSpecNet);
+  const pctile = percentileOf(year, latest.largeSpecNet);
+
+  return {
+    reportDate: latest.date,
+    reportAgeDays: reportAgeDays(latest.date),
+    largeSpecLong: latest.largeSpecLong,
+    largeSpecShort: latest.largeSpecShort,
+    largeSpecNet: latest.largeSpecNet,
+    largeSpecNetPctile: pctile,
+    commercialNet: latest.commercialNet,
+    openInterest: latest.openInterest,
+    weeklyChange: prev ? latest.largeSpecNet - prev.largeSpecNet : 0,
+    signal:
+      pctile >= 85 ? "strongly bullish" :
+      pctile >= 60 ? "bullish" :
+      pctile >= 35 ? "neutral" :
+      pctile >= 15 ? "bearish" : "strongly bearish",
+    source: "CFTC disaggregated futures-only · GOLD (088691) · positions as of Tuesday close",
+  };
+}
+
 let CACHE: { data: SmartMoneyPayload; ts: number } | null = null;
 const TTL_MS = 4 * 60 * 60 * 1000; // 4h — WGC/CFTC data updates weekly
 
@@ -61,19 +100,9 @@ export async function GET() {
     return NextResponse.json(CACHE.data);
   }
 
-  // CFTC COT Gold & Silver Mining futures — latest week Jun 24 2026
-  // Typical ranges: large spec net −50k to +350k contracts
-  const cot: COTSnapshot = {
-    reportDate:         "2026-06-24",
-    largeSpecLong:      268_700,
-    largeSpecShort:      81_300,
-    largeSpecNet:       187_400,
-    largeSpecNetPctile: 68,
-    commercialNet:     -203_100,
-    openInterest:       541_200,
-    weeklyChange:       +12_800,
-    signal: "bullish",
-  };
+  // Was a snapshot hardcoded at 2026-06-24 and left to rot — five weeks stale
+  // while the page presented it as current positioning. Real CFTC report now.
+  const cot = await buildCot();
 
   // Major gold ETFs (AUM & flow data — typical institutional reporting lag 1-2 days)
   const etfFlows: ETFFlowEntry[] = [

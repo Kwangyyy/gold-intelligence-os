@@ -16,6 +16,8 @@
 // data, not a staleness bug, and the UI should say the report date rather than
 // implying "now".
 
+import { cachedJson } from "./kvStore";
+
 const SOCRATA = "https://publicreporting.cftc.gov/resource/6dca-aqww.json";
 const GOLD_CODE = "088691";
 const TTL_MS = 6 * 60 * 60 * 1000; // weekly data; 6h is generous
@@ -50,32 +52,28 @@ const n = (v: unknown): number => {
   return Number.isFinite(x) ? x : 0;
 };
 
-let CACHE: { weeks: CotWeek[]; at: number } | null = null;
-
 /**
  * Weekly gold COT, oldest first. Returns [] if the CFTC is unreachable — callers
  * decide whether to degrade or fail, but nobody should invent numbers.
+ *
+ * Shared across instances: this is one report a week, and every serverless cold
+ * start was re-pulling 156 rows of it.
  */
 export async function getGoldCot(weeks = 156): Promise<CotWeek[]> {
-  if (CACHE && Date.now() - CACHE.at < TTL_MS && CACHE.weeks.length >= weeks) {
-    return CACHE.weeks.slice(-weeks);
-  }
-
-  const url =
-    `${SOCRATA}?cftc_contract_market_code=${GOLD_CODE}` +
-    `&$order=report_date_as_yyyy_mm_dd%20DESC&$limit=${Math.max(weeks, 156)}`;
-
-  try {
+  const all = await cachedJson<CotWeek[]>("gios:cot:gold", TTL_MS / 1000, async () => {
+    const url =
+      `${SOCRATA}?cftc_contract_market_code=${GOLD_CODE}` +
+      `&$order=report_date_as_yyyy_mm_dd%20DESC&$limit=156`;
     const r = await fetch(url, {
       headers: { Accept: "application/json" },
       cache: "no-store",
-      signal: AbortSignal.timeout(12_000),
+      signal: AbortSignal.timeout(6_000),
     });
     if (!r.ok) throw new Error(`CFTC ${r.status}`);
     const rows = (await r.json()) as SocrataRow[];
     if (!Array.isArray(rows) || !rows.length) throw new Error("CFTC: empty");
 
-    const parsed: CotWeek[] = rows
+    return rows
       .map((row) => {
         const largeSpecLong = n(row.noncomm_positions_long_all);
         const largeSpecShort = n(row.noncomm_positions_short_all);
@@ -99,15 +97,9 @@ export async function getGoldCot(weeks = 156): Promise<CotWeek[]> {
       })
       .filter((w) => w.date && w.openInterest > 0)
       .reverse(); // oldest first
+  }).catch(() => [] as CotWeek[]);
 
-    CACHE = { weeks: parsed, at: Date.now() };
-    return parsed.slice(-weeks);
-  } catch {
-    // Serve the last good pull rather than nothing — COT moves once a week, so
-    // a cached copy is still the truth for most of that week.
-    if (CACHE) return CACHE.weeks.slice(-weeks);
-    return [];
-  }
+  return all.slice(-weeks);
 }
 
 /** Where `value` sits within `series`, 0-100. */

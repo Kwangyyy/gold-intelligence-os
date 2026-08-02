@@ -10,6 +10,8 @@
 // seven, and a 429 no longer costs anything because the last good copy stands
 // in.
 
+import { cachedJson } from "./kvStore";
+
 export interface EconEvent {
   title: string;
   country: string;
@@ -23,8 +25,6 @@ export interface EconEvent {
 type Week = "thisweek" | "nextweek";
 
 const TTL_MS = 30 * 60_000;
-const cache = new Map<Week, { events: EconEvent[]; at: number }>();
-const inflight = new Map<Week, Promise<EconEvent[]>>();
 
 async function load(week: Week): Promise<EconEvent[]> {
   const r = await fetch(`https://nfs.faireconomy.media/ff_calendar_${week}.json`, {
@@ -46,25 +46,17 @@ async function load(week: Week): Promise<EconEvent[]> {
  * Calendar events for the week. Never throws: on failure it serves the last
  * good copy, or an empty list. Callers treat "no events" as "nothing scheduled",
  * which is the safe reading — inventing events would be worse.
+ *
+ * Cached across instances, not just within one. Seven files read this feed, and
+ * with a per-instance cache a handful of cold starts was enough to draw a 429
+ * — which is how econ-impact came to return 500 in production.
  */
 export async function getEconCalendar(week: Week = "thisweek"): Promise<EconEvent[]> {
-  const hit = cache.get(week);
-  if (hit && Date.now() - hit.at < TTL_MS) return hit.events;
-
-  // Collapse concurrent callers onto one request; several routes fire together
-  // when a dashboard page loads.
-  let p = inflight.get(week);
-  if (!p) {
-    p = load(week)
-      .then((events) => {
-        cache.set(week, { events, at: Date.now() });
-        return events;
-      })
-      .catch(() => cache.get(week)?.events ?? [])
-      .finally(() => inflight.delete(week));
-    inflight.set(week, p);
-  }
-  return p;
+  return cachedJson<EconEvent[]>(
+    `gios:calendar:${week}`,
+    TTL_MS / 1000,
+    () => load(week),
+  ).catch(() => [] as EconEvent[]);
 }
 
 /** Today's events, highest impact first. */

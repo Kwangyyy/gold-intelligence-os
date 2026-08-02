@@ -88,3 +88,59 @@ export async function kvSet<T>(key: string, value: T, ttlSec?: number): Promise<
 export function kvDurable(): boolean {
   return getRedis() !== null;
 }
+
+/**
+ * Read-through cache: memory, then the shared tier, then the loader.
+ *
+ * Serverless gives every instance its own memory, so a module-level cache is
+ * refetched on each cold start. That is how econ-impact came to 500 — several
+ * routes each pulling the same calendar, drawing a 429. A shared tier means the
+ * first instance to fetch pays for all of them.
+ *
+ * The in-memory layer stays in front because it costs nothing and saves a Redis
+ * round-trip within one instance's life.
+ *
+ * Size matters here: Upstash rejects values over 1 MB. Use this for the small
+ * stuff — a COT history is ~30 KB, a week of calendar ~50 KB. The CBOE option
+ * chain is 875 KB and growing, close enough to the limit that a silent failure
+ * is likely, so it deliberately stays memory-only.
+ */
+const mem = new Map<string, { value: unknown; at: number }>();
+const inflightJson = new Map<string, Promise<unknown>>();
+
+export async function cachedJson<T>(
+  key: string,
+  ttlSec: number,
+  load: () => Promise<T>,
+): Promise<T> {
+  const ttlMs = ttlSec * 1000;
+  const hit = mem.get(key);
+  if (hit && Date.now() - hit.at < ttlMs) return hit.value as T;
+
+  // Collapse concurrent callers in this instance onto one attempt.
+  const existing = inflightJson.get(key);
+  if (existing) return existing as Promise<T>;
+
+  const p = (async () => {
+    const shared = await kvGet<{ value: T; at: number }>(key);
+    if (shared && Date.now() - shared.at < ttlMs) {
+      mem.set(key, { value: shared.value, at: shared.at });
+      return shared.value;
+    }
+    try {
+      const value = await load();
+      const at = Date.now();
+      mem.set(key, { value, at });
+      await kvSet(key, { value, at }, ttlSec);
+      return value;
+    } catch (e) {
+      // Stale beats absent: prefer whatever either tier last held.
+      if (hit) return hit.value as T;
+      if (shared) { mem.set(key, shared); return shared.value; }
+      throw e;
+    }
+  })().finally(() => inflightJson.delete(key));
+
+  inflightJson.set(key, p);
+  return p;
+}

@@ -81,6 +81,10 @@ async function fetchChain(): Promise<Chain> {
 // Everything downstream of spot (expected range, distance from spot, GEX, which
 // SD band a strike falls in) is recomputed per request so the numbers track the
 // live market rather than whatever price was current when the chain was pulled.
+// Memory-only on purpose, unlike cftcCot and econCalendar which share a cache
+// across instances via kvStore. The parsed chain is 875 KB and grows with every
+// expiry added; Upstash rejects values over 1 MB, and a cache that silently
+// stops working once the chain crosses that line is worse than no cache.
 let CHAIN: Chain | null = null;
 const CHAIN_TTL = 10 * 60_000;
 

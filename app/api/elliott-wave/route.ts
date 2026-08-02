@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { getGoldCandles, getGoldSpot } from "@/lib/goldSource";
+import { countMultiSource, lineageOf, describe, corroborateWithOi, type Series, type OiContext, type WaveCorroboration } from "@/lib/waveHierarchy";
+import { getOptionChain, chooseExpiry, maxPainOf, gammaFlipOf } from "@/lib/optionChain";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -68,6 +70,24 @@ export interface ElliottWavePayload {
   implication: string;
   implicationTh: string;
   confidence: "high" | "medium" | "low";
+  // The count as a lineage, largest degree first. Every timeframe shares the
+  // same top levels because they are established once from the longest history
+  // — the fix for counts that used to contradict each other across timeframes.
+  hierarchy: {
+    degree: string;
+    structure: string;
+    label: string;              // where price sits at this degree
+    patternComplete: boolean;
+    confidence: number;
+    window: { from: string; to: string };
+    rules: { rule: string; passed: boolean; detail: string }[];
+  }[];
+  lineage: string;              // "(5) of Ⓒ"
+  lineageTh: string;
+  // Option positioning read against the count. Independent evidence, so it is
+  // reported alongside rather than folded in — a wave count that moves because
+  // of option data is no longer a wave count.
+  oiCheck: WaveCorroboration;
   confidenceTh: string;
   confidenceColor: string;
   disclaimer: string;
@@ -530,6 +550,60 @@ export async function GET(req: Request) {
     const { wavePivots, ...rest } = waveAnalysis;
     const degreePivots = wavePivots.map(p => ({ ...p, label: deg.glyph[p.label] ?? p.label }));
 
+    // The large degrees come from the longest history available, not from this
+    // timeframe's own window. Counting each timeframe separately let weekly read
+    // a completed Primary five while daily read the same move as still inside
+    // wave ⑤ — both self-consistent, contradicting each other on screen.
+    const DEPTH: Record<string, number> = {
+      "1M": 2, "1w": 2, "1d": 3, "4h": 4, "2h": 4, "1h": 5, "30m": 5, "15m": 6, "5m": 6, "1m": 6,
+    };
+    const spine: Series[] = [];
+    for (const coarse of ["1M", "1w", "1d", "4h", "1h"] as const) {
+      // Only descend to resolutions at least as fine as the one asked for.
+      const order = ["1M", "1w", "1d", "4h", "2h", "1h", "30m", "15m", "5m", "1m"];
+      if (order.indexOf(coarse) > order.indexOf(tf)) break;
+      try {
+        const c = await getGoldCandles(coarse, coarse === "1M" ? 200 : 1000, includeWeekend);
+        if (c.c.length >= 25) spine.push({ t: c.t, h: c.h, l: c.l, c: c.c });
+      } catch { /* a missing resolution just means one fewer level */ }
+    }
+    if (!spine.length) spine.push({ t: sTs, h: sHi, l: sLo, c: sCl });
+    const levels = countMultiSource(spine, DEPTH[tf] ?? 4);
+    const deepest = levels[levels.length - 1];
+    const said = deepest ? describe(deepest) : null;
+
+    // Where dealers are positioned for the current leg to end.
+    let oiCtx: OiContext | null = null;
+    try {
+      const chain = await getOptionChain();
+      const exp = chooseExpiry(chain.rows);
+      const gld = chain.gldClose;
+      if (exp && gld > 0) {
+        const ratio = spot / gld;
+        const agg = new Map<number, { calls: number; puts: number; netGamma: number }>();
+        for (const r of chain.rows) {
+          if (r.expiry !== exp.date) continue;
+          const a = agg.get(r.strike) ?? { calls: 0, puts: 0, netGamma: 0 };
+          if (r.isCall) { a.calls += r.oi; a.netGamma += r.gamma * r.oi; }
+          else { a.puts += r.oi; a.netGamma -= r.gamma * r.oi; }
+          agg.set(r.strike, a);
+        }
+        const rows = [...agg.entries()].map(([k, a]) => ({
+          strike: Math.round(k * ratio), calls: a.calls, puts: a.puts,
+          gex: (a.netGamma * 100 * gld * gld * 0.01) / 1e6,
+        }));
+        const above = rows.filter((r) => r.strike > spot).sort((a, b) => b.calls - a.calls)[0];
+        const below = rows.filter((r) => r.strike < spot).sort((a, b) => b.puts - a.puts)[0];
+        oiCtx = {
+          callWall: above?.strike ?? 0,
+          putWall: below?.strike ?? 0,
+          gammaFlip: gammaFlipOf(rows, Math.round(spot)),
+          maxPain: Math.round(maxPainOf([...agg.entries()].map(([k, a]) => ({ strike: k, calls: a.calls, puts: a.puts }))) * ratio),
+        };
+      }
+    } catch { /* the count stands on its own; this is corroboration only */ }
+    const oiCheck = corroborateWithOi(deepest, spot, oiCtx);
+
     const data: ElliottWavePayload = {
       timeframe: tf,
       goldPrice: +spot.toFixed(0),
@@ -546,6 +620,30 @@ export async function GET(req: Request) {
       zigzag,
       ...rest,
       pivots: degreePivots,
+      hierarchy: levels.map((l) => ({
+        degree: l.degree,
+        structure: l.structure,
+        label: l.currentLabel,
+        patternComplete: l.patternComplete,
+        confidence: l.confidence,
+        window: {
+          from: new Date(l.window.fromTs * 1000).toISOString().slice(0, 10),
+          to: new Date(l.window.toTs * 1000).toISOString().slice(0, 10),
+        },
+        rules: l.rules,
+      })),
+      lineage: lineageOf(levels),
+      lineageTh: lineageOf(levels),
+      oiCheck,
+      // The headline degree is now what the hierarchy actually found for this
+      // depth, not a name looked up from the timeframe.
+      ...(deepest ? {
+        degree: deepest.degree,
+        degreeTh: deepest.degree,
+        structure: deepest.structure,
+        currentWave: said?.en ?? rest.currentWave,
+        currentWaveTh: said?.th ?? rest.currentWaveTh,
+      } : {}),
       disclaimer: "NeoWave analysis is rule-based but still probabilistic — alternate counts can be valid. Automated heuristic, not a substitute for a certified NeoWave analyst.",
       generatedAt: new Date().toISOString(),
     };

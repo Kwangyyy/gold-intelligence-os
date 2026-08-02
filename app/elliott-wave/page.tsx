@@ -300,6 +300,14 @@ const STRUCT_COLOR: Record<string, string> = {
   triangle: "#60a5fa", complex: "#c084fc", unclear: "#94a3b8",
 };
 
+// How long a fetched count stays usable when a reader flips back to a timeframe.
+// Deliberately shorter than the bar it describes, so a revisit is never showing
+// a count from a bar that has since closed.
+const CLIENT_TTL: Record<ElliottTF, number> = {
+  "1M": 600_000, "1w": 600_000, "1d": 180_000, "4h": 120_000, "2h": 90_000,
+  "1h": 60_000, "30m": 30_000, "15m": 20_000, "5m": 15_000, "1m": 10_000,
+};
+
 export default function ElliottWavePage() {
   const [data, setData] = useState<ElliottWavePayload | null>(null);
   const [loading, setLoading] = useState(true);
@@ -346,13 +354,36 @@ export default function ElliottWavePage() {
   // `silent` keeps a background refresh from raising the full-screen loading
   // overlay every few seconds — that made a live chart look like it was
   // constantly reloading. Only a first load or a timeframe change shows it.
+  //
+  // Timeframes a reader has already looked at are kept, so flipping back to one
+  // paints immediately and revalidates behind the scenes. The server side of
+  // this switch is about 270 ms now, but a reader who clicks 1H → 4H → 1H still
+  // waited twice for a count that had not moved. TTLs match how fast each bar
+  // closes: a monthly count is the same all day, a 5-minute one is not.
+  const seenRef = useRef(new Map<string, { at: number; payload: ElliottWavePayload }>());
+
   const load = useCallback(async (timeframe: ElliottTF, sensitivity: string, wk: boolean, silent = false) => {
-    if (!silent) setLoading(true);
+    const key = `${timeframe}:${sensitivity}:${wk}`;
+    // The cache serves the reader flipping between timeframes, never the live
+    // poller — the poll interval is shorter than the TTL at every timeframe, so
+    // letting a silent refresh read the cache would freeze the chart instead of
+    // keeping it live.
+    const seen = silent ? undefined : seenRef.current.get(key);
+    if (seen) {
+      // Show what we have straight away. If it is stale we still refresh, but
+      // against a drawn chart rather than an empty pane.
+      setData(seen.payload);
+      setUpdatedAt(new Date(seen.at));
+      if (Date.now() - seen.at < (CLIENT_TTL[timeframe] ?? 60_000)) return;
+    } else if (!silent) {
+      setLoading(true);
+    }
     setErr("");
     try {
       const r = await fetch(`/api/elliott-wave?tf=${timeframe}&sens=${sensitivity}${wk ? "&weekend=1" : ""}&t=${Date.now()}`, { cache: "no-store" });
       const j = await r.json();
       if (j.error) throw new Error(j.error);
+      seenRef.current.set(key, { at: Date.now(), payload: j });
       setData(j);
       setUpdatedAt(new Date());
     } catch (e) { setErr(String(e)); } finally { if (!silent) setLoading(false); }

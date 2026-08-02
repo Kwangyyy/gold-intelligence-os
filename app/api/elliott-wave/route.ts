@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { getGoldCandles, getGoldSpot } from "@/lib/goldSource";
+import { cachedJson } from "@/lib/kvStore";
 import { countMultiSource, lineageOf, describe, corroborateWithOi, type Series, type OiContext, type WaveCorroboration } from "@/lib/waveHierarchy";
-import { getOptionChain, chooseExpiry, maxPainOf, gammaFlipOf } from "@/lib/optionChain";
+import { getOptionChainIfWarm, chooseExpiry, maxPainOf, gammaFlipOf } from "@/lib/optionChain";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -567,10 +568,25 @@ export async function GET(req: Request) {
     const order = ["1M", "1w", "1d", "4h", "2h", "1h", "30m", "15m", "5m", "1m"];
     const wanted = (["1M", "1w", "1d", "4h", "1h"] as const)
       .filter((c) => order.indexOf(c) <= order.indexOf(tf));
+    // The coarse series are identical for every timeframe and are what made
+    // switching expensive, so they go through the shared cache — on Vercel each
+    // request may land on a cold lambda, and an in-memory cache alone still left
+    // production at 1.3-2.5s per switch. A daily series is 28 KB. The intraday
+    // ones move too fast for a round trip to be worth it.
+    const SHARED = new Set(["1M", "1w", "1d"]);
     const fetched = await Promise.all(
-      wanted.map((c) =>
-        getGoldCandles(c, c === "1M" ? 200 : 1000, includeWeekend).catch(() => null),
-      ),
+      wanted.map((c) => {
+        const bars = c === "1M" ? 200 : 1000;
+        const load = () => getGoldCandles(c, bars, includeWeekend);
+        const got = SHARED.has(c)
+          ? cachedJson<Awaited<ReturnType<typeof getGoldCandles>>>(
+              `gios:candles:${c}:${bars}:${includeWeekend}`,
+              c === "1d" ? 180 : 600,
+              load,
+            )
+          : load();
+        return got.catch(() => null);
+      }),
     );
     const spine: Series[] = fetched
       .filter((c): c is NonNullable<typeof c> => !!c && c.c.length >= 25)
@@ -583,7 +599,10 @@ export async function GET(req: Request) {
     // Where dealers are positioned for the current leg to end.
     let oiCtx: OiContext | null = null;
     try {
-      const chain = await getOptionChain();
+      // Only if the chain is already loaded. Fetching it here added 1.2s to
+      // every timeframe switch for a line of corroborating text.
+      const chain = getOptionChainIfWarm();
+      if (!chain) throw new Error("chain not warm");
       const exp = chooseExpiry(chain.rows);
       const gld = chain.gldClose;
       if (exp && gld > 0) {

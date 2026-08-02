@@ -100,6 +100,23 @@ export async function getOptionChain(): Promise<Chain> {
   }
 }
 
+/**
+ * The chain only if it is already in hand, plus a background refresh.
+ *
+ * Downloading it costs about 1.2 seconds — measured — because it is a 3.3 MB
+ * document. Pages built *on* the chain should pay that. The wave chart should
+ * not: there the option data is corroboration printed beside the count, and
+ * making a reader wait an extra second for a footnote is the wrong trade. On a
+ * cold instance this returns null and the panel says the check is unavailable;
+ * the fetch it kicks off means the next request has it.
+ */
+export function getOptionChainIfWarm(): Chain | null {
+  if (CHAIN && Date.now() - CHAIN.ts < CHAIN_TTL) return CHAIN;
+  // Fire and forget; failures are irrelevant to the caller.
+  void getOptionChain().catch(() => {});
+  return null;
+}
+
 export const dteOf = (iso: string) =>
   Math.round((Date.parse(`${iso}T21:00:00Z`) - Date.now()) / 86_400_000);
 

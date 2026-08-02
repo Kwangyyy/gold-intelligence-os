@@ -12,11 +12,17 @@
 //   2. Local JSON file — for local / self-hosted dev where Redis isn't set up.
 //   3. In-memory      — last resort; correct within one process, resets on restart.
 
-import { promises as fs } from "node:fs";
-import path from "node:path";
 import { Redis } from "@upstash/redis";
 
-const DATA_DIR = path.join(process.cwd(), ".data");
+// node:fs and node:path are loaded on demand rather than imported at the top.
+// goldSource pulls this module in, and goldSource is reachable from client
+// components — a static import of a node scheme makes webpack try to bundle it
+// for the browser and the build fails outright. The file tier is a local-dev
+// convenience anyway; in production the Redis branch returns first.
+async function nodeFs() {
+  const [fs, path] = await Promise.all([import("node:fs"), import("node:path")]);
+  return { fs: fs.promises, path: path.default };
+}
 
 function getRedis(): Redis | null {
   const url = process.env.UPSTASH_REDIS_REST_URL;
@@ -34,10 +40,8 @@ declare global {
   var __kvStore: Record<string, unknown> | undefined;
 }
 
-function fileFor(key: string): string {
-  // Keys are namespaced with ':' — not a legal path separator everywhere.
-  return path.join(DATA_DIR, `${key.replace(/[^a-z0-9._-]+/gi, "_")}.json`);
-}
+// Keys are namespaced with ':' — not a legal path separator everywhere.
+const safeName = (key: string) => `${key.replace(/[^a-z0-9._-]+/gi, "_")}.json`;
 
 /** Read a key. Returns null when absent, unreadable, or unparseable. */
 export async function kvGet<T>(key: string): Promise<T | null> {
@@ -53,7 +57,9 @@ export async function kvGet<T>(key: string): Promise<T | null> {
   }
   if (fileTierReady()) {
     try {
-      return JSON.parse(await fs.readFile(fileFor(key), "utf8")) as T;
+      const { fs, path } = await nodeFs();
+      const dir = path.join(process.cwd(), ".data");
+      return JSON.parse(await fs.readFile(path.join(dir, safeName(key)), "utf8")) as T;
     } catch {
       return null;
     }
@@ -74,8 +80,10 @@ export async function kvSet<T>(key: string, value: T, ttlSec?: number): Promise<
   }
   if (fileTierReady()) {
     try {
-      await fs.mkdir(DATA_DIR, { recursive: true });
-      await fs.writeFile(fileFor(key), JSON.stringify(value), "utf8");
+      const { fs, path } = await nodeFs();
+      const dir = path.join(process.cwd(), ".data");
+      await fs.mkdir(dir, { recursive: true });
+      await fs.writeFile(path.join(dir, safeName(key)), JSON.stringify(value), "utf8");
     } catch {
       /* best effort */
     }

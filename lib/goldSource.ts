@@ -213,6 +213,10 @@ export async function getGoldCandles(tf: GoldTF, limit = 1000, includeWeekend = 
   const flying = CANDLE_INFLIGHT.get(key);
   if (flying) return flying;
 
+  // In-memory only. This module is reachable from client components, so it must
+  // not import kvStore — that pulls node:fs into the browser bundle and the
+  // build fails. Cross-instance caching for the coarse series is done by the
+  // wave route, which is server-only.
   const p = fetchGoldCandles(tf, limit, includeWeekend)
     .then((c) => { CANDLE_CACHE.set(key, { at: Date.now(), candles: c }); return c; })
     .finally(() => CANDLE_INFLIGHT.delete(key));

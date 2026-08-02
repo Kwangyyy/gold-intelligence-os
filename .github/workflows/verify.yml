@@ -1,0 +1,47 @@
+name: verify
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  # Types, lint and build. Catches what a compiler can catch.
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npx next lint --max-warnings=0
+      - run: npx next build
+        env:
+          # The build only needs these to exist. Real values live in Vercel;
+          # nothing here reads live data.
+          NEXTAUTH_SECRET: ci-placeholder
+          NEXTAUTH_URL: http://localhost:3100
+
+  # The checks that actually caught things: prices matching the market, routes
+  # not fabricating numbers, fetches carrying a deadline. None of it is visible
+  # to tsc or eslint — see scripts/audit.mjs.
+  #
+  # Runs against the deployed site rather than a CI server, because the point is
+  # to check what users are being served. It needs the public internet (Binance,
+  # CBOE, CFTC), so a network blip is a flaky failure, not a code failure —
+  # hence continue-on-error. Read the log; do not assume green means checked.
+  audit:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Wait for the Vercel deploy to pick up this commit
+        run: sleep 120
+      - run: node scripts/audit.mjs https://gold-intelligence-os.vercel.app

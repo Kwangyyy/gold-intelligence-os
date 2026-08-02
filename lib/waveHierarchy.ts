@@ -529,7 +529,12 @@ export function countMultiSource(sources: Series[], maxDepth = 5): DegreeLevel[]
       currentLeg,
       currentLabel: complete ? `after ${names[names.length - 1]}` : glyphs[currentIdx] || names[Math.max(0, currentLeg - 1)],
       patternComplete: complete,
-      window: { fromTs: win.t[0], toTs: win.t[win.t.length - 1] },
+      // The end is the analysis end, not this source's last bar. A coarse bar is
+      // stamped with its opening time, so counting Primary on monthly data
+      // reported it finishing on 1 July while Intermediate — counted on daily —
+      // ran to 31 July. The child appeared to escape its parent when in fact
+      // both run to now; only the reported boundary was wrong.
+      window: { fromTs: win.t[0], toTs },
       rules: cls.checks,
       confidence: cls.score,
     });

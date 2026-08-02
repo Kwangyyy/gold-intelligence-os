@@ -644,7 +644,15 @@ export async function GET(req: Request) {
 
     const degreePivots: WavePivot[] = [];
     levels.forEach((lvl, depth) => {
+      // The final leg of an unfinished pattern has no end yet. Labelling it at
+      // the last zigzag pivot claims the wave terminated there — and the chart
+      // showed exactly that: Intermediate (5) marked at 30 June while its own
+      // Minor subdivision carried on to 17 July, a child running past a parent
+      // that had supposedly ended. Where price currently sits is in the panel;
+      // it does not belong on the chart as a completed turn.
+      const inProgress = lvl.patternComplete ? -1 : lvl.legs.length - 1;
       lvl.legs.forEach((leg, li) => {
+        if (li === inProgress) return;
         const glyph = lvl.glyphs[li];
         if (!glyph) return;                         // leg outside the pattern
         const ts = leg.to.ts;

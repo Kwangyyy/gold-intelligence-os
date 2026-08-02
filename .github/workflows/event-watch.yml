@@ -1,0 +1,45 @@
+name: event-watch
+
+# Vercel's Hobby plan allows one cron invocation per day, which is useless for
+# something meant to catch a missile strike. GitHub's scheduler is free and runs
+# every 15 minutes, so it does the polling and the app just answers.
+#
+# GitHub delays scheduled runs under load and can skip them entirely during
+# incidents. That is acceptable here — a missed poll means an alert arrives at
+# the next one — but it is not a guarantee, and nobody should treat silence as
+# "nothing is happening".
+#
+# Needs one repository secret: CRON_SECRET, matching the value in Vercel.
+# Settings → Secrets and variables → Actions → New repository secret.
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry:
+        description: "Scan and report without sending to Telegram"
+        type: boolean
+        default: false
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Poll the event watcher
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          DRY: ${{ inputs.dry && '?dry=1' || '' }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "CRON_SECRET is not set as a repository secret — the endpoint will answer 401."
+            echo "Add it under Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+          code=$(curl -sS -o body.json -w '%{http_code}' --max-time 60 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "https://gold-intelligence-os.vercel.app/api/event-watch$DRY")
+          echo "HTTP $code"
+          cat body.json
+          echo
+          [ "$code" = "200" ]

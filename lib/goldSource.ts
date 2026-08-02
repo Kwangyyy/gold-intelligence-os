@@ -179,6 +179,25 @@ function dropWeekend(c: Candles): Candles {
 // Last successful response per timeframe, and the last good spot print. Survives
 // a transient outage of both feeds within one server instance's lifetime.
 const LAST_GOOD_CANDLES = new Map<GoldTF, Candles>();
+
+// Short-lived cache keyed by exactly what was asked for.
+//
+// Switching timeframe on the wave chart was taking 2.1-2.6 seconds. The
+// hierarchical count needs the coarse series as well as the requested one, so a
+// single request fetched up to five timeframes, each of which may page Binance
+// twice — thirteen sequential round trips, and every timeframe switch paid the
+// whole bill again even though 1M, 1w and 1d are identical across all of them.
+//
+// The TTL is scaled to the bar: a monthly series does not meaningfully change
+// within ten minutes, while an intraday one is kept tight enough that the chart
+// stays live. The current price is fetched separately by getGoldSpot, so these
+// bars being seconds old does not affect the quoted price.
+const CANDLE_TTL: Record<GoldTF, number> = {
+  "1M": 600_000, "1w": 600_000, "1d": 180_000, "4h": 120_000, "2h": 90_000,
+  "1h": 60_000, "30m": 30_000, "15m": 20_000, "5m": 15_000, "1m": 10_000,
+};
+const CANDLE_CACHE = new Map<string, { at: number; candles: Candles }>();
+const CANDLE_INFLIGHT = new Map<string, Promise<Candles>>();
 let LAST_GOOD_SPOT: { price: number; at: number } | null = null;
 
 /**
@@ -186,6 +205,22 @@ let LAST_GOOD_SPOT: { price: number; at: number } | null = null;
  * `includeWeekend` keeps the 24/7 bars; the default matches broker hours.
  */
 export async function getGoldCandles(tf: GoldTF, limit = 1000, includeWeekend = false): Promise<Candles> {
+  const key = `${tf}:${limit}:${includeWeekend}`;
+  const hit = CANDLE_CACHE.get(key);
+  if (hit && Date.now() - hit.at < CANDLE_TTL[tf]) return hit.candles;
+  // Collapse concurrent callers — the wave route asks for several timeframes at
+  // once and would otherwise duplicate whichever ones overlap.
+  const flying = CANDLE_INFLIGHT.get(key);
+  if (flying) return flying;
+
+  const p = fetchGoldCandles(tf, limit, includeWeekend)
+    .then((c) => { CANDLE_CACHE.set(key, { at: Date.now(), candles: c }); return c; })
+    .finally(() => CANDLE_INFLIGHT.delete(key));
+  CANDLE_INFLIGHT.set(key, p);
+  return p;
+}
+
+async function fetchGoldCandles(tf: GoldTF, limit: number, includeWeekend: boolean): Promise<Candles> {
   // Daily needs the weekend cut too — PAXG prints Saturday and Sunday daily bars
   // (measured: 56 of 200). Weekly is safe, every bar opens on a Monday. Monthly
   // must be left alone: its bar opens on the 1st, and whenever the 1st lands on

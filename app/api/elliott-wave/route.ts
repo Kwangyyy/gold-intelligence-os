@@ -561,16 +561,20 @@ export async function GET(req: Request) {
     const DEPTH: Record<string, number> = {
       "1M": 2, "1w": 2, "1d": 3, "4h": 4, "2h": 4, "1h": 5, "30m": 5, "15m": 6, "5m": 6, "1m": 6,
     };
-    const spine: Series[] = [];
-    for (const coarse of ["1M", "1w", "1d", "4h", "1h"] as const) {
-      // Only descend to resolutions at least as fine as the one asked for.
-      const order = ["1M", "1w", "1d", "4h", "2h", "1h", "30m", "15m", "5m", "1m"];
-      if (order.indexOf(coarse) > order.indexOf(tf)) break;
-      try {
-        const c = await getGoldCandles(coarse, coarse === "1M" ? 200 : 1000, includeWeekend);
-        if (c.c.length >= 25) spine.push({ t: c.t, h: c.h, l: c.l, c: c.c });
-      } catch { /* a missing resolution just means one fewer level */ }
-    }
+    // In parallel, not one after another. These were five sequential fetches —
+    // each of which may page Binance twice — so a timeframe switch waited on
+    // thirteen round trips in series.
+    const order = ["1M", "1w", "1d", "4h", "2h", "1h", "30m", "15m", "5m", "1m"];
+    const wanted = (["1M", "1w", "1d", "4h", "1h"] as const)
+      .filter((c) => order.indexOf(c) <= order.indexOf(tf));
+    const fetched = await Promise.all(
+      wanted.map((c) =>
+        getGoldCandles(c, c === "1M" ? 200 : 1000, includeWeekend).catch(() => null),
+      ),
+    );
+    const spine: Series[] = fetched
+      .filter((c): c is NonNullable<typeof c> => !!c && c.c.length >= 25)
+      .map((c) => ({ t: c.t, h: c.h, l: c.l, c: c.c }));
     if (!spine.length) spine.push({ t: sTs, h: sHi, l: sLo, c: sCl });
     const levels = countMultiSource(spine, DEPTH[tf] ?? 4);
     const deepest = levels[levels.length - 1];

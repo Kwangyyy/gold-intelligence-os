@@ -158,9 +158,45 @@ function topPrices(o) {
 const VOLATILE_STR = /"(timestamp|generatedAt|asOf|at|ts|lastUpdate|updatedAt|time|sourceLabel|sourceLabelTh|source|methodology|vaultCaveat|insight|expiryInfo)"\s*:\s*"[^"]*"/g;
 const VOLATILE_NUM = /"(\w*[Dd]elaySec|\w*AgeDays|\w*Age|dte|reportAgeDays)"\s*:\s*-?\d+(\.\d+)?/g;
 const normalise = (b) =>
-  b.replace(VOLATILE_STR, '"_":""')
-   .replace(VOLATILE_NUM, '"_":0')
-   .replace(/(\d{4})\.\d+/g, "$1");
+  b.replace(VOLATILE_STR, '"_":""').replace(VOLATILE_NUM, '"_":0');
+
+// Numbers are compared with a tolerance rather than as text. Live prices move
+// between two requests — `4052.9` then `4053.1` a second later is one reading,
+// not two — and string comparison failed CI over a working route.
+//
+// Bucketing the text was the obvious fix and it was wrong: a step derived from
+// the number itself maps every number to the same bucket. Walking the parsed
+// structure is the honest way to say "within half a percent".
+//
+// Half a percent absorbs any real tick in the seconds between two calls, and
+// still fails the thing this exists to catch: options-gamma returned 463 then
+// 419 contracts at one strike, a 10% swing.
+const TOLERANCE = 0.005;
+
+function sameData(a, b) {
+  if (a === b) return true;
+  if (typeof a === "number" && typeof b === "number") {
+    if (Number.isNaN(a) && Number.isNaN(b)) return true;
+    const scale = Math.max(Math.abs(a), Math.abs(b));
+    return Math.abs(a - b) <= Math.max(scale * TOLERANCE, 1e-9);
+  }
+  if (Array.isArray(a) && Array.isArray(b)) {
+    return a.length === b.length && a.every((x, i) => sameData(x, b[i]));
+  }
+  if (a && b && typeof a === "object" && typeof b === "object") {
+    const ka = Object.keys(a), kb = Object.keys(b);
+    return ka.length === kb.length && ka.every((k) => k in b && sameData(a[k], b[k]));
+  }
+  return false;
+}
+
+function bodiesAgree(a, b) {
+  try {
+    return sameData(JSON.parse(normalise(a)), JSON.parse(normalise(b)));
+  } catch {
+    return normalise(a) === normalise(b);
+  }
+}
 
 async function liveChecks(list) {
   const spot = Number(
@@ -191,14 +227,14 @@ async function liveChecks(list) {
         }
       }
     }
-    if (b && normalise(a.body) !== normalise(b.body)) {
+    if (b && !bodiesAgree(a.body, b.body)) {
       // Retry once. Several routes cache an upstream for ten minutes, and a
       // pair of calls straddling that expiry legitimately differs — the second
       // one refetched. A route that fabricates its numbers fails both times;
       // a cache boundary does not.
       const c = await get(`${BASE}/api/${r}`);
       const d = await get(`${BASE}/api/${r}`);
-      if (normalise(c.body) !== normalise(d.body)) {
+      if (!bodiesAgree(c.body, d.body)) {
         fail("deterministic", `${r} returned different data on two consecutive calls, twice`);
       }
     }

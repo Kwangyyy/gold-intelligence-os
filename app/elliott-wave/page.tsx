@@ -1063,6 +1063,71 @@ export default function ElliottWavePage() {
             </div>
           </div>
 
+          {/* Degree lineage — the count as a nested structure, largest first.
+              The point of showing every level is that a wrong large-degree read
+              is now visible: each row states the window it was counted in and
+              which rules carried it, so a bad count can be pointed at. */}
+          {data.hierarchy?.length > 0 && (
+            <div className="panel px-5 py-4">
+              <div className="flex items-baseline justify-between gap-3 flex-wrap mb-3">
+                <div className="text-[9px] uppercase tracking-widest" style={{ color: "rgba(175,185,215,0.3)" }}>
+                  ลำดับชั้นดีกรี · นับจากใหญ่ลงเล็ก
+                </div>
+                <div className="text-xs font-black" style={{ color: "#f5c451" }}>{data.lineage}</div>
+              </div>
+
+              <div className="space-y-2">
+                {data.hierarchy.map((h, i) => {
+                  const corrective = h.structure === "zigzag" || h.structure === "flat";
+                  const col = h.patternComplete ? "#94a3b8" : corrective ? "#fb923c" : "#34d399";
+                  return (
+                    <div key={h.degree + i} className="rounded-xl px-3 py-2"
+                      style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)", marginLeft: i * 10 }}>
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-black" style={{ color: col }}>{h.label}</span>
+                          <span className="text-[10px] font-bold" style={{ color: "rgba(255,255,255,0.7)" }}>{h.degree}</span>
+                          <span className="text-[9px] px-1.5 py-0.5 rounded" style={{ background: col + "1a", color: col }}>{h.structure}</span>
+                          {h.patternComplete && (
+                            <span className="text-[9px]" style={{ color: "rgba(175,185,215,0.5)" }}>โครงสร้างจบแล้ว</span>
+                          )}
+                        </div>
+                        <div className="text-[9px]" style={{ color: "rgba(175,185,215,0.4)" }}>
+                          {h.window.from} → {h.window.to} · มั่นใจ {h.confidence}%
+                        </div>
+                      </div>
+                      {h.rules?.length > 0 && (
+                        <div className="mt-1.5 space-y-0.5">
+                          {h.rules.map((r, j) => (
+                            <div key={j} className="text-[9px] flex gap-1.5">
+                              <span style={{ color: r.passed ? "#34d399" : "#f87171" }}>{r.passed ? "✓" : "✗"}</span>
+                              <span style={{ color: "rgba(255,255,255,0.55)" }}>{r.rule}</span>
+                              <span style={{ color: "rgba(175,185,215,0.35)" }}>— {r.detail}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Option positioning read against the count. Independent evidence,
+              so disagreement is shown rather than smoothed over. */}
+          {data.oiCheck && data.oiCheck.agrees !== null && (
+            <div className="panel px-5 py-4" style={{ borderLeft: `4px solid ${data.oiCheck.agrees ? "#34d399" : "#fb923c"}` }}>
+              <div className="text-[9px] uppercase tracking-widest mb-2" style={{ color: "rgba(175,185,215,0.3)" }}>
+                ตรวจกับตำแหน่ง Option (หลักฐานอิสระ)
+              </div>
+              <div className="text-xs font-bold mb-1" style={{ color: data.oiCheck.agrees ? "#34d399" : "#fb923c" }}>
+                {data.oiCheck.agrees ? "✓ สอดคล้องกับการนับ" : "✗ ไม่สอดคล้องกับการนับ"}
+              </div>
+              <div className="text-[11px] leading-relaxed" style={{ color: "rgba(255,255,255,0.6)" }}>{data.oiCheck.noteTh}</div>
+            </div>
+          )}
+
           {/* Neely rules */}
           {data.neelyRules.length > 0 && (
             <div className="panel px-5 py-4">

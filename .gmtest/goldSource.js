@@ -1,0 +1,487 @@
+"use strict";
+// Candle source for the gold charts.
+//
+// Why not Yahoo GC=F any more: it is COMEX *futures*, and Yahoo reports it about
+// ten minutes late (measured 603s and 611s). Futures also carry a basis over
+// spot — roughly $47 while this was written — so the chart sat both stale and
+// about one percent above the spot price the user actually trades. Against a
+// TradingView OANDA:XAUUSD chart that reads as simply wrong.
+//
+// Binance PAXG/USDT instead: PAXG is a token redeemable 1:1 for a troy ounce of
+// LBMA gold, so it tracks spot closely — $1.76 from the OANDA spot print when
+// compared side by side — and Binance serves it in real time (13s old), free,
+// with native 1m…1M intervals so nothing has to be aggregated.
+//
+// Trade-off, stated plainly: PAXG is a token, not spot XAU. It can sit at a
+// small premium or discount, and it trades through weekends when the gold market
+// is shut, so weekend bars exist that a broker chart will not show. History only
+// goes back to the token's 2019 launch, which shortens the weekly and monthly
+// views. Yahoo remains the fallback when Binance is unreachable.
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.getGoldCandles = getGoldCandles;
+exports.goldChartJson = goldChartJson;
+exports.lastKnownGoldPrice = lastKnownGoldPrice;
+exports.goldFetch = goldFetch;
+exports.yahooChartJson = yahooChartJson;
+exports.getGoldSpot = getGoldSpot;
+exports.goldMonthlyFromDaily = goldMonthlyFromDaily;
+const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36";
+// api.binance.com answers 451 to US datacenter IPs, so on Vercel it silently
+// failed and everything fell back to delayed Yahoo futures — the deploy behaved
+// differently from local for purely geographic reasons. data-api.binance.vision
+// is Binance's public market-data domain and is not geo-restricted, so it leads.
+const BINANCE_HOSTS = [
+    "data-api.binance.vision",
+    "api-gcp.binance.com",
+    "api.binance.com",
+];
+async function binanceJson(path) {
+    let lastErr = new Error("no host tried");
+    for (const host of BINANCE_HOSTS) {
+        try {
+            const r = await fetch(`https://${host}${path}`, {
+                headers: { "User-Agent": UA },
+                cache: "no-store",
+                signal: AbortSignal.timeout(9000),
+            });
+            if (!r.ok) {
+                lastErr = new Error(`${host} ${r.status}`);
+                continue;
+            }
+            return await r.json();
+        }
+        catch (e) {
+            lastErr = e;
+        }
+    }
+    throw lastErr;
+}
+// Binance has a native interval for every timeframe we offer.
+const BINANCE_IV = {
+    "1m": "1m", "5m": "5m", "15m": "15m", "30m": "30m", "1h": "1h",
+    "2h": "2h", "4h": "4h", "1d": "1d", "1w": "1w", "1M": "1M",
+};
+// Yahoo fallback: no native 2h/4h, so those are folded from 60m bars.
+const YAHOO_CFG = {
+    "1m": { range: "5d", interval: "1m", aggregate: 1 },
+    "5m": { range: "1mo", interval: "5m", aggregate: 1 },
+    "15m": { range: "1mo", interval: "15m", aggregate: 1 },
+    "30m": { range: "1mo", interval: "30m", aggregate: 1 },
+    "1h": { range: "6mo", interval: "60m", aggregate: 1 },
+    "2h": { range: "1y", interval: "60m", aggregate: 2 },
+    "4h": { range: "2y", interval: "60m", aggregate: 4 },
+    "1d": { range: "5y", interval: "1d", aggregate: 1 },
+    "1w": { range: "10y", interval: "1wk", aggregate: 1 },
+    "1M": { range: "max", interval: "1mo", aggregate: 1 },
+};
+// Binance caps a klines response at 1000 bars, which silently truncated every
+// caller asking for more: the session heatmap wanted 60 days of hourly data,
+// got 41, and after weekend bars were dropped each day-and-hour bucket held six
+// samples instead of twelve. Walking backwards with `endTime` is the documented
+// way past the cap — verified at 4 pages / 4,000 bars / 167 days.
+//
+// Page count is bounded because each page is a round trip and the routes that
+// want this run inside a ten-second function budget.
+const MAX_PAGES = 5;
+async function fromBinance(tf, limit) {
+    const iv = BINANCE_IV[tf];
+    const rows = [];
+    let endTime = null;
+    for (let page = 0; page < MAX_PAGES && rows.length < limit; page++) {
+        const want = Math.min(limit - rows.length, 1000);
+        const path = `/api/v3/klines?symbol=PAXGUSDT&interval=${iv}&limit=${want}` +
+            (endTime ? `&endTime=${endTime}` : "");
+        const batch = (await binanceJson(path));
+        if (!Array.isArray(batch) || !batch.length)
+            break;
+        rows.unshift(...batch);
+        // The next page ends one millisecond before this one's oldest bar opened.
+        endTime = Number(batch[0][0]) - 1;
+        if (batch.length < want)
+            break; // history exhausted — PAXG starts in 2019
+    }
+    if (!rows.length)
+        throw new Error("Binance: empty");
+    const t = [], o = [], h = [], l = [], c = [], v = [];
+    for (const k of rows) {
+        t.push(Math.floor(Number(k[0]) / 1000));
+        o.push(Number(k[1]));
+        h.push(Number(k[2]));
+        l.push(Number(k[3]));
+        c.push(Number(k[4]));
+        v.push(Number(k[5]));
+    }
+    return { t, o, h, l, c, v, source: "paxg", delaySec: Math.max(0, Math.floor(Date.now() / 1000) - t[t.length - 1]) };
+}
+function aggregate(src, n) {
+    if (n <= 1)
+        return src;
+    const t = [], o = [], h = [], l = [], c = [], v = [];
+    for (let i = 0; i < src.c.length; i += n) {
+        const hs = src.h.slice(i, i + n), ls = src.l.slice(i, i + n), cs = src.c.slice(i, i + n), vs = src.v.slice(i, i + n);
+        if (!cs.length)
+            break;
+        t.push(src.t[i]);
+        o.push(src.o[i]);
+        h.push(Math.max(...hs));
+        l.push(Math.min(...ls));
+        c.push(cs[cs.length - 1]);
+        v.push(vs.reduce((a, b) => a + b, 0));
+    }
+    return { t, o, h, l, c, v };
+}
+async function fromYahoo(tf) {
+    const cfg = YAHOO_CFG[tf];
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?range=${cfg.range}&interval=${cfg.interval}`;
+    const r = await fetch(url, { headers: { "User-Agent": UA }, cache: "no-store", signal: AbortSignal.timeout(12000) });
+    if (!r.ok)
+        throw new Error(`Yahoo ${r.status}`);
+    const j = await r.json();
+    const res = j?.chart?.result?.[0];
+    const q = res?.indicators?.quote?.[0];
+    const rawT = res?.timestamp ?? [];
+    if (!rawT.length)
+        throw new Error("Yahoo: empty");
+    const t = [], o = [], h = [], l = [], c = [], v = [];
+    for (let i = 0; i < rawT.length; i++) {
+        if (q?.open?.[i] == null || q?.close?.[i] == null || q?.high?.[i] == null || q?.low?.[i] == null)
+            continue;
+        t.push(rawT[i]);
+        o.push(q.open[i]);
+        h.push(q.high[i]);
+        l.push(q.low[i]);
+        c.push(q.close[i]);
+        v.push(q.volume?.[i] ?? 0);
+    }
+    const agg = aggregate({ t, o, h, l, c, v }, cfg.aggregate);
+    const last = agg.t[agg.t.length - 1] ?? 0;
+    return { ...agg, source: "yahoo", delaySec: Math.max(0, Math.floor(Date.now() / 1000) - last) };
+}
+// PAXG trades 24/7, so roughly 29% of its bars fall on a weekend when the gold
+// market is shut — measured on 1000 hourly bars: 288 weekend bars, averaging a
+// 0.078% range on a fifth of the weekday volume. Keeping them means the chart
+// shows bars a broker never printed, never gaps on Monday, and lets thin
+// weekend ticks shape the wave count. Dropped by default for that reason.
+//
+// XAUUSD week: closes Friday 21:00 UTC, reopens Sunday 22:00 UTC.
+function isMarketOpen(tsSec) {
+    const d = new Date(tsSec * 1000);
+    const day = d.getUTCDay(); // 0 = Sunday … 6 = Saturday
+    const hour = d.getUTCHours();
+    if (day === 6)
+        return false; // Saturday — shut all day
+    if (day === 0)
+        return hour >= 22; // Sunday — reopens 22:00
+    if (day === 5)
+        return hour < 21; // Friday — shuts 21:00
+    return true;
+}
+function dropWeekend(c) {
+    const keep = [];
+    for (let i = 0; i < c.t.length; i++)
+        if (isMarketOpen(c.t[i]))
+            keep.push(i);
+    if (keep.length === c.t.length)
+        return c;
+    const pick = (a) => keep.map((i) => a[i]);
+    return { ...c, t: pick(c.t), o: pick(c.o), h: pick(c.h), l: pick(c.l), c: pick(c.c), v: pick(c.v) };
+}
+// Last successful response per timeframe, and the last good spot print. Survives
+// a transient outage of both feeds within one server instance's lifetime.
+const LAST_GOOD_CANDLES = new Map();
+let LAST_GOOD_SPOT = null;
+/**
+ * Candles for a timeframe, real-time when Binance is reachable.
+ * `includeWeekend` keeps the 24/7 bars; the default matches broker hours.
+ */
+async function getGoldCandles(tf, limit = 1000, includeWeekend = false) {
+    // Daily needs the weekend cut too — PAXG prints Saturday and Sunday daily bars
+    // (measured: 56 of 200). Weekly is safe, every bar opens on a Monday. Monthly
+    // must be left alone: its bar opens on the 1st, and whenever the 1st lands on
+    // a weekend the filter would delete an entire legitimate month.
+    const filterable = tf !== "1w" && tf !== "1M";
+    let out;
+    try {
+        // Weekend bars are roughly 29% of a 24/7 series, so ask for enough extra to
+        // still have `limit` left once they are dropped. This used to request a flat
+        // 1000 — the old per-request cap — which meant a caller wanting more than
+        // that silently got 1000, then ~710 after the weekend cut.
+        const want = includeWeekend || !filterable ? limit : Math.ceil(limit / 0.71);
+        out = await fromBinance(tf, want);
+    }
+    catch {
+        try {
+            out = await fromYahoo(tf);
+        }
+        catch (e) {
+            // Both feeds down. Callers catch this and fall back to a price constant
+            // written into the source months ago — around $3,300 while gold trades
+            // near $4,100 — and present it as live. Slightly stale beats 20% wrong.
+            const stale = LAST_GOOD_CANDLES.get(tf);
+            if (!stale)
+                throw e;
+            out = stale;
+        }
+    }
+    LAST_GOOD_CANDLES.set(tf, out);
+    // Daily needs the cut too — PAXG prints Saturday and Sunday daily bars
+    // (measured: 56 of 200). Weekly is safe, every bar opens on a Monday. Monthly
+    // must be left alone: its bar opens on the 1st, and whenever the 1st lands on
+    // a weekend the filter would delete an entire legitimate month.
+    return includeWeekend || !filterable ? out : dropWeekend(out);
+}
+// ── Yahoo-shaped adapter ─────────────────────────────────────────────────────
+// Around a hundred routes were written against Yahoo's chart JSON. Rather than
+// rewrite each one's parsing (and risk breaking analytics that already work),
+// this returns the identical shape built from the spot feed, so a route only has
+// to swap its fetch line and everything downstream keeps working.
+const TF_FOR_INTERVAL = {
+    "1m": "1m", "2m": "1m", "5m": "5m", "15m": "15m", "30m": "30m",
+    "60m": "1h", "1h": "1h", "90m": "1h", "2h": "2h", "4h": "4h",
+    "1d": "1d", "5d": "1d", "1wk": "1w", "1mo": "1M", "3mo": "1M",
+};
+// Roughly how many bars a Yahoo range implies, so callers that slice by count
+// still see a comparable window.
+const BARS_FOR_RANGE = {
+    "1d": 24, "5d": 120, "1mo": 300, "3mo": 500, "6mo": 700,
+    "1y": 800, "2y": 900, "5y": 1500, "10y": 2500, ytd: 800, max: 5000,
+};
+const TF_MINUTES = {
+    "1m": 1, "5m": 5, "15m": 15, "30m": 30, "1h": 60,
+    "2h": 120, "4h": 240, "1d": 1440, "1w": 10080, "1M": 43200,
+};
+// Callers pass range tokens Yahoo never accepted ("2mo", "60d"). Rather than
+// silently handing all of them the same default, derive the bar count from the
+// span the token names and the timeframe's bar length.
+function barsForRange(range, tf) {
+    const known = BARS_FOR_RANGE[range];
+    if (known)
+        return known;
+    const m = /^(\d+)(d|wk|mo|y)$/.exec(range);
+    if (!m)
+        return 500;
+    const days = Number(m[1]) * ({ d: 1, wk: 7, mo: 30, y: 365 }[m[2]]);
+    // 5000 is the paging ceiling in fromBinance. It used to be 1000 — the old
+    // per-request cap — which quietly truncated "60d of hourly" to 41 days.
+    return Math.min(5000, Math.max(30, Math.ceil((days * 1440) / TF_MINUTES[tf])));
+}
+/** Yahoo-chart-shaped gold data, sourced from the real-time spot feed. */
+async function goldChartJson(range = "1mo", interval = "1d") {
+    const tf = TF_FOR_INTERVAL[interval] ?? "1d";
+    const want = barsForRange(range, tf);
+    const c = await getGoldCandles(tf, want);
+    const start = Math.max(0, c.c.length - want);
+    const t = c.t.slice(start), o = c.o.slice(start), h = c.h.slice(start), l = c.l.slice(start), cl = c.c.slice(start), v = c.v.slice(start);
+    let price = cl[cl.length - 1] ?? 0;
+    try {
+        const spot = await getGoldSpot();
+        if (spot.price > 0)
+            price = spot.price;
+    }
+    catch { /* last close stands in */ }
+    return {
+        chart: {
+            result: [{
+                    meta: {
+                        symbol: "XAUUSD", currency: "USD",
+                        regularMarketPrice: price,
+                        chartPreviousClose: cl[cl.length - 2] ?? price,
+                        previousClose: cl[cl.length - 2] ?? price,
+                        regularMarketDayHigh: Math.max(h[h.length - 1] ?? price, price),
+                        regularMarketDayLow: Math.min(l[l.length - 1] ?? price, price),
+                        regularMarketTime: t[t.length - 1] ?? Math.floor(Date.now() / 1000),
+                    },
+                    timestamp: t,
+                    indicators: { quote: [{ open: o, high: h, low: l, close: cl, volume: v }] },
+                }],
+        },
+    };
+}
+/**
+ * The most recent gold price this process actually saw, or 0 if it never got
+ * one. Synchronous, so it can stand in the `??` position where routes used to
+ * carry a literal.
+ *
+ * Those literals were written when gold traded near $3,300 and never revisited;
+ * with gold above $4,000 a feed outage would have quoted a price 20% low and
+ * called it live. Zero is the honest answer for "we have nothing": a page
+ * showing 0 is visibly broken, which is what the user needs to know, whereas a
+ * plausible wrong number is acted on. In practice this is populated, since every
+ * caller reaches here right after a successful fetch on the same request.
+ */
+function lastKnownGoldPrice() {
+    if (LAST_GOOD_SPOT && LAST_GOOD_SPOT.price > 0)
+        return LAST_GOOD_SPOT.price;
+    for (const c of LAST_GOOD_CANDLES.values()) {
+        const p = c.c[c.c.length - 1];
+        if (p > 0)
+            return p;
+    }
+    return 0;
+}
+/**
+ * Drop-in replacement for `fetch(<Yahoo GC=F chart url>)`.
+ *
+ * Dozens of routes fetch the gold chart in their own shape — inside a
+ * `Promise.all`, through a timeout wrapper, guarded by `res.ok`, reading
+ * `res.status` in the error message. Swapping the fetch call alone leaves all
+ * of that untouched, so the migration off delayed futures cannot disturb
+ * control flow it does not understand. Returns a real Response, so `.ok`,
+ * `.status`, and `.json()` all behave.
+ */
+async function goldFetch(url) {
+    let range = "1mo", interval = "1d";
+    try {
+        const q = new URL(url).searchParams;
+        range = q.get("range") ?? range;
+        interval = q.get("interval") ?? interval;
+    }
+    catch { /* keep the defaults */ }
+    const json = await goldChartJson(range, interval);
+    return new Response(JSON.stringify(json), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+    });
+}
+// Gold tickers that appear in the app's symbol tables. Anything else is a
+// genuinely different instrument and still belongs to Yahoo.
+const GOLD_TICKERS = new Set(["GC=F", "GC%3DF", "XAUUSD", "XAUUSD=X", "XAU=", "GOLD"]);
+/**
+ * Yahoo-chart-shaped data for any ticker, with gold transparently served from
+ * the real-time spot feed. Multi-asset routes that loop over a symbol table can
+ * call this instead of fetching Yahoo directly and gold stops being the one
+ * quote on the page that is ten minutes late and $60 too high.
+ */
+async function yahooChartJson(ticker, range = "1mo", interval = "1d") {
+    // Symbol tables are inconsistent about escaping — some list "GC=F" and "^VIX",
+    // others "GC%3DF" and "%5EVIX". Decoding first makes the encode idempotent, so
+    // a pre-escaped ticker does not become "GC%253DF" and 404.
+    let raw = ticker;
+    try {
+        raw = decodeURIComponent(ticker);
+    }
+    catch { /* not escaped */ }
+    if (GOLD_TICKERS.has(raw.toUpperCase()))
+        return goldChartJson(range, interval);
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(raw)}?range=${range}&interval=${interval}`;
+    const r = await fetch(url, {
+        headers: { "User-Agent": "Mozilla/5.0" },
+        signal: AbortSignal.timeout(6000),
+        cache: "no-store",
+    });
+    if (!r.ok)
+        return null;
+    return (await r.json());
+}
+/** Latest spot-equivalent gold price, real-time. */
+async function getGoldSpot() {
+    try {
+        const j = (await binanceJson("/api/v3/ticker/price?symbol=PAXGUSDT"));
+        const price = Number(j?.price);
+        if (!price)
+            throw new Error("no price");
+        LAST_GOOD_SPOT = { price, at: Date.now() };
+        return { price, source: "paxg", delaySec: 0 };
+    }
+    catch {
+        try {
+            const r = await fetch("https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?interval=1m&range=1d", {
+                headers: { "User-Agent": UA }, cache: "no-store", signal: AbortSignal.timeout(8000),
+            });
+            const j = await r.json();
+            const m = j?.chart?.result?.[0]?.meta;
+            const now = Math.floor(Date.now() / 1000);
+            const price = Number(m?.regularMarketPrice ?? 0);
+            if (!price)
+                throw new Error("no price");
+            LAST_GOOD_SPOT = { price, at: Date.now() };
+            return {
+                price,
+                source: "yahoo",
+                delaySec: m?.regularMarketTime ? Math.max(0, now - Number(m.regularMarketTime)) : 0,
+            };
+        }
+        catch (e) {
+            // See getGoldCandles: callers' own fallbacks are constants from 2024.
+            if (!LAST_GOOD_SPOT)
+                throw e;
+            // Not "yahoo" — Yahoo is exactly what just failed. Saying so lets callers
+            // label the reading honestly instead of crediting a feed that is down.
+            return {
+                price: LAST_GOOD_SPOT.price,
+                source: "cache",
+                delaySec: Math.floor((Date.now() - LAST_GOOD_SPOT.at) / 1000),
+            };
+        }
+    }
+}
+/**
+ * Monthly gold history for the routes that need decades of it, assembled from
+ * Yahoo's *daily* series rather than its monthly one.
+ *
+ * Yahoo's `interval=1mo` for GC=F silently drops months. Measured over two
+ * years it was missing December 2024, June 2025 and both February and March
+ * 2026 — four of twenty-four. The daily series covers every one of them (19-22
+ * trading days each), so the gaps are in Yahoo's monthly aggregation, not in
+ * the underlying data.
+ *
+ * That mattered: gold-structure maps multi-decade highs and lows, and a missing
+ * month is a high or a low that never existed as far as the page is concerned.
+ *
+ * Still the futures feed, deliberately — this exists for the routes that need
+ * history the spot feed cannot reach back to.
+ */
+async function goldMonthlyFromDaily(years = 10) {
+    // audit-allow-raw-yahoo: multi-decade history; the spot feed starts 2020.
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?range=${years}y&interval=1d`;
+    const r = await fetch(url, {
+        headers: { "User-Agent": UA },
+        cache: "no-store",
+        signal: AbortSignal.timeout(12000),
+    });
+    if (!r.ok)
+        throw new Error(`Yahoo ${r.status}`);
+    const j = await r.json();
+    const res = j?.chart?.result?.[0];
+    const q = res?.indicators?.quote?.[0];
+    const rawT = res?.timestamp ?? [];
+    if (!rawT.length)
+        throw new Error("Yahoo: empty");
+    // Group by calendar month in UTC. First open, last close, extreme high/low.
+    const buckets = new Map();
+    for (let i = 0; i < rawT.length; i++) {
+        const o = q?.open?.[i], h = q?.high?.[i], l = q?.low?.[i], c = q?.close?.[i];
+        if (o == null || h == null || l == null || c == null)
+            continue;
+        const d = new Date(rawT[i] * 1000);
+        const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+        const b = buckets.get(key);
+        if (!b) {
+            buckets.set(key, { t: rawT[i], o, h, l, c, v: q?.volume?.[i] ?? 0 });
+        }
+        else {
+            b.h = Math.max(b.h, h);
+            b.l = Math.min(b.l, l);
+            b.c = c;
+            b.v += q?.volume?.[i] ?? 0;
+        }
+    }
+    const keys = [...buckets.keys()].sort();
+    const t = [], o = [], h = [], l = [], c = [], v = [];
+    for (const k of keys) {
+        const b = buckets.get(k);
+        t.push(b.t);
+        o.push(b.o);
+        h.push(b.h);
+        l.push(b.l);
+        c.push(b.c);
+        v.push(b.v);
+    }
+    if (!t.length)
+        throw new Error("no monthly bars assembled");
+    return {
+        t, o, h, l, c, v,
+        source: "yahoo",
+        delaySec: Math.max(0, Math.floor(Date.now() / 1000) - t[t.length - 1]),
+    };
+}

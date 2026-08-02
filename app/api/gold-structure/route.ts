@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getGoldSpot, lastKnownGoldPrice } from "@/lib/goldSource";
+import { getGoldSpot, lastKnownGoldPrice, goldMonthlyFromDaily } from "@/lib/goldSource";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -46,24 +46,17 @@ const TTL = 60 * 60 * 1000; // 1h
 
 async function fetchYearlyOHLC(): Promise<{ price: number; yearlyHighs: number[]; yearlyLows: number[] }> {
   try {
-    // The *history* stays on the COMEX future: the spot feed only reaches back
-    // to 2020 monthly and a multi-decade structure map needs more than that.
-    // The futures basis washes out of highs and lows measured in percent.
-    const url = "https://query1.finance.yahoo.com/v8/finance/chart/GC=F?range=10y&interval=1mo";
-    // audit-allow-raw-yahoo: 10 years of monthly history; the spot feed starts 2020.
-    const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" }, next: { revalidate: 0 },
-      signal: AbortSignal.timeout(6_000),
-    });
-    if (!res.ok) throw new Error("Failed");
-    const j = await res.json();
-    const r = j.chart?.result?.[0];
-    if (!r) throw new Error("No result");
-
-    const meta = r.meta ?? {};
-    const price: number = meta.regularMarketPrice ?? lastKnownGoldPrice();
-    const highs: number[] = (r.indicators?.quote?.[0]?.high ?? []).filter(Boolean);
-    const lows: number[] = (r.indicators?.quote?.[0]?.low ?? []).filter(Boolean);
-    const timestamps: number[] = r.timestamp ?? [];
+    // Monthly bars assembled from Yahoo's daily series, not its monthly one.
+    // The monthly endpoint silently drops months — four of twenty-four over the
+    // last two years, including February and March 2026, whose highs of 5,280
+    // and 5,405 simply did not exist as far as this page was concerned. On a
+    // page whose entire job is mapping multi-year highs and lows, a missing
+    // month is a missing level.
+    const m = await goldMonthlyFromDaily(10);
+    const price: number = lastKnownGoldPrice();
+    const highs: number[] = m.h;
+    const lows: number[] = m.l;
+    const timestamps: number[] = m.t;
 
     // Group by year
     const yearlyHighs: { year: number; high: number }[] = [];

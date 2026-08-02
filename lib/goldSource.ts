@@ -419,3 +419,67 @@ export async function getGoldSpot(): Promise<{ price: number; source: "paxg" | "
     }
   }
 }
+
+/**
+ * Monthly gold history for the routes that need decades of it, assembled from
+ * Yahoo's *daily* series rather than its monthly one.
+ *
+ * Yahoo's `interval=1mo` for GC=F silently drops months. Measured over two
+ * years it was missing December 2024, June 2025 and both February and March
+ * 2026 — four of twenty-four. The daily series covers every one of them (19-22
+ * trading days each), so the gaps are in Yahoo's monthly aggregation, not in
+ * the underlying data.
+ *
+ * That mattered: gold-structure maps multi-decade highs and lows, and a missing
+ * month is a high or a low that never existed as far as the page is concerned.
+ *
+ * Still the futures feed, deliberately — this exists for the routes that need
+ * history the spot feed cannot reach back to.
+ */
+export async function goldMonthlyFromDaily(years = 10): Promise<Candles> {
+  // audit-allow-raw-yahoo: multi-decade history; the spot feed starts 2020.
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?range=${years}y&interval=1d`;
+  const r = await fetch(url, {
+    headers: { "User-Agent": UA },
+    cache: "no-store",
+    signal: AbortSignal.timeout(12_000),
+  });
+  if (!r.ok) throw new Error(`Yahoo ${r.status}`);
+  const j = await r.json();
+  const res = j?.chart?.result?.[0];
+  const q = res?.indicators?.quote?.[0];
+  const rawT: number[] = res?.timestamp ?? [];
+  if (!rawT.length) throw new Error("Yahoo: empty");
+
+  // Group by calendar month in UTC. First open, last close, extreme high/low.
+  const buckets = new Map<string, { t: number; o: number; h: number; l: number; c: number; v: number }>();
+  for (let i = 0; i < rawT.length; i++) {
+    const o = q?.open?.[i], h = q?.high?.[i], l = q?.low?.[i], c = q?.close?.[i];
+    if (o == null || h == null || l == null || c == null) continue;
+    const d = new Date(rawT[i] * 1000);
+    const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+    const b = buckets.get(key);
+    if (!b) {
+      buckets.set(key, { t: rawT[i], o, h, l, c, v: q?.volume?.[i] ?? 0 });
+    } else {
+      b.h = Math.max(b.h, h);
+      b.l = Math.min(b.l, l);
+      b.c = c;
+      b.v += q?.volume?.[i] ?? 0;
+    }
+  }
+
+  const keys = [...buckets.keys()].sort();
+  const t: number[] = [], o: number[] = [], h: number[] = [], l: number[] = [], c: number[] = [], v: number[] = [];
+  for (const k of keys) {
+    const b = buckets.get(k)!;
+    t.push(b.t); o.push(b.o); h.push(b.h); l.push(b.l); c.push(b.c); v.push(b.v);
+  }
+  if (!t.length) throw new Error("no monthly bars assembled");
+
+  return {
+    t, o, h, l, c, v,
+    source: "yahoo",
+    delaySec: Math.max(0, Math.floor(Date.now() / 1000) - t[t.length - 1]),
+  };
+}

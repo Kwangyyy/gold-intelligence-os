@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getGoldSpot } from "@/lib/goldSource";
+import { getGoldSpot, goldMonthlyFromDaily } from "@/lib/goldSource";
 
 export const runtime = "nodejs";
 export const revalidate = 1800; // 30 min
@@ -34,28 +34,14 @@ interface DrawdownData {
 
 async function fetchLongTermPrices(): Promise<{ prices: number[]; dates: string[] }> {
   try {
-    // Stays on the COMEX future: this walks 20 years of drawdowns and the spot
-    // feed only reaches back to 2020 monthly. Delay is meaningless at this scale.
-    const url = "https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=1mo&range=20y";
-    // audit-allow-raw-yahoo: 20 years of monthly history; the spot feed starts 2020.
-    const res = await fetch(url, {
-      headers: { "User-Agent": "Mozilla/5.0" },
-      signal: AbortSignal.timeout(10000),
-    });
-    if (!res.ok) return { prices: [], dates: [] };
-    const json = await res.json() as {
-      chart?: {
-        result?: Array<{
-          timestamp?: number[];
-          indicators?: {
-            quote?: Array<{ close?: (number | null)[] }>;
-          };
-        }>;
-      };
-    };
-    const result = json.chart?.result?.[0];
-    const timestamps = result?.timestamp ?? [];
-    const closes = result?.indicators?.quote?.[0]?.close ?? [];
+    // Still the COMEX future — twenty years of drawdowns, and the spot feed
+    // only reaches 2020. But assembled from Yahoo's daily bars rather than its
+    // monthly ones, which drop months: four of the last twenty-four, including
+    // February and March 2026. A drawdown study built on a series with holes
+    // will miss the trough that fell in one of them.
+    const m = await goldMonthlyFromDaily(20);
+    const timestamps = m.t;
+    const closes = m.c;
     const prices: number[] = [];
     const dates: string[] = [];
     closes.forEach((c, i) => {

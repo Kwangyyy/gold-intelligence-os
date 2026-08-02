@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getGoldSpot, lastKnownGoldPrice } from "@/lib/goldSource";
+import { getGoldSpot, lastKnownGoldPrice, goldMonthlyFromDaily } from "@/lib/goldSource";
 
 export const dynamic = "force-dynamic";
 
@@ -66,16 +66,12 @@ export async function GET() {
   try {
     // Fetch 10 years of monthly data
     // spot-equivalent, real-time (was delayed COMEX futures)
-// Deliberately still on the COMEX future. The spot feed only reaches back to
-// 2023 daily / 2020 monthly, and a seasonal pattern needs decades. Delay and the
-// futures basis are irrelevant here — these are percentage-return statistics.
-    const url = "https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?range=10y&interval=1mo&includePrePost=false";
-    // audit-allow-raw-yahoo: multi-year seasonal history; the spot feed is too short.
-    const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" }, cache: "no-store",
-      signal: AbortSignal.timeout(6_000),
-    });
-    if (!res.ok) throw new Error(`Yahoo ${res.status}`);
-    const json = await res.json();
+// Still the futures feed — a decade of seasonal statistics, which the spot feed
+// cannot reach. Assembled from daily bars because Yahoo's monthly series drops
+// months, and a dropped month is a missing data point in every monthly-return
+// statistic on this page.
+    const m = await goldMonthlyFromDaily(10);
+    const json = { chart: { result: [{ timestamp: m.t, indicators: { quote: [{ open: m.o, high: m.h, low: m.l, close: m.c }] } }] } };
     const result = json?.chart?.result?.[0];
     if (!result) throw new Error("No data");
 
@@ -91,7 +87,7 @@ export async function GET() {
     const spot = await getGoldSpot().catch(() => null);
     const price = spot && spot.price > 0
       ? spot.price
-      : result.meta?.regularMarketPrice ?? rawC.filter(Boolean).at(-1) ?? lastKnownGoldPrice();
+      : rawC.filter(Boolean).at(-1) ?? lastKnownGoldPrice();
 
     // Build monthly bars
     interface MonthBar { ts: number; o: number; h: number; l: number; c: number }

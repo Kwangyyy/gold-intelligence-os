@@ -20,6 +20,8 @@ interface CurrencyGold {
 }
 
 interface GlobalGoldPriceData {
+  dataAsOf: string;
+  dataCaveat: string;
   goldUSD: number;
   goldChange1dUSD: number;
   currencies: CurrencyGold[];
@@ -161,6 +163,8 @@ export async function GET() {
       (nearATH.length > 0
         ? `At or near ALL-TIME HIGH in ${nearATH.join(", ")} — currency weakness amplifying gold's global rally.`
         : `Consolidating below ATH in most currencies. ${currencies.filter(c => c.pctFromATH > -5).length} currencies within 5% of ATH.`),
+    dataAsOf: "mid-2025",
+    dataCaveat: "The all-time-high per currency is a static table from mid-2025; only the live gold price and FX rates update. A currency's 'distance from ATH' is therefore measured against a 2025 peak, not a rolling one.",
     timestamp: new Date().toISOString(),
   };
 

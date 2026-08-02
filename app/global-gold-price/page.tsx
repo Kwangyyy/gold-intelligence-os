@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useI18n } from "@/lib/i18n";
+import { DataVintage } from "@/components/DataVintage";
 
 interface CurrencyGold {
   currency: string;
@@ -18,6 +19,8 @@ interface CurrencyGold {
 }
 
 interface GlobalGoldPriceData {
+  dataAsOf?: string;
+  dataCaveat?: string;
   goldUSD: number;
   goldChange1dUSD: number;
   currencies: CurrencyGold[];
@@ -200,6 +203,7 @@ export default function GlobalGoldPricePage() {
         <p>During USD bull markets, USD-priced gold may stall while breaking records in JPY, TRY, BRL, etc. <span className="text-slate-200">Broad ATHs across many currencies = structural gold demand</span>, not just a dollar story.</p>
         <p>Conversely, if gold makes new ATHs only in USD, it may reflect temporary safe-haven demand rather than a persistent trend.</p>
       </div>
+      <DataVintage asOf={data?.dataAsOf} caveat={data?.dataCaveat} />
     </div>
   );
 }

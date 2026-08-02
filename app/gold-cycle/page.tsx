@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { useTier, canAccess } from "@/lib/tier";
 import type { GoldCyclePayload, CycleIndicator, HistoricalCycle } from "@/app/api/gold-cycle/route";
+import { DataVintage } from "@/components/DataVintage";
 
 function CycleOrb({ phase, progress }: { phase: string; progress: number }) {
   const phases = ["Accumulation", "Markup", "Distribution", "Markdown"];
@@ -244,6 +245,7 @@ export default function GoldCyclePage() {
       <div className="text-[8px] text-right" style={{ color: "rgba(175,185,215,0.2)" }}>
         {new Date(data.timestamp).toLocaleString()} · Cycle analysis based on Wyckoff methodology
       </div>
+      <DataVintage asOf={data?.dataAsOf} caveat={data?.dataCaveat} />
     </div>
   );
 }

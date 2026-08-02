@@ -38,6 +38,8 @@ export interface UpcomingEvent {
 }
 
 export interface NewsImpactPayload {
+  dataAsOf: string;
+  dataCaveat: string;
   impactStudies:  ImpactStudy[];
   upcomingEvents: UpcomingEvent[];
   highImpactNow:  boolean;
@@ -197,6 +199,8 @@ export async function GET() {
     highImpactNow,
     nextHighImpact,
     tier: "premium",
+    dataAsOf: "historical study",
+    dataCaveat: "Average price reactions per event type are a statistical study of past releases, not a forecast and not live data. They describe how gold has typically moved, with the usual caveat that it need not do so again.",
     timestamp: new Date().toISOString(),
   };
 

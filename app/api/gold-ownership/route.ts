@@ -23,6 +23,8 @@ interface TopHolder {
 }
 
 interface GoldOwnershipData {
+  dataAsOf: string;
+  dataCaveat: string;
   totalAboveGroundTonnes: number;
   totalInvestmentTonnes: number;
   segments: OwnershipSegment[];
@@ -143,6 +145,8 @@ export async function GET() {
       `Of the ~${(totalAboveGround / 1000).toFixed(0)},000 tonnes of gold ever mined, jewelry (${segments[0].pctOfAll}%) remains the largest holder. ` +
       `Investment demand (private + ETF + CB) totals ~40% of all above-ground gold. ` +
       `Central bank buying is the most bullish structural trend — ${topCentralBanks.filter(c => c.trend === "buying").map(c => c.name).join(", ")} are actively accumulating.`,
+    dataAsOf: "2024",
+    dataCaveat: "Above-ground stock and its split across jewellery, investment, official reserves and industry is a World Gold Council estimate for 2024, revised about once a year. It moves slowly by nature; it is not a live measurement.",
     timestamp: new Date().toISOString(),
   };
 

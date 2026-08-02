@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import type { CBTrackerPayload, CentralBankEntry } from "@/app/api/cb-tracker/route";
+import { DataVintage } from "@/components/DataVintage";
 
 const CAT_LABEL: Record<CentralBankEntry["category"], string> = {
   western: "ตะวันตก", emerging: "Emerging", asian: "เอเชีย", middle_east: "ตะวันออกกลาง",
@@ -251,7 +252,7 @@ export default function CBTrackerPage() {
 
           <div className="flex justify-between items-center">
             <p className="text-[10px]" style={{ color: "rgba(175,185,215,0.25)" }}>
-              ⚠ ข้อมูลอิงจาก World Gold Council — อัปเดตรายไตรมาส | {new Date(data.generatedAt).toLocaleString("th-TH", { hour: "2-digit", minute: "2-digit" })}
+              ⚠ ข้อมูลอิงจาก World Gold Council · โหลดหน้าเมื่อ {new Date(data.generatedAt).toLocaleString("th-TH", { hour: "2-digit", minute: "2-digit" })} (เวลาโหลด ไม่ใช่วันที่ของข้อมูล)
             </p>
             <button onClick={load}
               className="rounded-xl px-4 py-2 text-xs font-bold"
@@ -261,6 +262,7 @@ export default function CBTrackerPage() {
           </div>
         </div>
       )}
+      <DataVintage asOf={data?.dataAsOf} caveat={data?.dataCaveat} />
     </div>
   );
 }

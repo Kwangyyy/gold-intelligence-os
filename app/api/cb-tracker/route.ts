@@ -18,6 +18,8 @@ export interface CentralBankEntry {
 }
 
 export interface CBTrackerPayload {
+  dataAsOf: string;
+  dataCaveat: string;
   totalCBGold: number;        // sum of tracked countries, tonnes
   netBuyingYoY: number;       // net tonnes bought YoY across all CB
   buyingCountries: number;
@@ -187,6 +189,8 @@ export async function GET() {
         : "Neutral — การซื้อขายทองของธนาคารกลางใกล้สมดุล",
       goldBiasColor: goldBias === "bullish" ? "#34d399" : goldBias === "bearish" ? "#f87171" : "#f5c451",
       entries: CB_DATA.slice().sort((a, b) => b.totalTonnes - a.totalTonnes),
+      dataAsOf: "Q4 2024",
+      dataCaveat: "Central bank reserve changes are a static World Gold Council snapshot from Q4 2024. The WGC publishes quarterly behind a registration wall and the IMF and World Bank reserve APIs refuse server-side calls, so there is no live feed here. Treat the ranking and direction as context, not as this quarter's flows.",
       generatedAt: new Date().toISOString(),
     };
 

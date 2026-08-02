@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import type { MiningCostPayload, MinerEntry } from "@/app/api/mining-cost/route";
+import { DataVintage } from "@/components/DataVintage";
 
 const MARGIN_LABEL_TH: Record<MinerEntry["marginLabel"], string> = {
   excellent: "กำไรสูงมาก", good: "กำไรดี", moderate: "กำไรปานกลาง",
@@ -216,6 +217,7 @@ export default function MiningCostPage() {
           </div>
         </div>
       )}
+      <DataVintage asOf={data?.dataAsOf} caveat={data?.dataCaveat} />
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { useTier, canAccess } from "@/lib/tier";
 import type { NewsImpactPayload, ImpactStudy, UpcomingEvent } from "@/app/api/news-impact/route";
+import { DataVintage } from "@/components/DataVintage";
 
 const RISK_COLOR: Record<string, string> = {
   critical: "#ef4444",
@@ -215,6 +216,7 @@ export default function NewsImpactPage() {
       <div className="text-[8px] text-right" style={{ color: "rgba(175,185,215,0.2)" }}>
         {new Date(data.timestamp).toLocaleString()} · Impact data based on 5Y event study analysis
       </div>
+      <DataVintage asOf={data?.dataAsOf} caveat={data?.dataCaveat} />
     </div>
   );
 }

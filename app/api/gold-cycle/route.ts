@@ -33,6 +33,8 @@ export interface HistoricalCycle {
 }
 
 export interface GoldCyclePayload {
+  dataAsOf: string;
+  dataCaveat: string;
   currentPhase: CyclePhase["name"];
   cycleScore: number;       // 0-100 (0=early accumulation, 100=late distribution)
   phaseProgress: number;    // % through current phase (estimated)
@@ -186,6 +188,8 @@ export async function GET() {
     },
     cycleInterpretation,
     tier: "premium",
+    dataAsOf: "historical study",
+    dataCaveat: "Cycle boundaries and their peaks and troughs are historical record, fixed by definition. Only the current-phase read against them is computed live.",
     timestamp: new Date().toISOString(),
   };
 

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useI18n } from "@/lib/i18n";
+import { DataVintage } from "@/components/DataVintage";
 
 interface OwnershipSegment {
   name: string;
@@ -24,6 +25,8 @@ interface TopHolder {
 }
 
 interface GoldOwnershipData {
+  dataAsOf?: string;
+  dataCaveat?: string;
   totalAboveGroundTonnes: number;
   totalInvestmentTonnes: number;
   segments: OwnershipSegment[];
@@ -222,8 +225,9 @@ export default function GoldOwnershipPage() {
       </div>
 
       <p className="text-[10px]" style={{ color: "rgba(175,185,215,0.25)" }}>
-        Data from World Gold Council 2024 annual report · ETF flows from publicly available filings · Updated daily · Not financial advice
+        Data from World Gold Council 2024 annual report · ETF flows from publicly available filings · Not financial advice
       </p>
+      <DataVintage asOf={data?.dataAsOf} caveat={data?.dataCaveat} />
     </div>
   );
 }

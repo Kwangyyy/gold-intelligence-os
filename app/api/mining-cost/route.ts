@@ -19,6 +19,8 @@ export interface MinerEntry {
 }
 
 export interface MiningCostPayload {
+  dataAsOf: string;
+  dataCaveat: string;
   goldPrice: number;
   industryAvgAisc: number;
   industryMargin: number;
@@ -166,6 +168,8 @@ export async function GET() {
         : "Neutral — margin สบาย ผู้ผลิตยังทำกำไรได้ดี",
       goldBiasColor: goldBias === "bullish" ? "#34d399" : "#9ca3af",
       miners,
+      dataAsOf: "FY 2024",
+      dataCaveat: "All-in sustaining costs come from company annual reports for FY 2024 — miners publish them yearly, so this is the most recent complete set. The margin against spot updates live; the cost base does not.",
       generatedAt: new Date().toISOString(),
     };
 

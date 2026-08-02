@@ -240,11 +240,21 @@ function classifyThree(w: Leg[]): { kind: StructureKind; checks: Check[]; score:
   const [a, b, c] = w;
   const rb = retrace(a, b);
   const rc = retrace(a, c);
-  const checks: Check[] = [];
 
-  const isFlat = rb >= 61.8;
+  // A B-wave has an upper bound. The first version accepted anything at or
+  // above 61.8% as a flat, and the daily chart duly reported a Primary "flat"
+  // whose B travelled 329% of A. Nothing that overshoots A by three times is a
+  // B-wave; the pivots are mislabelled, and saying so is better than naming the
+  // result. Expanded flats reach about 138%, which is the limit here.
+  if (rb > 138) return null;
+  // Below 38.2% the middle leg is noise inside a single directional move, not a
+  // correction with structure.
+  if (rb < 38.2) return null;
+
+  const checks: Check[] = [];
+  const isFlat = rb >= 78.6;
   checks.push({
-    rule: isFlat ? "Flat — wave B retraces ≥ 61.8% of A" : "Zigzag — wave B retraces < 61.8% of A",
+    rule: isFlat ? "Flat — wave B retraces 78.6-138% of A" : "Zigzag — wave B retraces 38.2-78.6% of A",
     passed: true,
     detail: `B retraced ${rb.toFixed(0)}% of A`,
   });
@@ -278,10 +288,16 @@ function classifyThree(w: Leg[]): { kind: StructureKind; checks: Check[]; score:
 export function classifyWindow(legs: Leg[]): {
   kind: StructureKind; checks: Check[]; score: number; used: Leg[]; offset: number;
 } {
+  // A leg spanning a single bar is a bar, not a wave. The daily chart reported
+  // a Primary-degree correction whose wave A lasted one monthly bar — the count
+  // was anchored on a series with too few pivots to carry that degree.
+  const substantial = (slice: Leg[]) => slice.every((l) => l.bars >= 2);
+
   // Try the most recent complete 5, then the most recent complete 3.
   for (let take = 5; take >= 3; take -= 2) {
     for (let end = legs.length; end >= take; end--) {
       const slice = legs.slice(end - take, end);
+      if (!substantial(slice)) continue;
       const res = take === 5 ? classifyFive(slice) : classifyThree(slice);
       if (res) return { ...res, used: slice, offset: end - take };
     }

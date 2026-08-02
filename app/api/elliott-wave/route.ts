@@ -716,6 +716,27 @@ export async function GET(req: Request) {
         structure: deepest.structure,
         currentWave: said?.en ?? rest.currentWave,
         currentWaveTh: said?.th ?? rest.currentWaveTh,
+        // Confidence must agree with the rules shown underneath it. The header
+        // was still reading the old engine and said "high" while every level in
+        // the panel scored 60-67% with two rules failing. It is the weakest
+        // level in the chain now: a count is only as sound as the degree it
+        // hangs from, so a shaky parent caps a tidy child.
+        confidence: (() => {
+          const weakest = Math.min(...levels.map((l) => l.confidence));
+          return weakest >= 80 ? "high" as const : weakest >= 60 ? "medium" as const : "low" as const;
+        })(),
+        confidenceTh: (() => {
+          const weakest = Math.min(...levels.map((l) => l.confidence));
+          return weakest >= 80
+            ? `สูง — ทุกดีกรีผ่านกฎเกือบครบ (ต่ำสุด ${weakest}%)`
+            : weakest >= 60
+            ? `ปานกลาง — มีกฎที่ไม่ผ่านในบางดีกรี (ต่ำสุด ${weakest}%)`
+            : `ต่ำ — หลายกฎไม่ผ่าน (ต่ำสุด ${weakest}%)`;
+        })(),
+        confidenceColor: (() => {
+          const weakest = Math.min(...levels.map((l) => l.confidence));
+          return weakest >= 80 ? "#34d399" : weakest >= 60 ? "#f5c451" : "#f87171";
+        })(),
       } : {}),
       disclaimer: "NeoWave analysis is rule-based but still probabilistic — alternate counts can be valid. Automated heuristic, not a substitute for a certified NeoWave analyst.",
       generatedAt: new Date().toISOString(),

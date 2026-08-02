@@ -78,11 +78,34 @@ const YAHOO_CFG: Record<GoldTF, { range: string; interval: string; aggregate: nu
   "1M": { range: "max", interval: "1mo", aggregate: 1 },
 };
 
+// Binance caps a klines response at 1000 bars, which silently truncated every
+// caller asking for more: the session heatmap wanted 60 days of hourly data,
+// got 41, and after weekend bars were dropped each day-and-hour bucket held six
+// samples instead of twelve. Walking backwards with `endTime` is the documented
+// way past the cap — verified at 4 pages / 4,000 bars / 167 days.
+//
+// Page count is bounded because each page is a round trip and the routes that
+// want this run inside a ten-second function budget.
+const MAX_PAGES = 5;
+
 async function fromBinance(tf: GoldTF, limit: number): Promise<Candles> {
-  const rows = (await binanceJson(
-    `/api/v3/klines?symbol=PAXGUSDT&interval=${BINANCE_IV[tf]}&limit=${Math.min(limit, 1000)}`,
-  )) as (string | number)[][];
-  if (!Array.isArray(rows) || !rows.length) throw new Error("Binance: empty");
+  const iv = BINANCE_IV[tf];
+  const rows: (string | number)[][] = [];
+  let endTime: number | null = null;
+
+  for (let page = 0; page < MAX_PAGES && rows.length < limit; page++) {
+    const want = Math.min(limit - rows.length, 1000);
+    const path =
+      `/api/v3/klines?symbol=PAXGUSDT&interval=${iv}&limit=${want}` +
+      (endTime ? `&endTime=${endTime}` : "");
+    const batch = (await binanceJson(path)) as (string | number)[][];
+    if (!Array.isArray(batch) || !batch.length) break;
+    rows.unshift(...batch);
+    // The next page ends one millisecond before this one's oldest bar opened.
+    endTime = Number(batch[0][0]) - 1;
+    if (batch.length < want) break; // history exhausted — PAXG starts in 2019
+  }
+  if (!rows.length) throw new Error("Binance: empty");
 
   const t: number[] = [], o: number[] = [], h: number[] = [], l: number[] = [], c: number[] = [], v: number[] = [];
   for (const k of rows) {
@@ -163,11 +186,19 @@ let LAST_GOOD_SPOT: { price: number; at: number } | null = null;
  * `includeWeekend` keeps the 24/7 bars; the default matches broker hours.
  */
 export async function getGoldCandles(tf: GoldTF, limit = 1000, includeWeekend = false): Promise<Candles> {
+  // Daily needs the weekend cut too — PAXG prints Saturday and Sunday daily bars
+  // (measured: 56 of 200). Weekly is safe, every bar opens on a Monday. Monthly
+  // must be left alone: its bar opens on the 1st, and whenever the 1st lands on
+  // a weekend the filter would delete an entire legitimate month.
+  const filterable = tf !== "1w" && tf !== "1M";
   let out: Candles;
   try {
-    // Weekend bars are a chunk of the window, so ask for the maximum and trim
-    // afterwards rather than coming up short once they are removed.
-    out = await fromBinance(tf, includeWeekend ? limit : 1000);
+    // Weekend bars are roughly 29% of a 24/7 series, so ask for enough extra to
+    // still have `limit` left once they are dropped. This used to request a flat
+    // 1000 — the old per-request cap — which meant a caller wanting more than
+    // that silently got 1000, then ~710 after the weekend cut.
+    const want = includeWeekend || !filterable ? limit : Math.ceil(limit / 0.71);
+    out = await fromBinance(tf, want);
   } catch {
     try {
       out = await fromYahoo(tf);
@@ -185,7 +216,6 @@ export async function getGoldCandles(tf: GoldTF, limit = 1000, includeWeekend = 
   // (measured: 56 of 200). Weekly is safe, every bar opens on a Monday. Monthly
   // must be left alone: its bar opens on the 1st, and whenever the 1st lands on
   // a weekend the filter would delete an entire legitimate month.
-  const filterable = tf !== "1w" && tf !== "1M";
   return includeWeekend || !filterable ? out : dropWeekend(out);
 }
 
@@ -205,7 +235,7 @@ const TF_FOR_INTERVAL: Record<string, GoldTF> = {
 // still see a comparable window.
 const BARS_FOR_RANGE: Record<string, number> = {
   "1d": 24, "5d": 120, "1mo": 300, "3mo": 500, "6mo": 700,
-  "1y": 800, "2y": 900, "5y": 1000, "10y": 1000, ytd: 800, max: 1000,
+  "1y": 800, "2y": 900, "5y": 1500, "10y": 2500, ytd: 800, max: 5000,
 };
 
 const TF_MINUTES: Record<GoldTF, number> = {
@@ -222,7 +252,9 @@ function barsForRange(range: string, tf: GoldTF): number {
   const m = /^(\d+)(d|wk|mo|y)$/.exec(range);
   if (!m) return 500;
   const days = Number(m[1]) * ({ d: 1, wk: 7, mo: 30, y: 365 }[m[2] as "d" | "wk" | "mo" | "y"]);
-  return Math.min(1000, Math.max(30, Math.ceil((days * 1440) / TF_MINUTES[tf])));
+  // 5000 is the paging ceiling in fromBinance. It used to be 1000 — the old
+  // per-request cap — which quietly truncated "60d of hourly" to 41 days.
+  return Math.min(5000, Math.max(30, Math.ceil((days * 1440) / TF_MINUTES[tf])));
 }
 
 export interface YahooShapedChart {
@@ -244,7 +276,7 @@ export interface YahooShapedChart {
 export async function goldChartJson(range = "1mo", interval = "1d"): Promise<YahooShapedChart> {
   const tf = TF_FOR_INTERVAL[interval] ?? "1d";
   const want = barsForRange(range, tf);
-  const c = await getGoldCandles(tf, Math.min(want, 1000));
+  const c = await getGoldCandles(tf, want);
   const start = Math.max(0, c.c.length - want);
   const t = c.t.slice(start), o = c.o.slice(start), h = c.h.slice(start),
         l = c.l.slice(start), cl = c.c.slice(start), v = c.v.slice(start);

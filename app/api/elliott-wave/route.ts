@@ -576,6 +576,11 @@ export async function GET(req: Request) {
     const SHARED = new Set(["1M", "1w", "1d"]);
     const fetched = await Promise.all(
       wanted.map((c) => {
+        // The requested timeframe is already in hand. Asking for it again at a
+        // different bar count is a different cache key, so it was a second trip
+        // to Binance for a series we had — which is why 4H and 1H were slower
+        // than 1D: 1D happens to want 1000 bars in both places and 4H does not.
+        if (c === tf) return Promise.resolve(candles);
         const bars = c === "1M" ? 200 : 1000;
         const load = () => getGoldCandles(c, bars, includeWeekend);
         const got = SHARED.has(c)

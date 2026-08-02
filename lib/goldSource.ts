@@ -90,21 +90,43 @@ const MAX_PAGES = 5;
 
 async function fromBinance(tf: GoldTF, limit: number): Promise<Candles> {
   const iv = BINANCE_IV[tf];
-  const rows: (string | number)[][] = [];
-  let endTime: number | null = null;
 
-  for (let page = 0; page < MAX_PAGES && rows.length < limit; page++) {
-    const want = Math.min(limit - rows.length, 1000);
-    const path =
-      `/api/v3/klines?symbol=PAXGUSDT&interval=${iv}&limit=${want}` +
-      (endTime ? `&endTime=${endTime}` : "");
-    const batch = (await binanceJson(path)) as (string | number)[][];
-    if (!Array.isArray(batch) || !batch.length) break;
-    rows.unshift(...batch);
-    // The next page ends one millisecond before this one's oldest bar opened.
-    endTime = Number(batch[0][0]) - 1;
-    if (batch.length < want) break; // history exhausted — PAXG starts in 2019
-  }
+  // Pages go out together, not one after another.
+  //
+  // Chaining each page off the previous one's oldest bar is the obvious way to
+  // paginate, and it costs a full round trip per page. On a weekend the 1m
+  // timeframe needs four pages to reach back past the closed session, and that
+  // read as 2.9 seconds to load one chart.
+  //
+  // Bars are fixed width, so each page's window is arithmetic — no need to see
+  // page N before asking for page N+1. Boundaries are computed from the bar
+  // size, the responses are merged by open time, and any overlap or drift from
+  // a gap in the series collapses in the merge rather than duplicating a bar.
+  const pages = Math.min(MAX_PAGES, Math.max(1, Math.ceil(limit / 1000)));
+  const barMs = TF_MINUTES[tf] * 60_000;
+  const now = Date.now();
+
+  const batches = await Promise.all(
+    Array.from({ length: pages }, async (_, page) => {
+      const want = Math.min(limit - page * 1000, 1000);
+      if (want <= 0) return [];
+      const endTime = page === 0 ? null : now - page * 1000 * barMs;
+      const path =
+        `/api/v3/klines?symbol=PAXGUSDT&interval=${iv}&limit=${want}` +
+        (endTime ? `&endTime=${endTime}` : "");
+      try {
+        const batch = (await binanceJson(path)) as (string | number)[][];
+        return Array.isArray(batch) ? batch : [];
+      } catch {
+        // One short page is recoverable; the caller only fails if every page is.
+        return [];
+      }
+    }),
+  );
+
+  const byOpen = new Map<number, (string | number)[]>();
+  for (const batch of batches) for (const k of batch) byOpen.set(Number(k[0]), k);
+  const rows = [...byOpen.entries()].sort((a, b) => a[0] - b[0]).map(([, k]) => k).slice(-limit);
   if (!rows.length) throw new Error("Binance: empty");
 
   const t: number[] = [], o: number[] = [], h: number[] = [], l: number[] = [], c: number[] = [], v: number[] = [];
@@ -224,6 +246,38 @@ export async function getGoldCandles(tf: GoldTF, limit = 1000, includeWeekend = 
   return p;
 }
 
+// How many raw 24/7 bars to request so that `limit` survive the weekend cut.
+//
+// This used to be `limit / 0.71` — weekend bars are about 29% of a long series,
+// which is true on average and wrong exactly when it matters. 700 one-minute
+// bars span twelve hours; ask for them at 18:00 UTC on a Sunday and every last
+// one falls inside the closed session, the filter deletes all of them, and the
+// chart reports "no candles for 1m". Measured, not theorised: that is what the
+// 1m timeframe did on a Sunday.
+//
+// So walk the calendar back in bar-sized steps from now, counting only the bars
+// the gold market was open for, and return how far back we had to reach. From
+// inside the weekend that spans the whole 49-hour close before it starts
+// counting, which is the point.
+function rawBarsNeeded(tf: GoldTF, limit: number): number {
+  const stepMin = TF_MINUTES[tf];
+  if (!stepMin) return limit;
+  const stepMs = stepMin * 60_000;
+  // Binance pages 1000 at a time, five pages deep, so 5000 is the hard ceiling.
+  // The multiplier has to clear the 49-hour weekend gap on top of the window
+  // itself: at 4x, a Sunday request for 700 one-minute bars reached back 46.7
+  // hours — just short of the gap — and returned 99 bars. Verified at 6x it
+  // clears it and fills all 700.
+  const cap = Math.max(limit, Math.min(limit * 6, 5000));
+  let open = 0;
+  let steps = 0;
+  for (let t = Date.now(); open < limit && steps < cap; t -= stepMs) {
+    steps++;
+    if (isMarketOpen(Math.floor(t / 1000))) open++;
+  }
+  return steps;
+}
+
 async function fetchGoldCandles(tf: GoldTF, limit: number, includeWeekend: boolean): Promise<Candles> {
   // Daily needs the weekend cut too — PAXG prints Saturday and Sunday daily bars
   // (measured: 56 of 200). Weekly is safe, every bar opens on a Monday. Monthly
@@ -232,11 +286,7 @@ async function fetchGoldCandles(tf: GoldTF, limit: number, includeWeekend: boole
   const filterable = tf !== "1w" && tf !== "1M";
   let out: Candles;
   try {
-    // Weekend bars are roughly 29% of a 24/7 series, so ask for enough extra to
-    // still have `limit` left once they are dropped. This used to request a flat
-    // 1000 — the old per-request cap — which meant a caller wanting more than
-    // that silently got 1000, then ~710 after the weekend cut.
-    const want = includeWeekend || !filterable ? limit : Math.ceil(limit / 0.71);
+    const want = includeWeekend || !filterable ? limit : rawBarsNeeded(tf, limit);
     out = await fromBinance(tf, want);
   } catch {
     try {

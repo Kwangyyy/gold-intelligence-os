@@ -26,8 +26,10 @@ export interface WavePivot {
   price: number;
   date: string;
   type: "high" | "low";
-  label: string;   // "0","1","2","3","4","5","A","B","C"
+  label: string;   // the glyph in this pivot's own degree, e.g. "③" or "(b)"
   legPct: number;  // % move of this wave leg from the previous labeled pivot
+  degree: string;  // which degree the label belongs to
+  depth: number;   // 0 = largest visible degree, for styling the nesting
 }
 
 export interface ZigzagPoint {
@@ -448,6 +450,9 @@ function analyzeNeoWave(pivots: Zig[], spot: number) {
     return {
       index: p.idx, seriesIndex: p.idx, price: +p.price.toFixed(0), date: p.date, type: p.type,
       label: labels[i] ?? String(i), legPct: +legPct.toFixed(1),
+      // The hierarchy supplies the labels drawn on the chart now; this older
+      // tail read is kept only for the projections and Fibonacci levels below.
+      degree: "", depth: 0,
     };
   });
 
@@ -548,7 +553,6 @@ export async function GET(req: Request) {
     // Relabel wave pivots with this timeframe's degree notation (fractal nesting)
     const deg = DEGREE[tf];
     const { wavePivots, ...rest } = waveAnalysis;
-    const degreePivots = wavePivots.map(p => ({ ...p, label: deg.glyph[p.label] ?? p.label }));
 
     // The large degrees come from the longest history available, not from this
     // timeframe's own window. Counting each timeframe separately let weekly read
@@ -603,6 +607,67 @@ export async function GET(req: Request) {
       }
     } catch { /* the count stands on its own; this is corroboration only */ }
     const oiCheck = corroborateWithOi(deepest, spot, oiCtx);
+
+    // Chart labels come from the hierarchy, not from the tail-only engine.
+    // Until now the two disagreed on screen: the chart drew "(a) (b) (c)" over
+    // the last three swings while the analysis underneath said "after (v) of
+    // after 5 of (5) of Ⓒ". Four labels on a fifty-point zigzag, and none of
+    // them on the large swings the count was actually about.
+    //
+    // Every level that falls inside the visible window contributes its labels,
+    // so the nesting is visible on the chart rather than only in a panel.
+    const firstTs = sTs[0], lastTs = sTs[sTs.length - 1];
+
+    // A coarse bar is stamped with its *opening* time, so a low that printed on
+    // 30 June inside a monthly bar carries the timestamp of 1 June. Placing the
+    // label at that timestamp put the same price at two different dates on the
+    // chart depending on which degree drew it. Snap to the bar in the visible
+    // series that actually made the extreme, searching a window as wide as the
+    // coarse bar that produced the swing.
+    const snapIdx = (ts: number, price: number, isHigh: boolean) => {
+      const tolerance = 40 * 86400; // a month of slack covers the coarsest source
+      let best = -1, bestScore = Infinity;
+      for (let i = 0; i < sTs.length; i++) {
+        if (Math.abs(sTs[i] - ts) > tolerance) continue;
+        // Prefer the bar whose extreme matches the swing's price.
+        const score = Math.abs((isHigh ? sHi[i] : sLo[i]) - price);
+        if (score < bestScore) { bestScore = score; best = i; }
+      }
+      if (best >= 0) return best;
+      let fallback = 0, gap = Infinity;
+      for (let i = 0; i < sTs.length; i++) {
+        const g = Math.abs(sTs[i] - ts);
+        if (g < gap) { gap = g; fallback = i; }
+      }
+      return fallback;
+    };
+
+    const degreePivots: WavePivot[] = [];
+    levels.forEach((lvl, depth) => {
+      lvl.legs.forEach((leg, li) => {
+        const glyph = lvl.glyphs[li];
+        if (!glyph) return;                         // leg outside the pattern
+        const ts = leg.to.ts;
+        if (ts < firstTs || ts > lastTs) return;    // off the visible chart
+        const idx = snapIdx(ts, leg.to.price, leg.to.type === "H");
+        if (degreePivots.some((p) => p.seriesIndex === idx && p.label === glyph)) return;
+        degreePivots.push({
+          index: idx,
+          seriesIndex: idx,
+          price: +leg.to.price.toFixed(1),
+          // The snapped bar's date, not the coarse bar's opening date — a June
+          // low found in a monthly bar reads "1 June" otherwise, while the label
+          // is drawn on 30 June where the low actually printed.
+          date: new Date(sTs[idx] * 1000).toISOString(),
+          type: leg.to.type === "H" ? "high" : "low",
+          label: glyph,
+          legPct: +leg.absPct.toFixed(2),
+          degree: lvl.degree,
+          depth,
+        });
+      });
+    });
+    degreePivots.sort((a, b) => a.seriesIndex - b.seriesIndex);
 
     const data: ElliottWavePayload = {
       timeframe: tf,

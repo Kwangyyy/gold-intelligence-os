@@ -347,6 +347,7 @@ export default function ElliottWavePage() {
   const cloudPoolRef = useRef<{ top: any; mask: any }[]>([]);
   const oiLinesRef = useRef<any[]>([]);
   const viewKeyRef = useRef("");   // "<tf>:<sens>" — a change means fit, a repeat means keep the user's zoom
+  const drawnRef = useRef<{ tf: string; lastT: number } | null>(null);  // the dataset the series currently holds
   const oscChartRef = useRef<any>(null);
   const oscSeriesRef = useRef<any[]>([]);
   const syncing = useRef(false);
@@ -362,8 +363,16 @@ export default function ElliottWavePage() {
   // closes: a monthly count is the same all day, a 5-minute one is not.
   const seenRef = useRef(new Map<string, { at: number; payload: ElliottWavePayload }>());
 
+  // Clicking through timeframes faster than they answer means several requests
+  // are in the air at once, and they do not come back in the order they were
+  // sent — 1m takes longer than 4H, so a 1m answer can land after the 4H one and
+  // repaint the chart with a series the buttons say is not selected. Only the
+  // newest request is allowed to write.
+  const reqRef = useRef(0);
+
   const load = useCallback(async (timeframe: ElliottTF, sensitivity: string, wk: boolean, silent = false) => {
     const key = `${timeframe}:${sensitivity}:${wk}`;
+    const req = ++reqRef.current;
     // The cache serves the reader flipping between timeframes, never the live
     // poller — the poll interval is shorter than the TTL at every timeframe, so
     // letting a silent refresh read the cache would freeze the chart instead of
@@ -383,10 +392,16 @@ export default function ElliottWavePage() {
       const r = await fetch(`/api/elliott-wave?tf=${timeframe}&sens=${sensitivity}${wk ? "&weekend=1" : ""}&t=${Date.now()}`, { cache: "no-store" });
       const j = await r.json();
       if (j.error) throw new Error(j.error);
+      // Worth keeping even if it arrived late — the reader may come back to it.
       seenRef.current.set(key, { at: Date.now(), payload: j });
+      if (req !== reqRef.current) return;
       setData(j);
       setUpdatedAt(new Date());
-    } catch (e) { setErr(String(e)); } finally { if (!silent) setLoading(false); }
+    } catch (e) {
+      if (req === reqRef.current) setErr(String(e));
+    } finally {
+      if (!silent && req === reqRef.current) setLoading(false);
+    }
   }, []);
 
   // Timeframe / sensitivity change → visible load. Poll tick → silent refresh.
@@ -447,18 +462,35 @@ export default function ElliottWavePage() {
 
   // Paint the live price onto the last (forming) candle, the way a trading
   // platform updates the in-progress bar rather than waiting for the next one.
+  //
+  // Deliberately declared *after* the effect that pushes candles, and guarded on
+  // top of that. React runs effects in declaration order, so while this sat
+  // above it, a timeframe change ran this first: `data` was already the new
+  // timeframe while the series still held the old one. Switching 1m → 4H then
+  // called update() with a 4H bar's open time against a series whose last bar
+  // was a recent minute, lightweight-charts refused it — "Cannot update oldest
+  // data" — and the error boundary took the whole page down over a cosmetic
+  // repaint. The guard is exact rather than a time comparison: paint only when
+  // the series on screen is the dataset this payload describes.
   useEffect(() => {
     if (!live || !data || !candleRef.current) return;
     const s = data.series, n = s.t.length;
     if (!n) return;
+    const drawn = drawnRef.current;
+    if (!drawn || drawn.tf !== data.timeframe || drawn.lastT !== s.t[n - 1]) return;
     const p = live.price;
-    candleRef.current.update({
-      time: s.t[n - 1],
-      open: s.o[n - 1],
-      high: Math.max(s.h[n - 1], p),
-      low:  Math.min(s.l[n - 1], p),
-      close: p,
-    });
+    try {
+      candleRef.current.update({
+        time: s.t[n - 1],
+        open: s.o[n - 1],
+        high: Math.max(s.h[n - 1], p),
+        low:  Math.min(s.l[n - 1], p),
+        close: p,
+      });
+    } catch {
+      // A rejected repaint is a missing tick until the next poll, at most. It is
+      // never worth replacing the chart with an error page.
+    }
   }, [live, data]);
 
   // Drives the "Ns ago" readout so staleness is always visible at a glance.
@@ -584,6 +616,9 @@ export default function ElliottWavePage() {
     // Only frame the chart when the dataset itself changes (timeframe or
     // sensitivity). On a live refresh the user may be zoomed into 2019 — snapping
     // back to the last 130 bars every poll would make the chart unusable.
+    // What the series now holds, so the live repaint can tell whether the chart
+    // in front of the user is still the one this payload describes.
+    drawnRef.current = { tf: data.timeframe, lastT: s.t[n - 1] };
     const viewKey = `${data.timeframe}:${sens}`;
     if (viewKeyRef.current !== viewKey) {
       viewKeyRef.current = viewKey;

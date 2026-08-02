@@ -568,12 +568,18 @@ export async function GET(req: Request) {
     const order = ["1M", "1w", "1d", "4h", "2h", "1h", "30m", "15m", "5m", "1m"];
     const wanted = (["1M", "1w", "1d", "4h", "1h"] as const)
       .filter((c) => order.indexOf(c) <= order.indexOf(tf));
-    // The coarse series are identical for every timeframe and are what made
+    // The spine series are identical for every timeframe and are what made
     // switching expensive, so they go through the shared cache — on Vercel each
     // request may land on a cold lambda, and an in-memory cache alone still left
-    // production at 1.3-2.5s per switch. A daily series is 28 KB. The intraday
-    // ones move too fast for a round trip to be worth it.
-    const SHARED = new Set(["1M", "1w", "1d"]);
+    // production at 1.3-2.5s per switch. Each series is around 28 KB.
+    //
+    // 4h and 1h are in here too. Leaving them out was the reason 4H stayed
+    // slower than 1D on production after the duplicate fetch was fixed, even
+    // though locally the two were within 3 ms of each other: 1D was being served
+    // from the shared cache on a cold lambda and 4H was going back to Binance.
+    // A Redis round trip is far cheaper than a Binance page, and the TTLs below
+    // are short enough that the bars stay live.
+    const SHARED_TTL: Record<string, number> = { "1M": 600, "1w": 600, "1d": 180, "4h": 120, "1h": 60 };
     const fetched = await Promise.all(
       wanted.map((c) => {
         // The requested timeframe is already in hand. Asking for it again at a
@@ -583,10 +589,11 @@ export async function GET(req: Request) {
         if (c === tf) return Promise.resolve(candles);
         const bars = c === "1M" ? 200 : 1000;
         const load = () => getGoldCandles(c, bars, includeWeekend);
-        const got = SHARED.has(c)
+        const ttl = SHARED_TTL[c];
+        const got = ttl
           ? cachedJson<Awaited<ReturnType<typeof getGoldCandles>>>(
               `gios:candles:${c}:${bars}:${includeWeekend}`,
-              c === "1d" ? 180 : 600,
+              ttl,
               load,
             )
           : load();

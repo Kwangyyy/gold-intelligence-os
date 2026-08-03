@@ -100,9 +100,20 @@ function staticChecks() {
     }
 
     // price constants from when gold traded near $3,300
-    src.split("\n").forEach((line, i) => {
+    //
+    // The exemption used to be any line mentioning "Round Number", which is how
+    // gold-structure's hardcoded levels went unflagged: they were all labelled
+    // "Round Number $3,500" and the check waved them straight through, right up
+    // until every one of them had fallen below spot and the page could not name
+    // a resistance nearer than the all-time high 38% away. An exemption has to
+    // be asked for now, on a line above, so keeping a price constant is a
+    // decision someone made rather than a side effect of how it was labelled.
+    const srcLines = src.split("\n");
+    srcLines.forEach((line, i) => {
       const code = line.replace(/\r/g, "").replace(/\/\/.*/, "");
-      if (/Round Number|peakPrice|troughPrice|mmNet/.test(code)) return;
+      if (/peakPrice|troughPrice|mmNet/.test(code)) return;
+      const allow = srcLines.slice(Math.max(0, i - 3), i + 1).join("\n");
+      if (/audit-allow-price-constant/.test(allow)) return;
       if (/\b(price|spot|goldPrice|comexSpot|basePrice)\b\s*[:=?]{1,2}\s*[34]\d{3}\b/i.test(code)) {
         fail("no-stale-price", `${f}:${i + 1} hardcoded gold price fallback`);
       }

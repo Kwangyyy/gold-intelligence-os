@@ -98,14 +98,42 @@ export async function GET() {
     const allTimeLow = yearlyLows.length > 0 ? Math.min(...yearlyLows) : 1000;
     const pctFromATH = allTimeHighData > 0 ? ((currentPrice - allTimeHighData) / allTimeHighData) * 100 : 0;
 
-    // Key historical structural levels (well-known from gold market history)
+    // Round numbers are generated around the live price, not typed in.
+    //
+    // The typed list stopped at $3,500, described as "the next century mark
+    // above $3,000". Gold trades above $4,000. Every hardcoded level had fallen
+    // below spot, so the nearest resistance this page could name was the
+    // all-time high 38% away, and the entire $4,000-$5,500 range — where price
+    // actually is — had no levels at all. A page whose whole job is mapping
+    // structure was mapping the structure of two years ago.
+    //
+    // $250 apart above spot and below it: close enough that gold reaches them,
+    // far enough apart that the list stays readable.
+    const STEP = 250;
+    const roundLevels: { price: number; label: string; year?: number; desc: string }[] = [];
+    for (let p = Math.ceil(currentPrice / STEP) * STEP; p <= currentPrice * 1.45; p += STEP) {
+      roundLevels.push({
+        price: p,
+        label: `Round Number $${p.toLocaleString()}`,
+        desc: `Psychological resistance ${(((p - currentPrice) / currentPrice) * 100).toFixed(1)}% above spot — round numbers stall and reverse moves`,
+      });
+    }
+    for (let p = Math.floor(currentPrice / STEP) * STEP; p >= Math.max(2000, currentPrice * 0.55); p -= STEP) {
+      roundLevels.push({
+        price: p,
+        label: `Round Number $${p.toLocaleString()}`,
+        desc: `Psychological support ${(((currentPrice - p) / currentPrice) * 100).toFixed(1)}% below spot — round numbers act as magnets`,
+      });
+    }
+
+    // Levels that earned their name from what happened at them. These are
+    // history and do not go stale; the round numbers above are the ones that
+    // have to track the market.
     const historicalLevels: { price: number; label: string; year?: number; desc: string }[] = [
-      { price: 3500, label: "Round Number $3,500", desc: "Major psychological resistance — next century mark above $3,000" },
-      { price: 3250, label: "Round Number $3,250", desc: "Key psychological level in current bull run" },
-      { price: 3000, label: "Round Number $3,000", desc: "Century mark — major psychological breakout level (March 2024)" },
-      { price: 2800, label: "Round Number $2,800", desc: "Key level; Dec 2024 all-time high zone" },
-      { price: 2600, label: "Round Number $2,600", desc: "Mid 2024 breakout pivot" },
-      { price: 2400, label: "Round Number $2,400", desc: "ATH for many years before 2024 breakout" },
+      ...roundLevels,
+      // audit-allow-price-constant — a dated event, not a fallback for a live
+      // price. The round numbers that did go stale are generated above now.
+      { price: 3000, label: "$3,000 Breakout", desc: "Century mark — the level that confirmed this bull run when it broke", year: 2024 },
       { price: 2200, label: "2023 Major S/R", desc: "Strong resistance turned support during 2023-2024 base building", year: 2023 },
       { price: 2089, label: "2020 ATH (at time)", desc: "COVID-era record high; major long-term resistance level", year: 2020 },
       { price: 2000, label: "Round Number $2,000", desc: "Critical psychological level; major breakout confirmation above here", year: 2020 },
@@ -124,8 +152,19 @@ export async function GET() {
       });
     }
 
+    // A generated round number and a named level can land on the same price —
+    // $3,000 is both. The named one wins, since "the level that confirmed this
+    // bull run" says more than "psychological support".
+    const byPrice = new Map<number, (typeof historicalLevels)[number]>();
+    for (const lv of historicalLevels) {
+      const existing = byPrice.get(lv.price);
+      if (!existing || (existing.label.startsWith("Round Number") && !lv.label.startsWith("Round Number"))) {
+        byPrice.set(lv.price, lv);
+      }
+    }
+
     // Build StructureLevel array
-    const levels: StructureLevel[] = historicalLevels.map(lv => {
+    const levels: StructureLevel[] = [...byPrice.values()].map(lv => {
       const distance = ((lv.price - currentPrice) / currentPrice) * 100;
       const direction: StructureLevel["direction"] = Math.abs(distance) < 0.2 ? "at" : distance > 0 ? "above" : "below";
       let type: StructureLevel["type"] = lv.price > currentPrice ? "major_resistance" : "major_support";
@@ -150,14 +189,28 @@ export async function GET() {
       };
     }).sort((a, b) => Math.abs(a.distance) - Math.abs(b.distance));
 
-    // Zones
-    const allZones: PriceZone[] = [
-      { from: 2980, to: 3020, type: "support_zone", strength: "strong", description: "$3,000 psychological zone — major battleground turned support" },
-      { from: 3480, to: 3520, type: "resistance_zone", strength: "strong", description: "$3,500 round number resistance — major psychological target" },
-      { from: 2750, to: 2810, type: "support_zone", strength: "moderate", description: "2024 ATH area converted to support after breakout" },
-      { from: 2380, to: 2430, type: "support_zone", strength: "moderate", description: "Previous ATH zone — major long-term support" },
-    ];
-    const zones = allZones.filter(z => Math.abs(currentPrice - (z.from + z.to) / 2) < currentPrice * 0.25);
+    // Zones, drawn around the round numbers nearest spot rather than typed in.
+    //
+    // The typed zones were $2,380 to $3,520, and the filter below drops anything
+    // more than 25% from spot — so at $4,000 every one of them was discarded and
+    // the page returned no zones at all. Silent: the field was present and empty.
+    const zoneWidth = Math.max(10, Math.round(currentPrice * 0.005));
+    const zones: PriceZone[] = [...byPrice.values()]
+      .filter((lv) => Math.abs(lv.price - currentPrice) < currentPrice * 0.2 && lv.price !== 0)
+      .sort((a, b) => Math.abs(a.price - currentPrice) - Math.abs(b.price - currentPrice))
+      .slice(0, 4)
+      .map((lv) => {
+        const above = lv.price > currentPrice;
+        return {
+          from: lv.price - zoneWidth,
+          to: lv.price + zoneWidth,
+          type: above ? ("resistance_zone" as const) : ("support_zone" as const),
+          strength: Math.abs(lv.price - currentPrice) < currentPrice * 0.05
+            ? ("strong" as const)
+            : ("moderate" as const),
+          description: `${lv.label} — ${above ? "resistance" : "support"} band around $${lv.price.toLocaleString()}`,
+        };
+      });
 
     const nearestResistance = levels.find(l => l.distance > 0.2) ?? null;
     const nearestSupport = levels.find(l => l.distance < -0.2) ?? null;

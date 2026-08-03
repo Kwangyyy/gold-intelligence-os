@@ -100,16 +100,75 @@ function idOf(title: string): string {
   return (h >>> 0).toString(36);
 }
 
+// Words that undo the term following them.
+//
+// The scorer counted keywords without reading direction, so "Trump cancels
+// attack on Iran to reach nuclear deal" matched +nuclear and +attack and was
+// filed as 62-point *bullish* for gold — a de-escalation headline sent as a
+// reason gold should rise. Three of the ten stories in one scan were that same
+// mistake: a called-off strike, a paused strike, and a nuclear deal.
+//
+// A cue flips whatever term follows it rather than merely suppressing it: a
+// cancelled attack is not neutral news, it is the opposite of an attack. That
+// works both ways, so "ceasefire collapses" flips a bearish term to bullish.
+// Cues that come *before* what they undo: "cancels the attack".
+const NEGATORS_BEFORE =
+  /\b(cancel(s|led|ling)?|calls? off|called off|calling off|holds? off|held off|holding off|halt(s|ed|ing)?|paus(e|es|ed|ing)|suspend(s|ed|ing)?|avert(s|ed|ing)?|avoid(s|ed|ing)?|delay(s|ed|ing)?|postpon(e|es|ed|ing)|rules? out|ruled out|backs? away from|stands? down|stood down|withdraw(s|n|ing)?|lift(s|ed|ing)?|no longer|refrain(s|ed)? from|scrap(s|ped|ping)?|abandon(s|ed|ing)?)\b/;
+
+// Cues that come *after*: "the ceasefire collapses". English puts the reversing
+// verb on either side of its object, and looking only backwards left
+// "Gaza ceasefire collapses" scoring as bearish for gold — a truce breaking
+// down filed as a reason gold should fall.
+const NEGATORS_AFTER =
+  /\b(collaps(e|es|ed|ing)|breaks? down|breaking down|broke down|broken down|reject(ed|s)?|fail(s|ed|ing)?|falter(s|ed)?|unravel(s|led|ing)?|calls? off|called off|cancel(l)?ed|scrapped|off the table|in doubt|abandoned)\b/;
+
+// How far to look for a cue. Long enough for "calls off the planned" and short
+// enough that a cue in an unrelated clause cannot reach across.
+const NEGATION_WINDOW = 45;
+
+/** Is this occurrence of `term` undone by a cue on either side of it? */
+function negatedAt(t: string, at: number, term: string): boolean {
+  const before = t.slice(Math.max(0, at - NEGATION_WINDOW), at);
+  const after = t.slice(at + term.length, at + term.length + NEGATION_WINDOW);
+  return NEGATORS_BEFORE.test(before) || NEGATORS_AFTER.test(after);
+}
+
+// Some terms mean the opposite depending on the word beside them. "nuclear
+// strike" and "nuclear deal" share a keyword and nothing else.
+const PHRASE_FLIPS = [
+  "nuclear deal", "nuclear agreement", "nuclear talks", "nuclear accord",
+  "peace talks", "peace plan", "trade deal", "sanctions relief",
+];
+
+/**
+ * Exported so the direction rules can be tested against real headlines rather
+ * than checked by eye. Getting the sign wrong is silent — a de-escalation
+ * headline sent as a reason gold should rise still looks like a working alert.
+ */
+export function scoreForTest(title: string, category: EventCategory) {
+  return score(title, category);
+}
+
 function score(title: string, category: EventCategory) {
   const t = title.toLowerCase();
   const matched: string[] = [];
   let bull = 0, bear = 0;
 
+  const flipped = PHRASE_FLIPS.filter((p) => t.includes(p));
+
   for (const [term, w] of Object.entries(BULLISH)) {
-    if (t.includes(term)) { bull += w; matched.push(`+${term}`); }
+    const at = t.indexOf(term);
+    if (at < 0) continue;
+    // A term inside one of the reversing phrases is about that phrase.
+    const inFlip = flipped.some((p) => p.includes(term));
+    if (inFlip || negatedAt(t, at, term)) { bear += w; matched.push(`~${term}`); }
+    else { bull += w; matched.push(`+${term}`); }
   }
   for (const [term, w] of Object.entries(BEARISH)) {
-    if (t.includes(term)) { bear += w; matched.push(`-${term}`); }
+    const at = t.indexOf(term);
+    if (at < 0) continue;
+    if (negatedAt(t, at, term)) { bull += w; matched.push(`~${term}`); }
+    else { bear += w; matched.push(`-${term}`); }
   }
 
   // Conflict headlines start with a floor: "Explosions reported in <city>"

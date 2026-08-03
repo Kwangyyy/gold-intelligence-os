@@ -153,8 +153,24 @@ export const ROUTE_MIN_TIER: Record<string, Tier> = {
   "/news":        "premium",
 };
 
+/**
+ * The tier a route needs, inherited from its parent.
+ *
+ * This was an exact lookup, which meant every sub-path of a gated route was
+ * ungated by default: "/admin" required pro and "/admin/telegram" — added later,
+ * to the same admin area — required nothing at all. Nobody has to make a mistake
+ * for that to happen; it is what adding a page does.
+ *
+ * Matching walks up whole segments rather than string prefixes, so "/gold" being
+ * gated cannot accidentally gate "/gold-structure".
+ */
 export function minTierFor(route: string): Tier {
-  return ROUTE_MIN_TIER[route] ?? "free";
+  const parts = route.split("/").filter(Boolean);
+  for (let i = parts.length; i > 0; i--) {
+    const t = ROUTE_MIN_TIER["/" + parts.slice(0, i).join("/")];
+    if (t) return t;
+  }
+  return "free";
 }
 
 export function canAccess(tier: Tier, route: string): boolean {

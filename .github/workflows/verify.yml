@@ -36,6 +36,10 @@ jobs:
       # breaks is quiet: duplicate alerts, alerts after asking to stop, or a
       # list that fills with people who left.
       - run: npx tsx scripts/subscribers.test.mts
+      # Which tier a route needs. A page added inside a gated area used to be
+      # ungated by default, which is not a mistake anyone makes — it is what
+      # adding a page did.
+      - run: npx tsx scripts/tierGating.test.mts
       - run: npx next build
         env:
           # The build only needs these to exist. Real values live in Vercel;

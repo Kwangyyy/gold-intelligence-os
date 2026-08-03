@@ -155,7 +155,21 @@ export function fitDeviation(
 // see which rule carried it, so a wrong large-degree read could not be argued
 // with.
 
-interface Check { rule: string; passed: boolean; detail: string }
+// `critical` marks a failure that undermines the count itself rather than
+// grading it. Scoring every check equally meant "these legs are probably
+// different degrees" — which says the whole reading is built wrong — counted for
+// exactly as much as a missed alternation, and a level could report 83% and
+// "high" while the panel underneath it said the top degree was mixing degrees.
+interface Check { rule: string; passed: boolean; detail: string; critical?: boolean }
+
+// A count whose foundation is in question is medium at best, whatever the rest
+// of the checks say.
+const CRITICAL_CAP = 60;
+function scoreOf(checks: Check[]): number {
+  const passed = checks.filter((c) => c.passed).length;
+  const raw = Math.round((passed / checks.length) * 100);
+  return checks.some((c) => c.critical && !c.passed) ? Math.min(raw, CRITICAL_CAP) : raw;
+}
 
 const pctOf = (leg: Leg) => leg.absPct;
 const retrace = (a: Leg, b: Leg) => (Math.abs(b.move) / Math.abs(a.move)) * 100;
@@ -186,14 +200,27 @@ function classifyFive(w: Leg[]): { kind: StructureKind; checks: Check[]; score: 
   });
 
   // Wave 4 entering wave 1's territory means this is a diagonal, not an impulse.
+  // Diagnostic, not a rule violation. Overlap is what *distinguishes* a diagonal
+  // from an impulse, and the classification below already acts on it — so
+  // reporting it as a failure marked every diagonal with a red FAIL and docked
+  // its confidence for having been correctly identified. It can never usefully
+  // fail either: overlap always yields "terminal", so there is no count this
+  // could catch.
   const w1End = w1.to.price, w4End = w4.to.price;
   const overlap = w1.up ? w4End < w1End : w4End > w1End;
+  // Three outcomes, not two. Reading this as a boolean labelled 1: 2.0%,
+  // 3: 2.9%, 5: 2.2% as "expanding" — wave 5 is smaller than wave 3 there, so
+  // the legs neither converge nor diverge.
+  const shape =
+    pctOf(w3) < pctOf(w1) && pctOf(w5) < pctOf(w3) ? "contracting — legs shrink toward the apex"
+    : pctOf(w3) > pctOf(w1) && pctOf(w5) > pctOf(w3) ? "expanding — legs grow; the rarer form"
+    : "neither contracting nor expanding cleanly — an unusual diagonal";
   checks.push({
-    rule: "Wave 4 does not overlap wave 1 (impulse vs diagonal)",
-    passed: !overlap,
+    rule: "Impulse or diagonal (wave 4 vs wave 1)",
+    passed: true,
     detail: overlap
-      ? `wave 4 ended ${w4End.toFixed(0)} inside wave 1's range — diagonal/terminal`
-      : `wave 4 ended ${w4End.toFixed(0)}, clear of wave 1 at ${w1End.toFixed(0)}`,
+      ? `wave 4 ended ${w4End.toFixed(0)} inside wave 1's range — diagonal: ${shape}`
+      : `wave 4 ended ${w4End.toFixed(0)}, clear of wave 1 at ${w1End.toFixed(0)} — impulse`,
   });
 
   // NeoWave's alternation: 2 and 4 should differ in depth or in duration. Two
@@ -221,15 +248,36 @@ function classifyFive(w: Leg[]): { kind: StructureKind; checks: Check[]; score: 
     detail: `extended: ${extended}`,
   });
 
+  // Similarity & Balance applied to an impulse, not just to a correction.
+  //
+  // The engine already required A and C of a correction to be comparable, but
+  // nothing stopped a five-wave count from mixing degrees. The daily chart read
+  // a Primary terminal of 1: 20.9%, 3: 22.1%, 5: 105.2% — a fifth wave nearly
+  // five times either of its siblings. Legs that far apart are not the same
+  // degree; waves 1 through 4 were the 2020-2022 range and "wave 5" was the
+  // entire bull run that followed.
+  //
+  // 4.236 is the outer Fibonacci extension a genuinely extended leg reaches.
+  // Past it this is a judgement about degree rather than a quoted NeoWave rule,
+  // and the detail says which ratio triggered it so the reader can disagree.
+  const sizes = [pctOf(w1), pctOf(w3), pctOf(w5)];
+  const biggest = Math.max(...sizes);
+  const others = sizes.filter((x) => x !== biggest);
+  const spread = biggest / Math.max(0.01, Math.max(...others));
+  checks.push({
+    rule: "Similarity & Balance — impulse legs share one degree",
+    passed: spread <= 4.236,
+    critical: true,
+    detail:
+      spread <= 4.236
+        ? `largest leg is ${spread.toFixed(1)}× the next — consistent`
+        : `largest leg is ${spread.toFixed(1)}× the next — beyond a 4.236 extension, so these legs are probably different degrees`,
+  });
+
   const hard = checks[0].passed && checks[1].passed;   // the two inviolable ones
   if (!hard) return null;
 
-  const passed = checks.filter((c) => c.passed).length;
-  return {
-    kind: overlap ? "terminal" : "impulse",
-    checks,
-    score: Math.round((passed / checks.length) * 100),
-  };
+  return { kind: overlap ? "terminal" : "impulse", checks, score: scoreOf(checks) };
 }
 
 /** Three alternating legs judged as zigzag or flat. */
@@ -251,17 +299,36 @@ function classifyThree(w: Leg[]): { kind: StructureKind; checks: Check[]; score:
   // correction with structure.
   if (rb < 38.2) return null;
 
+  // C has an upper bound for the same reason B does, and not having one was
+  // worse: the check only tested a floor, so it stamped "pass" on a Primary
+  // flat whose C travelled 435% of A — and with all three checks passing that
+  // degree reported 100% confidence on a reading that cannot be a flat. A leg
+  // four times its A is not the C of a three-wave correction; far more likely
+  // the A and C are waves 1 and 3 of an impulse. 261.8% is the documented
+  // extreme for an expanded flat's C, so past it the labels are simply wrong.
+  if (rc > 261.8) return null;
+  // A *short* C is not the same kind of error. Rejecting those as well emptied
+  // the hierarchy on every timeframe — an unfinished C is one of the most common
+  // states a live chart is in, and refusing to read it says nothing useful. It
+  // stays a check that can fail, below.
+
   const checks: Check[] = [];
   const isFlat = rb >= 78.6;
+  const expanded = isFlat && rb > 105;
   checks.push({
     rule: isFlat ? "Flat — wave B retraces 78.6-138% of A" : "Zigzag — wave B retraces 38.2-78.6% of A",
     passed: true,
-    detail: `B retraced ${rb.toFixed(0)}% of A`,
+    detail: `B retraced ${rb.toFixed(0)}% of A${expanded ? " — expanded" : ""}`,
   });
+  // Inside the band, where C lands still says whether the correction is typical
+  // or stretched. Checks that can only pass are decoration; this one carries the
+  // difference between a textbook flat and one worth doubting.
+  const [cLo, cHi] = expanded ? [100, 261.8] : isFlat ? [80, 120] : [61.8, 161.8];
+  const short = rc < cLo;
   checks.push({
-    rule: "Wave C travels at least 61.8% of A",
-    passed: rc >= 61.8,
-    detail: `C is ${rc.toFixed(0)}% of A`,
+    rule: `${expanded ? "Expanded flat" : isFlat ? "Regular flat" : "Zigzag"} — wave C runs ${cLo}-${cHi}% of A`,
+    passed: rc >= cLo && rc <= cHi,
+    detail: `C is ${rc.toFixed(0)}% of A${short ? " — short, likely still unfolding" : ""}`,
   });
   // Similarity & Balance: A and C of a healthy correction are comparable in
   // time. A C-wave a fraction of A's duration usually means C is unfinished.
@@ -272,12 +339,7 @@ function classifyThree(w: Leg[]): { kind: StructureKind; checks: Check[]; score:
     detail: `A ${a.bars} bars vs C ${c.bars} bars (${tRatio.toFixed(1)}×)`,
   });
 
-  const passed = checks.filter((c2) => c2.passed).length;
-  return {
-    kind: isFlat ? "flat" : "zigzag",
-    checks,
-    score: Math.round((passed / checks.length) * 100),
-  };
+  return { kind: isFlat ? "flat" : "zigzag", checks, score: scoreOf(checks) };
 }
 
 /**
@@ -286,23 +348,119 @@ function classifyThree(w: Leg[]): { kind: StructureKind; checks: Check[]; score:
  * impulse should be read as an impulse, not as its last three legs.
  */
 export function classifyWindow(legs: Leg[]): {
-  kind: StructureKind; checks: Check[]; score: number; used: Leg[]; offset: number;
+  kind: StructureKind; checks: Check[]; score: number; used: Leg[]; offset: number; trailing: number;
 } {
-  // A leg spanning a single bar is a bar, not a wave. The daily chart reported
-  // a Primary-degree correction whose wave A lasted one monthly bar — the count
-  // was anchored on a series with too few pivots to carry that degree.
-  const substantial = (slice: Leg[]) => slice.every((l) => l.bars >= 2);
+  // The pattern as a whole has to be thick enough for the degree it claims —
+  // measured across the slice, not leg by leg.
+  //
+  // The per-leg version of this rule ("every leg at least two bars") was aimed
+  // at a real defect: a Primary-degree correction whose wave A lasted one
+  // monthly bar, on a series with too few pivots to carry that degree. But it
+  // also threw out every recent reading on the monthly chart, because gold's
+  // sharp corrections there genuinely resolve in a single month — a 31% drop in
+  // one bar is a wave, not noise. With every candidate slice containing one
+  // rejected, the largest degree had to reach back to 2021 to find a pattern it
+  // was allowed to name, and left the whole 2023-2026 advance uncounted.
+  //
+  // Averaging two bars a leg keeps the original case out — a three-legged
+  // correction of one bar each spans 3 against a required 6 — while letting a
+  // long five absorb a fast correction.
+  const substantial = (slice: Leg[]) =>
+    slice.reduce((n, l) => n + l.bars, 0) >= 2 * slice.length;
 
-  // Try the most recent complete 5, then the most recent complete 3.
+  // A count has to explain where price is *now*.
+  //
+  // This used to try every five-leg slice before any three-leg one, so a five
+  // that completed long ago beat a three unfolding today. On the monthly gold
+  // series that produced a Primary labelled ①-⑤ across 2021-03 to 2023-01,
+  // "pattern complete", and then thirteen unlabelled legs — the entire 1,821 to
+  // 5,651 bull run, the largest move in the data, left off the count as merely
+  // "after ⑤".
+  //
+  // So candidates are ranked by how much they leave dangling first, and only
+  // then by size and quality. Three trailing legs are allowed because a
+  // completed five is normally followed by an a-b-c; past that the count has
+  // stopped describing the chart in front of the reader.
+  const MAX_TRAILING = 3;
+  type Cand = { res: NonNullable<ReturnType<typeof classifyFive>>; used: Leg[]; offset: number; trailing: number; take: number };
+  const cands: Cand[] = [];
   for (let take = 5; take >= 3; take -= 2) {
     for (let end = legs.length; end >= take; end--) {
       const slice = legs.slice(end - take, end);
       if (!substantial(slice)) continue;
       const res = take === 5 ? classifyFive(slice) : classifyThree(slice);
-      if (res) return { ...res, used: slice, offset: end - take };
+      if (res) cands.push({ res, used: slice, offset: end - take, trailing: legs.length - end, take });
     }
   }
-  return { kind: "unclear", checks: [], score: 0, used: legs, offset: 0 };
+  if (!cands.length) return { kind: "unclear", checks: [], score: 0, used: legs, offset: 0, trailing: legs.length };
+
+  const near = cands.filter((c) => c.trailing <= MAX_TRAILING);
+  const pool = near.length ? near : cands;
+  pool.sort((a, b) =>
+    a.trailing - b.trailing ||   // explain the present first
+    b.take - a.take ||           // then prefer the larger pattern
+    b.res.score - a.res.score,   // then the better-supported one
+  );
+  const best = pool[0];
+  return { ...best.res, used: best.used, offset: best.offset, trailing: best.trailing };
+}
+
+/**
+ * Choose the zigzag threshold that makes the window *readable*, not merely the
+ * one that yields a tidy number of legs.
+ *
+ * fitDeviation optimises leg count alone: the first threshold producing 5-13
+ * legs wins, whatever those legs turn out to be. That is fine until the winning
+ * threshold produces legs no rule set can name, and then the caller gets
+ * "unclear" and gives up — which is what happened the moment wave C was given an
+ * upper bound. The monthly window's fitted legs had been passing as a flat only
+ * because a C of 435% of A went unchallenged; with the bound in place that
+ * reading was correctly refused, and since nothing else was tried the entire
+ * hierarchy came back empty on every timeframe. Confidence then read "high",
+ * because Math.min() of nothing is Infinity.
+ *
+ * The threshold is a free parameter, and picking it so the structure resolves is
+ * exactly what a human does when a count will not sit. So sweep it, classify
+ * each candidate, and keep the best-scoring readable one — preferring the
+ * coarsest, so a window is still described by the largest swings that form a
+ * pattern. Falls back to the count-based fit when nothing reads.
+ */
+function fitStructure(
+  hi: number[], lo: number[], ts: number[],
+): { swings: Swing[]; deviation: number; cls: ReturnType<typeof classifyWindow> } {
+  const span = Math.max(...hi) / Math.min(...lo.filter((x) => x > 0));
+  const start = Math.max(1, (span - 1) * 100 / 4);
+
+  let best: { swings: Swing[]; deviation: number; cls: ReturnType<typeof classifyWindow> } | null = null;
+  for (let d = start; d >= 0.15; d *= 0.82) {
+    const sw = zigzag(hi, lo, ts, d);
+    const legs = toLegs(sw);
+    // Below 3 there is no pattern to read; far above, the "structure" is noise
+    // at a degree this window cannot support.
+    if (legs.length < 3) continue;
+    if (legs.length > 21) break;
+    const cls = classifyWindow(legs);
+    if (cls.kind === "unclear") continue;
+    // Trailing legs come first here for the same reason they do inside
+    // classifyWindow, and ranking on score alone was not enough: on the monthly
+    // series the recent corrections are single bars, the "a leg is at least two
+    // bars" guard rejects every slice containing one, and so the best-scoring
+    // threshold was one whose only readable pattern finished in January 2023 —
+    // thirteen legs and a 210% bull run ago. A coarser threshold merges those
+    // one-bar legs into readable ones; it only wins if this ranking looks.
+    //
+    // Coarser is preferred on a tie, so a later (finer) candidate must beat the
+    // incumbent outright.
+    const better =
+      !best ||
+      cls.trailing < best.cls.trailing ||
+      (cls.trailing === best.cls.trailing && cls.score > best.cls.score);
+    if (better) best = { swings: sw, deviation: +d.toFixed(3), cls };
+  }
+  if (best) return best;
+
+  const fallback = fitDeviation(hi, lo, ts);
+  return { ...fallback, cls: classifyWindow(toLegs(fallback.swings)) };
 }
 
 // ── hierarchical count ──────────────────────────────────────────────────────
@@ -358,11 +516,9 @@ export function countHierarchy(series: Series, maxDepth = 4): DegreeLevel[] {
     // Below ~25 bars a "five wave structure" is noise, not a degree.
     if (win.t.length < 25) break;
 
-    const { swings } = fitDeviation(win.h, win.l, win.t);
+    const { swings, cls } = fitStructure(win.h, win.l, win.t);
     const legs = toLegs(swings);
     if (legs.length < 3) break;
-
-    const cls = classifyWindow(legs);
     if (cls.kind === "unclear") break;
 
     const ladder = DEGREE_LADDER[depth];
@@ -518,11 +674,9 @@ export function countMultiSource(sources: Series[], maxDepth = 5): DegreeLevel[]
     const win = {
       t: keep.map((i) => s.t[i]), h: keep.map((i) => s.h[i]), l: keep.map((i) => s.l[i]),
     };
-    const { swings } = fitDeviation(win.h, win.l, win.t);
+    const { swings, cls } = fitStructure(win.h, win.l, win.t);
     const legs = toLegs(swings);
     if (legs.length < 3) break;
-
-    const cls = classifyWindow(legs);
     if (cls.kind === "unclear") break;
 
     const ladder = DEGREE_LADDER[base + d0];
@@ -545,12 +699,20 @@ export function countMultiSource(sources: Series[], maxDepth = 5): DegreeLevel[]
       currentLeg,
       currentLabel: complete ? `after ${names[names.length - 1]}` : glyphs[currentIdx] || names[Math.max(0, currentLeg - 1)],
       patternComplete: complete,
-      // The end is the analysis end, not this source's last bar. A coarse bar is
-      // stamped with its opening time, so counting Primary on monthly data
-      // reported it finishing on 1 July while Intermediate — counted on daily —
-      // ran to 31 July. The child appeared to escape its parent when in fact
-      // both run to now; only the reported boundary was wrong.
-      window: { fromTs: win.t[0], toTs },
+      // Where the labelled pattern actually sits, not the window it was found
+      // in. Primary reported 2020-08 to 2026-08 while its ①-⑤ spanned 2024-05
+      // to 2026-04 — the reader was shown the search range and told it was the
+      // wave.
+      //
+      // The end still comes from the analysis end rather than this source's last
+      // bar. A coarse bar is stamped with its opening time, so Primary counted
+      // on monthly data reported finishing on 1 July while Intermediate —
+      // counted on daily — ran to 31 July. The child appeared to escape its
+      // parent when in fact both run to now; only the boundary was wrong.
+      window: {
+        fromTs: cls.used[0]?.from.ts ?? win.t[0],
+        toTs: complete ? Math.min(cls.used[cls.used.length - 1]?.to.ts ?? toTs, toTs) : toTs,
+      },
       rules: cls.checks,
       confidence: cls.score,
     });

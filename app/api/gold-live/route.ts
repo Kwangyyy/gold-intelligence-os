@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { getUserLiveData } from "@/lib/mt5Store";
 import { getGoldSpot } from "@/lib/goldSource";
 import { yahooChartJson } from "@/lib/goldSource";
+import { triggerFromTraffic } from "@/lib/eventWatchRun";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -72,6 +73,16 @@ let CACHE: { data: GoldLive; ts: number } | null = null;
 const TTL = 4_000;   // the whole point is freshness; just enough to absorb bursts
 
 export async function GET() {
+  // Traffic doubles as the event watcher's clock.
+  //
+  // GitHub Actions is asked for every fifteen minutes and delivers roughly every
+  // eighty-five — measured across fourteen runs, the worst gap was two hours
+  // forty. This route is polled every five seconds by the chart, so while anyone
+  // has the app open the watch actually runs on time. It returns immediately,
+  // holds its own fifteen-minute throttle, and swallows its errors: a live price
+  // must never wait on seven RSS feeds, nor fail because one of them did.
+  triggerFromTraffic();
+
   // MT5 first — but only for a signed-in user with a connected account.
   let mt5Price = 0, mt5Age = 0;
   try {

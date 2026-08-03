@@ -18,6 +18,7 @@ import { scanEvents, alreadySent, markSent, CATEGORY_LABEL, type WatchedEvent } 
 import { getGoldSpot } from "./goldSource";
 import { sendTelegramMessage } from "./telegram";
 import { kvGet, kvSet } from "./kvStore";
+import { checkWaveAlert } from "./waveAlert";
 import { waitUntil } from "@vercel/functions";
 
 // Only alert on things that would change a decision. The scanner sees a hundred
@@ -75,7 +76,7 @@ export interface WatchResult {
   alerted?: { title: string; severity: number; category: string }[];
   waiting?: number;
   preview?: string;
-  lastTrafficScan?: { at: number; sent: boolean; scanned: number; agoMin: number } | null;
+  lastTrafficScan?: { at: number; sent: boolean; scanned: number; waveSent?: boolean; agoMin: number } | null;
 }
 
 /** Scan the feeds and, unless `dry`, push anything new to the channel. */
@@ -182,7 +183,16 @@ export function triggerFromTraffic(): void {
       // way round: scanning twice sends the same story twice.
       await kvSet(TRAFFIC_KEY, Date.now(), Math.ceil(TRAFFIC_EVERY / 1000));
       const r = await runEventWatch(false);
-      await kvSet(TRAFFIC_DONE_KEY, { at: Date.now(), sent: r.sent, scanned: r.scanned }, 86_400);
+      // The wave check rides the same clock. It reads candles the wave chart has
+      // usually already cached, and keeping one throttle for both means the two
+      // pushes cannot arrive on different schedules and contradict each other
+      // about what the price was when they were written.
+      const w = await checkWaveAlert(false).catch(() => null);
+      await kvSet(
+        TRAFFIC_DONE_KEY,
+        { at: Date.now(), sent: r.sent, scanned: r.scanned, waveSent: !!w?.sent },
+        86_400,
+      );
     } catch {
       // Nothing here is worth surfacing to whoever happened to load a chart.
     } finally {
@@ -208,7 +218,7 @@ export function triggerFromTraffic(): void {
 
 /** When traffic last drove a scan to completion, for checking that it does. */
 export async function lastTrafficScan(): Promise<WatchResult["lastTrafficScan"]> {
-  const v = await kvGet<{ at: number; sent: boolean; scanned: number }>(TRAFFIC_DONE_KEY).catch(() => null);
+  const v = await kvGet<{ at: number; sent: boolean; scanned: number; waveSent?: boolean }>(TRAFFIC_DONE_KEY).catch(() => null);
   if (!v) return null;
   return { ...v, agoMin: Math.round((Date.now() - v.at) / 60_000) };
 }

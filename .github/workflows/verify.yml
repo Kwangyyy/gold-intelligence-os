@@ -28,6 +28,10 @@ jobs:
       # target reached after the stop, or assuming the good side of a bar that
       # touched both.
       - run: npx tsx scripts/signalOutcome.test.mts
+      # When to push a wave-count change. Confirming too eagerly spams the
+      # channel; confirming too strictly never announces a real change. Neither
+      # raises an error.
+      - run: npx tsx scripts/waveAlert.test.mts
       - run: npx next build
         env:
           # The build only needs these to exist. Real values live in Vercel;

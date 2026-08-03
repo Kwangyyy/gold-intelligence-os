@@ -135,7 +135,15 @@ export default function SignalLogPage() {
   const sells = signals.filter(s => s.direction === "sell").length;
   const shown = filter === "all" ? signals : signals.filter(s => s.direction === filter);
 
+  // A win rate needs a sample before it means anything. Four wins from six reads
+  // as 67% and is worth nothing — and the colour rule below would have painted
+  // it green, which is a claim the data does not support. Under this many
+  // settled trades the figure is shown in grey and labelled as provisional.
+  const MIN_SAMPLE = 20;
+  const reliable = resolved.length >= MIN_SAMPLE;
+
   const winRateColor = winRate === null ? "#475569"
+    : !reliable ? "#94a3b8"
     : winRate >= 60 ? "#34d399" : winRate >= 45 ? "#f5c451" : "#f87171";
 
   return (
@@ -156,7 +164,9 @@ export default function SignalLogPage() {
             {winRate !== null ? `${winRate}%` : "—"}
           </div>
           {resolved.length > 0 && (
-            <div className="mt-0.5 text-[10px] text-silver/30">{resolved.length} resolved</div>
+            <div className="mt-0.5 text-[10px] text-silver/30">
+              {resolved.length} resolved{!reliable && " · ยังน้อยเกินสรุป"}
+            </div>
           )}
         </div>
         <div className="panel p-4">
@@ -187,6 +197,11 @@ export default function SignalLogPage() {
           <div className="mb-2 flex items-center justify-between text-[10px] text-silver/40">
             <span>ผลลัพธ์ {resolved.length} trades ที่ resolved</span>
             <span style={{ color: winRateColor }} className="font-bold">{winRate}% win rate</span>
+          </div>
+          <div className="mb-2 text-[10px]" style={{ color: reliable ? "rgba(175,185,215,0.35)" : "#f5c451" }}>
+            {reliable
+              ? `ผลถูกตัดสินอัตโนมัติจากแท่ง 15 นาที — ถ้าแท่งเดียวชนทั้ง SL และ TP จะนับเป็น SL`
+              : `ยังสรุปไม่ได้ — ${resolved.length} ไม้น้อยเกินไป ต้องมีอย่างน้อย ${MIN_SAMPLE} ไม้ตัวเลขนี้ถึงจะมีความหมาย`}
           </div>
           <div className="flex h-3 overflow-hidden rounded-full gap-0.5">
             {wins.length > 0 && (

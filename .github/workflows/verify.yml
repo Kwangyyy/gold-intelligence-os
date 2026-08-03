@@ -23,6 +23,11 @@ jobs:
       # wrong sign, and neither can a reader of the alert — a de-escalation
       # story sent as a reason gold should rise looks like a working alert.
       - run: npx tsx scripts/eventDirection.test.mts
+      # Whether a signal won or lost. This decides what the app claims about its
+      # own accuracy, and the tempting errors all point the same way — counting a
+      # target reached after the stop, or assuming the good side of a bar that
+      # touched both.
+      - run: npx tsx scripts/signalOutcome.test.mts
       - run: npx next build
         env:
           # The build only needs these to exist. Real values live in Vercel;

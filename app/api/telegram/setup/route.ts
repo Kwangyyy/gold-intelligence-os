@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { listSubscribers, webhookSecret } from "@/lib/telegramSubscribers";
+import { listSubscribers, ensureWebhookSecret } from "@/lib/telegramSubscribers";
 import { kvGet, kvDurable } from "@/lib/kvStore";
 import { getApiAdmin, unauthorized } from "@/lib/apiAuth";
 
@@ -72,7 +72,7 @@ export async function POST(req: NextRequest) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         url,
-        secret_token: await webhookSecret(),
+        secret_token: await ensureWebhookSecret(),
         // Only what the bot acts on. Asking for everything would have Telegram
         // deliver every edit and reaction for nothing.
         allowed_updates: ["message"],

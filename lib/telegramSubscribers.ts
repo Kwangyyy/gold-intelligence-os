@@ -53,21 +53,41 @@ export async function isSubscribed(chatId: number): Promise<boolean> {
   return (await listSubscribers()).some((s) => s.chatId === chatId);
 }
 
+const SECRET_KEY = "gios:tg:webhook-secret";
+
 /**
- * The webhook secret, generated once and kept server-side.
+ * The webhook secret as it stands, or null.
  *
- * Telegram will happily deliver updates to whoever knows the URL, so a webhook
- * without a shared secret is an open endpoint that anything can post to — and
- * this one acts on what it is told. Generating it here rather than asking for
- * another environment variable keeps the value in one place and out of anyone's
- * hands, including mine.
+ * Reading and creating are separate on purpose. When one function did both, the
+ * side that *verifies* incoming requests could mint a secret — so any failure to
+ * read the stored one silently rotated it, and the value Telegram had been
+ * registered with stopped matching forever. That is exactly what happened: a
+ * bug in the store meant string values always read back as absent, so every
+ * verification generated a fresh secret and every delivery was refused, with
+ * nothing anywhere reporting a problem.
+ *
+ * Verification uses this. If it returns null there is no secret to check
+ * against, which is a state to report rather than to paper over.
  */
-export async function webhookSecret(): Promise<string> {
-  const existing = await kvGet<string>("gios:tg:webhook-secret");
+export async function webhookSecret(): Promise<string | null> {
+  return await kvGet<string>(SECRET_KEY);
+}
+
+/**
+ * The secret, creating one if there is none. Only registration may do this,
+ * since only registration then hands the value to Telegram.
+ *
+ * Telegram will deliver to whoever knows the URL, so a webhook without a shared
+ * secret is an open endpoint that anything can post to — and this one acts on
+ * what it is told. Keeping the value in the store rather than an environment
+ * variable means it exists in one place and nobody has to handle it.
+ */
+export async function ensureWebhookSecret(): Promise<string> {
+  const existing = await webhookSecret();
   if (existing) return existing;
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
   const secret = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
-  await kvSet("gios:tg:webhook-secret", secret);
+  await kvSet(SECRET_KEY, secret);
   return secret;
 }

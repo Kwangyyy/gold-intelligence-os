@@ -40,6 +40,10 @@ jobs:
       # ungated by default, which is not a mistake anyone makes — it is what
       # adding a page did.
       - run: npx tsx scripts/tierGating.test.mts
+      # Values coming back out of the store the way they went in. A string that
+      # read back as "absent" made callers mint a replacement, which is how the
+      # webhook secret rotated on every request.
+      - run: npx tsx scripts/kvStore.test.mts
       - run: npx next build
         env:
           # The build only needs these to exist. Real values live in Vercel;

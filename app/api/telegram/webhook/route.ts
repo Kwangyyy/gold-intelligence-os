@@ -44,10 +44,14 @@ export async function POST(req: NextRequest) {
   // different fixes and guessing between them wastes an evening.
   const secret = await webhookSecret();
   const presented = req.headers.get("x-telegram-bot-api-secret-token");
-  if (presented !== secret) {
+  // No stored secret means the webhook was never registered, or the store lost
+  // it. Either way there is nothing to verify against, and accepting anyway
+  // would leave the endpoint open. Recorded distinctly so the page can say which
+  // of the two it is instead of just "refused".
+  if (secret == null || presented !== secret) {
     await kvSet(
       "gios:tg:last-reject",
-      { at: Date.now(), hadHeader: presented != null },
+      { at: Date.now(), hadHeader: presented != null, noStoredSecret: secret == null },
       7 * 86_400,
     ).catch(() => {});
     // Deliberately terse and deliberately 401. Nothing about the bot, the list

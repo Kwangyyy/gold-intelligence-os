@@ -43,6 +43,33 @@ declare global {
 // Keys are namespaced with ':' — not a legal path separator everywhere.
 const safeName = (key: string) => `${key.replace(/[^a-z0-9._-]+/gi, "_")}.json`;
 
+/**
+ * Turn what the Redis client hands back into the value that was stored.
+ *
+ * Exported so the failure can be tested directly. It is not reachable through
+ * kvGet in a test: locally there is no Redis, so kvGet takes the file branch,
+ * which round-trips strings correctly and never showed this.
+ *
+ * Upstash deserialises JSON on read, so a value written as JSON.stringify("abc")
+ * arrives as the plain string "abc". Parsing that a second time throws — and the
+ * throw was caught and reported as "no such key", turning a stored value into an
+ * absent one. Callers treat absent as "make a new one", which is how the
+ * Telegram webhook secret came to be regenerated on every single request, so the
+ * value Telegram was registered with could never match the one checking it.
+ *
+ * Only string values were affected. Every other key here holds an object or a
+ * number, and those arrive already parsed — which is why nothing showed it.
+ */
+export function decodeRedisValue<T>(raw: unknown): T {
+  if (typeof raw !== "string") return raw as T;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    // Already a plain string. That is the value, not a parse failure.
+    return raw as unknown as T;
+  }
+}
+
 /** Read a key. Returns null when absent, unreadable, or unparseable. */
 export async function kvGet<T>(key: string): Promise<T | null> {
   const r = getRedis();
@@ -50,7 +77,7 @@ export async function kvGet<T>(key: string): Promise<T | null> {
     try {
       const raw = await r.get<T | string>(key);
       if (raw == null) return null;
-      return typeof raw === "string" ? (JSON.parse(raw) as T) : (raw as T);
+      return decodeRedisValue<T>(raw);
     } catch {
       return null;
     }

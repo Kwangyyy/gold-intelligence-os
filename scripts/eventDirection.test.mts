@@ -33,6 +33,11 @@ const cases: [string, string, Bias][] = [
   ["Trump keeps escalating his trade threats. This time, Europe isn't biting.", "policy", "bullish"],
   ["Kuwait Says It Downed Iranian Drones as Mideast Braces for Possible Escalation", "conflict", "bullish"],
 
+  // American spelling. The regex covered "cancelled" and missed "canceled",
+  // so this real headline went out scored bullish for gold.
+  ["Trump says canceled Iran attack would have been biggest 'since World War II'", "conflict", "bearish"],
+  ["US canceling planned strike on Iranian facilities", "conflict", "bearish"],
+
   // A cue after the term it undoes, and undoing a bearish term.
   ["Gaza ceasefire collapses as strikes resume", "conflict", "bullish"],
   ["Peace deal rejected, fighting resumes across the border", "conflict", "bullish"],

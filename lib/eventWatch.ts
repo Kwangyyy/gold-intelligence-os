@@ -113,14 +113,14 @@ function idOf(title: string): string {
 // works both ways, so "ceasefire collapses" flips a bearish term to bullish.
 // Cues that come *before* what they undo: "cancels the attack".
 const NEGATORS_BEFORE =
-  /\b(cancel(s|led|ling)?|calls? off|called off|calling off|holds? off|held off|holding off|halt(s|ed|ing)?|paus(e|es|ed|ing)|suspend(s|ed|ing)?|avert(s|ed|ing)?|avoid(s|ed|ing)?|delay(s|ed|ing)?|postpon(e|es|ed|ing)|rules? out|ruled out|backs? away from|stands? down|stood down|withdraw(s|n|ing)?|lift(s|ed|ing)?|no longer|refrain(s|ed)? from|scrap(s|ped|ping)?|abandon(s|ed|ing)?)\b/;
+  /\b(cancel(s|led|ed|ling|ing)?|calls? off|called off|calling off|holds? off|held off|holding off|halt(s|ed|ing)?|paus(e|es|ed|ing)|suspend(s|ed|ing)?|avert(s|ed|ing)?|avoid(s|ed|ing)?|delay(s|ed|ing)?|postpon(e|es|ed|ing)|rules? out|ruled out|backs? away from|stands? down|stood down|withdraw(s|n|ing)?|lift(s|ed|ing)?|no longer|refrain(s|ed)? from|scrap(s|ped|ping)?|abandon(s|ed|ing)?)\b/;
 
 // Cues that come *after*: "the ceasefire collapses". English puts the reversing
 // verb on either side of its object, and looking only backwards left
 // "Gaza ceasefire collapses" scoring as bearish for gold — a truce breaking
 // down filed as a reason gold should fall.
 const NEGATORS_AFTER =
-  /\b(collaps(e|es|ed|ing)|breaks? down|breaking down|broke down|broken down|reject(ed|s)?|fail(s|ed|ing)?|falter(s|ed)?|unravel(s|led|ing)?|calls? off|called off|cancel(l)?ed|scrapped|off the table|in doubt|abandoned)\b/;
+  /\b(collaps(e|es|ed|ing)|breaks? down|breaking down|broke down|broken down|reject(ed|s)?|fail(s|ed|ing)?|falter(s|ed)?|unravel(s|led|ing)?|calls? off|called off|cancel(l)?ed|cancel(l)?ing|scrapped|off the table|in doubt|abandoned)\b/;
 
 // How far to look for a cue. Long enough for "calls off the planned" and short
 // enough that a cue in an unrelated clause cannot reach across.
@@ -140,6 +140,25 @@ const PHRASE_FLIPS = [
   "peace talks", "peace plan", "trade deal", "sanctions relief",
 ];
 
+// Named wars of the past, used as a yardstick. "would have been the biggest
+// since World War II" measures how large something was; it does not report a
+// war starting. Counting it as one put a de-escalation headline back on the
+// bullish side even after the cancelled attack had been caught.
+//
+// These suppress the term rather than flipping it — a historical analogy argues
+// neither way. World War III is deliberately absent: that one is a forecast.
+const HISTORICAL_WARS = [
+  "world war ii", "world war 2", "wwii", "ww2",
+  "world war i", "wwi", "cold war", "vietnam war", "korean war",
+];
+
+/** Does `term` appear anywhere outside the given phrases? */
+function hasStandalone(t: string, term: string, phrases: string[]): boolean {
+  let masked = t;
+  for (const p of phrases) masked = masked.split(p).join(" ".repeat(p.length));
+  return masked.includes(term);
+}
+
 /**
  * Exported so the direction rules can be tested against real headlines rather
  * than checked by eye. Getting the sign wrong is silent — a de-escalation
@@ -155,10 +174,17 @@ function score(title: string, category: EventCategory) {
   let bull = 0, bear = 0;
 
   const flipped = PHRASE_FLIPS.filter((p) => t.includes(p));
+  const historical = HISTORICAL_WARS.filter((p) => t.includes(p));
 
   for (const [term, w] of Object.entries(BULLISH)) {
     const at = t.indexOf(term);
     if (at < 0) continue;
+    // Only skip when *every* occurrence sits inside a historical reference —
+    // "war in Ukraine, the worst since World War II" is still reporting a war.
+    if (historical.some((p) => p.includes(term)) && !hasStandalone(t, term, historical)) {
+      matched.push(`=${term}`);
+      continue;
+    }
     // A term inside one of the reversing phrases is about that phrase.
     const inFlip = flipped.some((p) => p.includes(term));
     if (inFlip || negatedAt(t, at, term)) { bear += w; matched.push(`~${term}`); }

@@ -18,6 +18,7 @@ import { scanEvents, alreadySent, markSent, CATEGORY_LABEL, type WatchedEvent } 
 import { getGoldSpot } from "./goldSource";
 import { sendTelegramMessage } from "./telegram";
 import { kvGet, kvSet } from "./kvStore";
+import { waitUntil } from "@vercel/functions";
 
 // Only alert on things that would change a decision. The scanner sees a hundred
 // headlines a poll; most are coverage, not events.
@@ -172,7 +173,7 @@ let inFlight = false;
 export function triggerFromTraffic(): void {
   if (inFlight) return;
   inFlight = true;
-  void (async () => {
+  const work = (async () => {
     try {
       const last = await kvGet<number>(TRAFFIC_KEY);
       if (last != null && Date.now() - last < TRAFFIC_EVERY) return;
@@ -188,6 +189,21 @@ export function triggerFromTraffic(): void {
       inFlight = false;
     }
   })();
+
+  // Hand the work to the platform, or it does not finish.
+  //
+  // Simply letting the promise run was the first attempt, and measuring it
+  // showed why that fails: a serverless instance is frozen the moment the
+  // response is sent, so the scan was killed part-way and the completion marker
+  // was still null after several requests. The app looked like it had a
+  // fifteen-minute watcher and had nothing. waitUntil is the platform's answer
+  // to exactly this — it keeps the instance alive for the promise without the
+  // caller waiting on it.
+  try {
+    waitUntil(work);
+  } catch {
+    // Not on Vercel — locally the process lives on regardless.
+  }
 }
 
 /** When traffic last drove a scan to completion, for checking that it does. */

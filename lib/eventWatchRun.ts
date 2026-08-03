@@ -74,11 +74,13 @@ export interface WatchResult {
   alerted?: { title: string; severity: number; category: string }[];
   waiting?: number;
   preview?: string;
+  lastTrafficScan?: { at: number; sent: boolean; scanned: number; agoMin: number } | null;
 }
 
 /** Scan the feeds and, unless `dry`, push anything new to the channel. */
 export async function runEventWatch(dry = false): Promise<WatchResult> {
   const events = await scanEvents();
+  const trafficScan = await lastTrafficScan();
   const candidates = events.filter((e) => e.severity >= ALERT_THRESHOLD);
 
   const sent = await alreadySent();
@@ -86,6 +88,7 @@ export async function runEventWatch(dry = false): Promise<WatchResult> {
   const fresh = unseen.slice(0, MAX_PER_ALERT);
 
   const base = {
+    lastTrafficScan: trafficScan,
     scanned: events.length,
     aboveThreshold: candidates.length,
     newSinceLastAlert: fresh.length,
@@ -149,6 +152,14 @@ export async function runEventWatch(dry = false): Promise<WatchResult> {
 const TRAFFIC_KEY = "gios:event-watch:last-scan";
 const TRAFFIC_EVERY = 15 * 60_000;
 
+// Written *after* a traffic-driven scan finishes, which is the whole point of
+// having it: the throttle above is claimed before the scan, so it proves only
+// that something started. On a serverless host, work left running after the
+// response has been sent may be frozen mid-flight, and this is the only way to
+// tell a scan that completed from one that was killed on the way. Reported by
+// the endpoint so it can be checked from outside.
+const TRAFFIC_DONE_KEY = "gios:event-watch:last-traffic-scan";
+
 let inFlight = false;
 
 /**
@@ -169,11 +180,19 @@ export function triggerFromTraffic(): void {
       // not both scan. A crash mid-scan costs one interval, which is the right
       // way round: scanning twice sends the same story twice.
       await kvSet(TRAFFIC_KEY, Date.now(), Math.ceil(TRAFFIC_EVERY / 1000));
-      await runEventWatch(false);
+      const r = await runEventWatch(false);
+      await kvSet(TRAFFIC_DONE_KEY, { at: Date.now(), sent: r.sent, scanned: r.scanned }, 86_400);
     } catch {
       // Nothing here is worth surfacing to whoever happened to load a chart.
     } finally {
       inFlight = false;
     }
   })();
+}
+
+/** When traffic last drove a scan to completion, for checking that it does. */
+export async function lastTrafficScan(): Promise<WatchResult["lastTrafficScan"]> {
+  const v = await kvGet<{ at: number; sent: boolean; scanned: number }>(TRAFFIC_DONE_KEY).catch(() => null);
+  if (!v) return null;
+  return { ...v, agoMin: Math.round((Date.now() - v.at) / 60_000) };
 }

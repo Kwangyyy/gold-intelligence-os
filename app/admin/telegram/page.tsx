@@ -127,7 +127,10 @@ export default function TelegramAdminPage() {
                     : "— ยังไม่เคยมีข้อความเข้ามาเลย —"}
                 </dd>
               </div>
-              {status.lastRejected && (
+              {/* Only when it is the more recent of the two. A rejection from
+                  before a fix, sitting beside a successful delivery after it,
+                  reads as a live problem and is not one. */}
+              {status.lastRejected && status.lastRejected.at > (status.lastAccepted?.at ?? 0) && (
                 <div className="flex gap-3">
                   <dt className="w-32 shrink-0 text-silver/35">ปฏิเสธล่าสุด</dt>
                   <dd style={{ color: "#f5c451" }}>

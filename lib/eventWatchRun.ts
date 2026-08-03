@@ -16,7 +16,7 @@
 
 import { scanEvents, alreadySent, markSent, CATEGORY_LABEL, type WatchedEvent } from "./eventWatch";
 import { getGoldSpot } from "./goldSource";
-import { sendTelegramMessage } from "./telegram";
+import { broadcastToSubscribers } from "./telegram";
 import { kvGet, kvSet } from "./kvStore";
 import { checkWaveAlert } from "./waveAlert";
 import { waitUntil } from "@vercel/functions";
@@ -77,6 +77,8 @@ export interface WatchResult {
   waiting?: number;
   preview?: string;
   lastTrafficScan?: { at: number; sent: boolean; scanned: number; waveSent?: boolean; agoMin: number } | null;
+  /** Channel plus subscribers, and how many were dropped for blocking the bot. */
+  delivery?: { sent: number; failed: number; dropped: number; channel: boolean };
 }
 
 /** Scan the feeds and, unless `dry`, push anything new to the channel. */
@@ -126,7 +128,9 @@ export async function runEventWatch(dry = false): Promise<WatchResult> {
   }
 
   const spot = await getGoldSpot().catch(() => null);
-  const send = await sendTelegramMessage(chatId, formatAlert(fresh, spot?.price ?? 0));
+  // Channel plus everyone who subscribed to the bot themselves.
+  const fan = await broadcastToSubscribers(formatAlert(fresh, spot?.price ?? 0));
+  const send = { ok: fan.channel || fan.sent > 0, error: undefined as string | undefined, to: undefined as string | undefined };
 
   // Only mark as sent if it actually went out, so a Telegram outage does not
   // silently swallow the alert.
@@ -144,6 +148,7 @@ export async function runEventWatch(dry = false): Promise<WatchResult> {
     // Named, not merely claimed: a delivery report that does not say where it
     // went cannot distinguish "sent" from "sent somewhere else".
     to: send.to,
+    delivery: fan,
     alerted: fresh.map((e) => ({ title: e.title, severity: e.severity, category: e.category })),
   };
 }

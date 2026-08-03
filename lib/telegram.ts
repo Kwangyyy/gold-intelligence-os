@@ -4,7 +4,7 @@
 export async function sendTelegramMessage(
   chatId: string,
   text: string,
-): Promise<{ ok: boolean; error?: string; to?: string }> {
+): Promise<{ ok: boolean; error?: string; errorCode?: number; to?: string }> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) return { ok: false, error: "TELEGRAM_BOT_TOKEN not set" };
   if (!chatId) return { ok: false, error: "chatId is required" };
@@ -13,11 +13,17 @@ export async function sendTelegramMessage(
     const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML" }),
+      body: JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML", disable_web_page_preview: true }),
       signal: AbortSignal.timeout(6_000),
     });
     const json = await res.json();
-    if (!json.ok) return { ok: false, error: json.description ?? "Telegram error" };
+    // The code matters, not just the text: 403 means this reader blocked the bot
+    // and should be dropped from the list, while a 429 or a network blip means
+    // try again later. Treating them alike either loses subscribers or keeps
+    // spending the send budget on people who left.
+    if (!json.ok) {
+      return { ok: false, error: json.description ?? "Telegram error", errorCode: json.error_code };
+    }
     // Which chat Telegram actually delivered to. "It says it sent and nothing
     // arrived" is otherwise unanswerable: the API reporting ok means the message
     // reached *a* chat, and the only question left is which one.
@@ -190,4 +196,53 @@ export function formatSignalMessage(setup: {
   ].filter(l => l !== undefined);
 
   return lines.join("\n").replace(/\n{3,}/g, "\n\n");
+}
+
+// ── fan-out to self-service subscribers ─────────────────────────────────────
+
+/**
+ * Send one message to everyone who subscribed, and to the channel.
+ *
+ * Two failure modes are handled rather than ignored, because both are silent:
+ *
+ * A reader who blocked the bot answers 403 forever. Left on the list they are
+ * retried on every alert, and over time the send budget goes mostly to people
+ * who left. Those are dropped. A 429 or a timeout is not — that is Telegram
+ * asking for a moment, and dropping a live subscriber over it is unrecoverable
+ * because they would have to subscribe again without ever knowing why.
+ *
+ * Telegram allows roughly 30 messages a second to different chats. Sends go out
+ * in small batches with a pause, which costs nothing at this size and means the
+ * limit is not something to discover in production later.
+ */
+export async function broadcastToSubscribers(
+  text: string,
+): Promise<{ sent: number; failed: number; dropped: number; channel: boolean }> {
+  const { listSubscribers, removeSubscriber } = await import("./telegramSubscribers");
+
+  const channelId = process.env.TELEGRAM_CHANNEL_ID;
+  const channel = channelId ? (await sendTelegramMessage(channelId, text)).ok : false;
+
+  const subs = await listSubscribers();
+  let sent = 0, failed = 0, dropped = 0;
+
+  const BATCH = 20;
+  for (let i = 0; i < subs.length; i += BATCH) {
+    const slice = subs.slice(i, i + BATCH);
+    const results = await Promise.all(
+      slice.map(async (s) => ({ s, r: await sendTelegramMessage(String(s.chatId), text) })),
+    );
+    for (const { s, r } of results) {
+      if (r.ok) { sent++; continue; }
+      failed++;
+      // 403: blocked or kicked. 400 "chat not found": the chat is gone.
+      if (r.errorCode === 403 || (r.errorCode === 400 && /chat not found/i.test(r.error ?? ""))) {
+        await removeSubscriber(s.chatId);
+        dropped++;
+      }
+    }
+    if (i + BATCH < subs.length) await new Promise((r) => setTimeout(r, 1000));
+  }
+
+  return { sent, failed, dropped, channel };
 }

@@ -32,6 +32,10 @@ jobs:
       # channel; confirming too strictly never announces a real change. Neither
       # raises an error.
       - run: npx tsx scripts/waveAlert.test.mts
+      # Subscribe and unsubscribe. A stranger drives this one, and each way it
+      # breaks is quiet: duplicate alerts, alerts after asking to stop, or a
+      # list that fills with people who left.
+      - run: npx tsx scripts/subscribers.test.mts
       - run: npx next build
         env:
           # The build only needs these to exist. Real values live in Vercel;

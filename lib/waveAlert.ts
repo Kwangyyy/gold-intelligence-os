@@ -23,7 +23,7 @@
 import { countMultiSource, lineageOf, type DegreeLevel } from "./waveHierarchy";
 import { getGoldCandles } from "./goldSource";
 import { getGoldSpot } from "./goldSource";
-import { sendTelegramMessage } from "./telegram";
+import { broadcastToSubscribers } from "./telegram";
 import { kvGet, kvSet } from "./kvStore";
 
 const WATCHED = ["Primary", "Intermediate"] as const;
@@ -171,6 +171,7 @@ export interface WaveAlertResult {
   to?: string;
   error?: string;
   preview?: string;
+  delivery?: { sent: number; failed: number; dropped: number; channel: boolean };
 }
 
 /**
@@ -219,19 +220,21 @@ export async function checkWaveAlert(dry = false): Promise<WaveAlertResult> {
   if (!chatId) return { changed, sent: false, reason: "Telegram not configured", lineage };
 
   const spot = await getGoldSpot().catch(() => null);
-  const send = await sendTelegramMessage(
-    chatId,
+  const fan = await broadcastToSubscribers(
     formatWaveAlert(changed, stored.alerted, now, lineage, spot?.price ?? 0),
   );
+  const ok = fan.channel || fan.sent > 0;
 
-  if (send.ok) await kvSet(STATE_KEY, { alerted: now, pending: null, lineage }, 30 * 86_400);
+  // The state only advances on a delivery that happened. Advancing it on a
+  // failed send would mark this change as announced and the channel would never
+  // hear about it.
+  if (ok) await kvSet(STATE_KEY, { alerted: now, pending: null, lineage }, 30 * 86_400);
 
   return {
     changed,
-    sent: send.ok,
-    reason: send.ok ? "sent" : "send failed",
+    sent: ok,
+    reason: ok ? "sent" : "send failed",
     lineage,
-    to: send.to,
-    error: send.error,
+    delivery: fan,
   };
 }

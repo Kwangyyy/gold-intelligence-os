@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { addSubscriber, removeSubscriber, isSubscribed, listSubscribers, webhookSecret } from "@/lib/telegramSubscribers";
 import { sendTelegramMessage } from "@/lib/telegram";
+import { kvSet } from "@/lib/kvStore";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,8 +38,18 @@ interface Update {
 }
 
 export async function POST(req: NextRequest) {
+  // Every outcome is recorded, because from outside this endpoint is opaque:
+  // a bot that does not answer looks identical whether Telegram never called,
+  // called and was refused, or called and the reply failed. Those need
+  // different fixes and guessing between them wastes an evening.
   const secret = await webhookSecret();
-  if (req.headers.get("x-telegram-bot-api-secret-token") !== secret) {
+  const presented = req.headers.get("x-telegram-bot-api-secret-token");
+  if (presented !== secret) {
+    await kvSet(
+      "gios:tg:last-reject",
+      { at: Date.now(), hadHeader: presented != null },
+      7 * 86_400,
+    ).catch(() => {});
     // Deliberately terse and deliberately 401. Nothing about the bot, the list
     // or the expected shape leaks to whoever is probing.
     return NextResponse.json({ ok: false }, { status: 401 });
@@ -89,6 +100,13 @@ export async function POST(req: NextRequest) {
     reply = HELP;
   }
 
-  await sendTelegramMessage(String(chatId), reply);
+  // The reply was fire-and-forget before. If it failed, the reader saw silence
+  // and the log said nothing had gone wrong.
+  const sent = await sendTelegramMessage(String(chatId), reply);
+  await kvSet(
+    "gios:tg:last-update",
+    { at: Date.now(), cmd, replied: sent.ok, replyError: sent.error ?? null },
+    7 * 86_400,
+  ).catch(() => {});
   return NextResponse.json({ ok: true });
 }

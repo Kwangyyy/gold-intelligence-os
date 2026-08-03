@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { listSubscribers, webhookSecret } from "@/lib/telegramSubscribers";
+import { kvGet, kvDurable } from "@/lib/kvStore";
 import { getApiAdmin, unauthorized } from "@/lib/apiAuth";
 
 export const runtime = "nodejs";
@@ -42,6 +43,13 @@ export async function GET(req: NextRequest) {
       lastErrorAt: info?.result?.last_error_date
         ? new Date(info.result.last_error_date * 1000).toISOString()
         : null,
+      // Without a durable store the shared secret is regenerated per instance,
+      // so the one Telegram was given never matches the one that checks it and
+      // every delivery is refused. Invisible from outside and the first thing to
+      // rule out.
+      durableStore: kvDurable(),
+      lastAccepted: await kvGet("gios:tg:last-update"),
+      lastRejected: await kvGet("gios:tg:last-reject"),
       subscribers: subs.length,
       // Names only. Chat ids identify a person's Telegram account and there is
       // no reason for a dashboard to hand them out.

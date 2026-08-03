@@ -11,6 +11,9 @@ interface Status {
   lastErrorAt: string | null;
   subscribers: number;
   names: string[];
+  durableStore?: boolean;
+  lastAccepted?: { at: number; cmd: string; replied: boolean; replyError: string | null } | null;
+  lastRejected?: { at: number; hadHeader: boolean } | null;
   error?: string;
 }
 
@@ -102,6 +105,37 @@ export default function TelegramAdminPage() {
                 <dt className="w-32 shrink-0 text-silver/35">ค้างส่ง</dt>
                 <dd className="font-mono text-silver/60">{status.pendingUpdateCount ?? "—"}</dd>
               </div>
+              <div className="flex gap-3">
+                <dt className="w-32 shrink-0 text-silver/35">ที่เก็บถาวร</dt>
+                <dd style={{ color: status.durableStore ? "#34d399" : "#f87171" }}>
+                  {status.durableStore
+                    ? "พร้อม"
+                    : "ไม่พร้อม — secret จะถูกสร้างใหม่ทุกครั้ง ทำให้ Telegram ส่งเข้ามาไม่ผ่านทุกครั้ง"}
+                </dd>
+              </div>
+              {/* Whether Telegram has ever reached the handler, and what happened
+                  when it did. A bot that does not answer looks the same whether
+                  it was never called, refused, or replied to and the reply
+                  failed — and those need different fixes. */}
+              <div className="flex gap-3">
+                <dt className="w-32 shrink-0 text-silver/35">รับล่าสุด</dt>
+                <dd className="text-silver/60">
+                  {status.lastAccepted
+                    ? `${status.lastAccepted.cmd} · ${new Date(status.lastAccepted.at).toLocaleString("th-TH")} · ${
+                        status.lastAccepted.replied ? "ตอบกลับแล้ว" : `ตอบกลับไม่สำเร็จ: ${status.lastAccepted.replyError ?? "ไม่ทราบสาเหตุ"}`
+                      }`
+                    : "— ยังไม่เคยมีข้อความเข้ามาเลย —"}
+                </dd>
+              </div>
+              {status.lastRejected && (
+                <div className="flex gap-3">
+                  <dt className="w-32 shrink-0 text-silver/35">ปฏิเสธล่าสุด</dt>
+                  <dd style={{ color: "#f5c451" }}>
+                    {new Date(status.lastRejected.at).toLocaleString("th-TH")} ·{" "}
+                    {status.lastRejected.hadHeader ? "secret ไม่ตรง" : "ไม่มี secret มาด้วย"}
+                  </dd>
+                </div>
+              )}
               {status.lastError && (
                 <div className="flex gap-3">
                   <dt className="w-32 shrink-0 text-silver/35">ข้อผิดพลาดล่าสุด</dt>

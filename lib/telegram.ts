@@ -1,7 +1,10 @@
 // Telegram alert helper — server-side only (reads TELEGRAM_BOT_TOKEN from env)
 // TELEGRAM_CHANNEL_ID — channel to broadcast AI signals (e.g. "@mychannel" or "-100xxxxxxxxxx")
 
-export async function sendTelegramMessage(chatId: string, text: string): Promise<{ ok: boolean; error?: string }> {
+export async function sendTelegramMessage(
+  chatId: string,
+  text: string,
+): Promise<{ ok: boolean; error?: string; to?: string }> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) return { ok: false, error: "TELEGRAM_BOT_TOKEN not set" };
   if (!chatId) return { ok: false, error: "chatId is required" };
@@ -15,7 +18,39 @@ export async function sendTelegramMessage(chatId: string, text: string): Promise
     });
     const json = await res.json();
     if (!json.ok) return { ok: false, error: json.description ?? "Telegram error" };
-    return { ok: true };
+    // Which chat Telegram actually delivered to. "It says it sent and nothing
+    // arrived" is otherwise unanswerable: the API reporting ok means the message
+    // reached *a* chat, and the only question left is which one.
+    return { ok: true, to: chatLabel(json.result?.chat) };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Network error" };
+  }
+}
+
+function chatLabel(chat: { title?: string; username?: string; type?: string } | undefined): string {
+  if (!chat) return "unknown";
+  const name = chat.title ?? (chat.username ? `@${chat.username}` : "unnamed");
+  return `${name} (${chat.type ?? "?"})`;
+}
+
+/**
+ * Who the configured channel id points at, without sending anything.
+ *
+ * Answers the question a failed delivery actually raises. The bot token stays
+ * server-side and the id is not echoed back — only the human-readable name, so
+ * the answer can be compared against the channel on screen.
+ */
+export async function describeChat(chatId: string): Promise<{ ok: boolean; chat?: string; error?: string }> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) return { ok: false, error: "TELEGRAM_BOT_TOKEN not set" };
+  if (!chatId) return { ok: false, error: "TELEGRAM_CHANNEL_ID not set" };
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/getChat?chat_id=${encodeURIComponent(chatId)}`, {
+      signal: AbortSignal.timeout(6_000),
+    });
+    const json = await res.json();
+    if (!json.ok) return { ok: false, error: json.description ?? "Telegram error" };
+    return { ok: true, chat: chatLabel(json.result) };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Network error" };
   }

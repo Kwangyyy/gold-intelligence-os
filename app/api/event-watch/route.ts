@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { scanEvents, alreadySent, markSent, CATEGORY_LABEL, type WatchedEvent } from "@/lib/eventWatch";
 import { getGoldSpot } from "@/lib/goldSource";
-import { sendTelegramMessage } from "@/lib/telegram";
+import { sendTelegramMessage, describeChat } from "@/lib/telegram";
 import { getApiAdmin, isCronRequest, unauthorized } from "@/lib/apiAuth";
 import { kvGet, kvSet } from "@/lib/kvStore";
 

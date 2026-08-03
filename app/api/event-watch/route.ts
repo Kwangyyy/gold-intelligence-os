@@ -66,6 +66,18 @@ export async function GET(req: NextRequest) {
 
   const dry = req.nextUrl.searchParams.get("dry") === "1";
 
+  // "It reported sent and nothing arrived." Telegram answering ok means the
+  // message reached a chat; this says which one, so the configured id can be
+  // compared against the channel actually on screen. Sends nothing.
+  if (req.nextUrl.searchParams.get("whoami") === "1") {
+    const who = await describeChat(process.env.TELEGRAM_CHANNEL_ID || "");
+    return NextResponse.json({
+      botTokenSet: !!process.env.TELEGRAM_BOT_TOKEN,
+      channelIdSet: !!process.env.TELEGRAM_CHANNEL_ID,
+      ...who,
+    });
+  }
+
   try {
     const events = await scanEvents();
     const candidates = events.filter((e) => e.severity >= ALERT_THRESHOLD);
@@ -121,6 +133,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       sent: send.ok,
       error: send.error,
+      // Named, not merely claimed: a delivery report that does not say where it
+      // went cannot distinguish "sent" from "sent somewhere else".
+      to: send.to,
       alerted: fresh.map((e) => ({ title: e.title, severity: e.severity, category: e.category })),
       scanned: events.length,
     });

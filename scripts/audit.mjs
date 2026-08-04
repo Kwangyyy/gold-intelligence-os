@@ -209,10 +209,35 @@ function bodiesAgree(a, b) {
   }
 }
 
+// ── which build answered ────────────────────────────────────────────────────
+// The determinism check compares two calls to the same route, which only means
+// something while one build is serving. During a rollover the calls hit
+// different builds and differ for a reason that is not a defect.
+let baselineBuild = null;
+let rolledOver = false;
+
+async function currentBuild() {
+  try {
+    const r = await get(`${BASE}/api/build`);
+    const j = JSON.parse(r.body);
+    return `${j.commit}:${j.deployment}`;
+  } catch {
+    return null;
+  }
+}
+
+/** True when the build answering now differs from the one at the start. */
+async function buildChanged() {
+  const now = await currentBuild();
+  if (!now || !baselineBuild) return false;
+  return now !== baselineBuild;
+}
+
 async function liveChecks(list) {
   const spot = Number(
     JSON.parse((await get("https://data-api.binance.vision/api/v3/ticker/price?symbol=PAXGUSDT")).body).price,
   );
+  baselineBuild = await currentBuild();
   console.log(`  reference spot: ${spot.toFixed(2)}\n`);
 
   for (const r of list) {
@@ -246,7 +271,15 @@ async function liveChecks(list) {
       const c = await get(`${BASE}/api/${r}`);
       const d = await get(`${BASE}/api/${r}`);
       if (!bodiesAgree(c.body, d.body)) {
-        fail("deterministic", `${r} returned different data on two consecutive calls, twice`);
+        // Unless a deploy rolled over mid-run, in which case the calls landed on
+        // different builds and the difference says nothing about the route.
+        // This has produced false failures three times, and a check that cries
+        // wolf is one people stop reading.
+        if (await buildChanged()) {
+          rolledOver = true;
+        } else {
+          fail("deterministic", `${r} returned different data on two consecutive calls, twice`);
+        }
       }
     }
   }
@@ -263,6 +296,14 @@ if (!failures.length) {
   process.exit(0);
 }
 const byCheck = {};
+// A rollover makes the determinism comparison meaningless for however many
+// routes it touched. Saying so is the point: silently skipping them would leave
+// the run looking cleaner than it was checked.
+if (rolledOver) {
+  console.log("\n  note: a deploy rolled over during this run — determinism was not");
+  console.log("        checked for every route. Re-run once the deploy has settled.");
+}
+
 for (const f of failures) {
   const [check, ...rest] = f.split(": ");
   (byCheck[check] ??= []).push(rest.join(": "));

@@ -41,10 +41,12 @@ await check("a removed chat is no longer subscribed", await isSubscribed(1), fal
 await check("re-subscribing after /stop works", await addSubscriber(1, "Kwang"), true);
 await check("and they are on the list again", (await isSubscribed(1)), true);
 
-// Everyone starts on the free tier; nothing grants "pro" without a link step
-// that does not exist yet, and defaulting the other way would give paid alerts
-// to anyone who found the bot.
-await check("new subscribers default to free", (await listSubscribers()).every((s) => s.tier === "free"), true);
+// A subscriber who has not linked an account carries no account, and no tier
+// either. The tier used to be stored here and is not any more: a value copied at
+// link time would be frozen, so a lapsed subscription would keep receiving paid
+// alerts until a human noticed. It is read from the account when sending.
+await check("an unlinked subscriber has no account", (await listSubscribers()).every((s) => s.email === undefined), true);
+await check("and no tier is stored on them", (await listSubscribers()).every((s) => !("tier" in s)), true);
 
 for (const s of await listSubscribers()) await removeSubscriber(s.chatId);
 

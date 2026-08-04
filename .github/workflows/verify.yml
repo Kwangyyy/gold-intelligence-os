@@ -44,6 +44,10 @@ jobs:
       # read back as "absent" made callers mint a replacement, which is how the
       # webhook secret rotated on every request.
       - run: npx tsx scripts/kvStore.test.mts
+      # Codes linking a Telegram chat to an app account. A code is a bearer
+      # token for someone's tier, so single use and a strict format are the
+      # whole of its security.
+      - run: npx tsx scripts/linkCode.test.mts
       - run: npx next build
         env:
           # The build only needs these to exist. Real values live in Vercel;

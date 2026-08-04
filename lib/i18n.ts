@@ -624,6 +624,7 @@ const DICT: Record<string, Bilingual> = {
   navNews:         { th: "Gold News",          en: "Gold News"          },
   navCalculator:   { th: "คำนวณ Lot Size",     en: "Lot Calculator"     },
   navPriceAlerts:  { th: "Price Alerts",       en: "Price Alerts"       },
+  navTelegram:     { th: "แจ้งเตือน Telegram", en: "Telegram Alerts"    },
   navMarkets:      { th: "Markets",            en: "Markets"            },
   navSignalLog:    { th: "Signal Log",         en: "Signal Log"         },
   navHeatmap:      { th: "Volatility Heatmap", en: "Volatility Heatmap" },

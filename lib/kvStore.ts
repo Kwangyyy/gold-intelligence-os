@@ -119,6 +119,30 @@ export async function kvSet<T>(key: string, value: T, ttlSec?: number): Promise<
   globalThis.__kvStore = { ...(globalThis.__kvStore ?? {}), [key]: value };
 }
 
+/**
+ * Delete a key.
+ *
+ * Needed for values whose whole point is being usable once. A TTL alone is not
+ * that: it bounds how long something lives, not how many times it works, and a
+ * link code that survives its own redemption is a token anyone who saw it can
+ * replay for the rest of its window.
+ */
+export async function kvDel(key: string): Promise<void> {
+  const r = getRedis();
+  if (r) {
+    try { await r.del(key); } catch { /* best effort */ }
+    return;
+  }
+  if (fileTierReady()) {
+    try {
+      const { fs, path } = await nodeFs();
+      await fs.unlink(path.join(process.cwd(), ".data", safeName(key)));
+    } catch { /* already gone */ }
+    return;
+  }
+  if (globalThis.__kvStore) delete globalThis.__kvStore[key];
+}
+
 /** True when the durable tier is available, i.e. markers survive across instances. */
 export function kvDurable(): boolean {
   return getRedis() !== null;

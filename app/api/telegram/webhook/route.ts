@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { addSubscriber, removeSubscriber, isSubscribed, listSubscribers, webhookSecret } from "@/lib/telegramSubscribers";
+import { addSubscriber, removeSubscriber, isSubscribed, listSubscribers, webhookSecret, consumeLinkCode, linkSubscriber } from "@/lib/telegramSubscribers";
+import { getUserTier } from "@/lib/userTier";
 import { sendTelegramMessage } from "@/lib/telegram";
 import { kvSet } from "@/lib/kvStore";
 
@@ -26,9 +27,14 @@ const HELP = [
   "/start — รับแจ้งเตือนข่าวและโครงสร้างคลื่น",
   "/stop — หยุดรับแจ้งเตือน",
   "/status — ดูว่าตอนนี้สมัครอยู่หรือไม่",
+  "/link &lt;รหัส&gt; — ผูกกับบัญชีบนเว็บ (เอารหัสจากหน้าเว็บ)",
   "",
   "<i>วิเคราะห์ประกอบการตัดสินใจ ไม่ใช่คำแนะนำการลงทุน</i>",
 ].join("\n");
+
+function esc(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
 
 interface Update {
   message?: {
@@ -71,12 +77,38 @@ export async function POST(req: NextRequest) {
   const text = (update.message?.text ?? "").trim().toLowerCase();
   if (!chatId || !text.startsWith("/")) return NextResponse.json({ ok: true });
 
-  // "/start@GoldBot" is what group chats send.
-  const cmd = text.split(/[\s@]/)[0];
+  // "/start@GoldBot" is what group chats send. A deep link arrives as
+  // "/start <payload>", which is how one tap on the website both subscribes and
+  // links the account — nobody has to copy a code between two apps.
+  const [head, ...rest] = text.split(/\s+/);
+  const cmd = head.split("@")[0];
+  const arg = rest.join(" ").trim();
   const name = chat?.first_name ?? (chat?.username ? `@${chat.username}` : chat?.title ?? "unknown");
 
   let reply: string;
-  if (cmd === "/start") {
+  if ((cmd === "/start" && arg) || cmd === "/link") {
+    const email = await consumeLinkCode(arg);
+    if (!email) {
+      reply = [
+        "❌ รหัสนี้ใช้ไม่ได้",
+        "",
+        "รหัสใช้ได้ครั้งเดียวและหมดอายุใน 15 นาที",
+        "กลับไปที่หน้าเว็บแล้วกดรับรหัสใหม่ครับ",
+      ].join("\n");
+    } else {
+      await linkSubscriber(chatId, name, email);
+      const tier = await getUserTier(email).catch(() => "free" as const);
+      reply = [
+        "🔗 <b>ผูกบัญชีเรียบร้อย</b>",
+        "",
+        `บัญชี: ${esc(email)}`,
+        `ระดับ: <b>${tier}</b>`,
+        "",
+        "คุณจะได้รับแจ้งเตือนตามระดับสมาชิกของคุณ",
+        "พิมพ์ /stop เพื่อหยุดรับได้ทุกเมื่อ",
+      ].join("\n");
+    }
+  } else if (cmd === "/start") {
     const added = await addSubscriber(chatId, name);
     reply = added
       ? [
@@ -97,9 +129,20 @@ export async function POST(req: NextRequest) {
       ? "🔕 หยุดรับแจ้งเตือนแล้ว — พิมพ์ /start เมื่อต้องการกลับมารับอีกครั้ง"
       : "คุณยังไม่ได้สมัครรับแจ้งเตือนครับ — พิมพ์ /start เพื่อเริ่ม";
   } else if (cmd === "/status") {
-    reply = (await isSubscribed(chatId))
-      ? `🔔 กำลังรับแจ้งเตือนอยู่ (ผู้รับทั้งหมด ${(await listSubscribers()).length} คน)`
-      : "🔕 ยังไม่ได้รับแจ้งเตือน — พิมพ์ /start เพื่อเริ่ม";
+    const list = await listSubscribers();
+    const me = list.find((x) => x.chatId === chatId);
+    if (!me) {
+      reply = "🔕 ยังไม่ได้รับแจ้งเตือน — พิมพ์ /start เพื่อเริ่ม";
+    } else if (me.email) {
+      // Read from the account, not from anything stored here, so this says what
+      // the reader will actually receive rather than what they once qualified for.
+      const tier = await getUserTier(me.email).catch(() => "free" as const);
+      reply = `🔔 กำลังรับแจ้งเตือนอยู่
+บัญชี: ${esc(me.email)}
+ระดับ: <b>${tier}</b>`;
+    } else {
+      reply = "🔔 กำลังรับแจ้งเตือนอยู่ (ยังไม่ได้ผูกบัญชี — ผูกแล้วจะได้รับตามระดับสมาชิก)";
+    }
   } else {
     reply = HELP;
   }

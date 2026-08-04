@@ -237,6 +237,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/alerts",       icon: "🔔", key: "navAlerts"      },
       { href: "/price-alerts", icon: "🎯", key: "navPriceAlerts" },
       { href: "/signal-log",   icon: "📡", key: "navSignalLog"   },
+      { href: "/telegram",     icon: "💬", key: "navTelegram"    },
       { href: "/broadcast",    icon: "📢", key: "navBroadcast", adminOnly: true },
       { href: "/admin",        icon: "🔐", key: "navAdmin", adminOnly: true },
     ],

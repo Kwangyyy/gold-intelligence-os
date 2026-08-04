@@ -11,7 +11,7 @@
 // 403 for those and a list that never prunes them slowly becomes mostly dead
 // addresses, spending the send budget on people who left.
 
-import { kvGet, kvSet } from "./kvStore";
+import { kvGet, kvSet, kvDel } from "./kvStore";
 
 const KEY = "gios:tg:subscribers";
 
@@ -19,8 +19,16 @@ export interface Subscriber {
   chatId: number;
   name: string;          // first name or @username, for the owner's own list
   since: number;
-  /** Reserved for linking to an app account. Everyone is "free" until then. */
-  tier: "free" | "pro";
+  /**
+   * The app account this chat belongs to, once linked.
+   *
+   * Deliberately the email and not the tier. A tier copied here at link time
+   * would be frozen: someone whose subscription lapsed would keep receiving paid
+   * alerts until a human noticed, and nothing would look wrong. The account is
+   * the record; the tier is read from it at the moment of sending.
+   */
+  email?: string;
+  linkedAt?: number;
 }
 
 export async function listSubscribers(): Promise<Subscriber[]> {
@@ -35,7 +43,7 @@ async function save(list: Subscriber[]): Promise<void> {
 export async function addSubscriber(chatId: number, name: string): Promise<boolean> {
   const list = await listSubscribers();
   if (list.some((s) => s.chatId === chatId)) return false;
-  list.push({ chatId, name, since: Date.now(), tier: "free" });
+  list.push({ chatId, name, since: Date.now() });
   await save(list);
   return true;
 }
@@ -90,4 +98,53 @@ export async function ensureWebhookSecret(): Promise<string> {
   const secret = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
   await kvSet(SECRET_KEY, secret);
   return secret;
+}
+
+// ── linking a chat to an app account ────────────────────────────────────────
+//
+// The web issues the code, because the web is where a subscription is bought and
+// therefore where the truth about it lives. The code is one-use and short-lived:
+// it is effectively a bearer token for someone's account tier, and one that
+// lingered in a chat log or a screenshot would be reusable by whoever saw it.
+
+const CODE_TTL_SEC = 15 * 60;
+const codeKey = (code: string) => `gios:tg:link:${code}`;
+
+/** A fresh single-use code for `email`, valid for fifteen minutes. */
+export async function createLinkCode(email: string): Promise<string> {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  const code = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  await kvSet(codeKey(code), { email, at: Date.now() }, CODE_TTL_SEC);
+  return code;
+}
+
+/**
+ * Redeem a code, returning the account it was issued for.
+ *
+ * Burned on use. Expiry is enforced by the store's TTL, and checked again here
+ * rather than trusted: a store without TTL support would otherwise leave these
+ * valid forever.
+ */
+export async function consumeLinkCode(code: string): Promise<string | null> {
+  if (!/^[a-f0-9]{32}$/.test(code)) return null;
+  const rec = await kvGet<{ email: string; at: number }>(codeKey(code));
+  if (!rec?.email) return null;
+  await kvDel(codeKey(code));
+  if (Date.now() - rec.at > CODE_TTL_SEC * 1000) return null;
+  return rec.email;
+}
+
+/** Attach an account to a chat, subscribing it if it was not already. */
+export async function linkSubscriber(chatId: number, name: string, email: string): Promise<void> {
+  const list = await listSubscribers();
+  const existing = list.find((s) => s.chatId === chatId);
+  if (existing) {
+    existing.email = email;
+    existing.linkedAt = Date.now();
+    existing.name = name;
+  } else {
+    list.push({ chatId, name, since: Date.now(), email, linkedAt: Date.now() });
+  }
+  await save(list);
 }

@@ -217,13 +217,37 @@ export function formatSignalMessage(setup: {
  */
 export async function broadcastToSubscribers(
   text: string,
-): Promise<{ sent: number; failed: number; dropped: number; channel: boolean }> {
+  minTier: "free" | "premium" | "pro" = "free",
+): Promise<{ sent: number; failed: number; dropped: number; skipped: number; channel: boolean }> {
   const { listSubscribers, removeSubscriber } = await import("./telegramSubscribers");
+  const { getUserTier } = await import("./userTier");
+  const { TIER_RANK } = await import("./tierConfig");
 
   const channelId = process.env.TELEGRAM_CHANNEL_ID;
   const channel = channelId ? (await sendTelegramMessage(channelId, text)).ok : false;
 
-  const subs = await listSubscribers();
+  const all = await listSubscribers();
+
+  // The tier is read from the account now, not from anything stored on the
+  // subscriber. A tier copied at link time would be frozen: a lapsed
+  // subscription would keep receiving paid alerts indefinitely and nothing
+  // would look wrong. Unlinked chats count as free.
+  let skipped = 0;
+  const subs = minTier === "free"
+    ? all
+    : (
+        await Promise.all(
+          all.map(async (s) => {
+            const tier = s.email ? await getUserTier(s.email).catch(() => "free" as const) : ("free" as const);
+            return TIER_RANK[tier] >= TIER_RANK[minTier] ? s : null;
+          }),
+        )
+      ).filter((s): s is NonNullable<typeof s> => {
+        if (s) return true;
+        skipped++;
+        return false;
+      });
+
   let sent = 0, failed = 0, dropped = 0;
 
   const BATCH = 20;
@@ -244,5 +268,5 @@ export async function broadcastToSubscribers(
     if (i + BATCH < subs.length) await new Promise((r) => setTimeout(r, 1000));
   }
 
-  return { sent, failed, dropped, channel };
+  return { sent, failed, dropped, skipped, channel };
 }

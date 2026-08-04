@@ -479,7 +479,15 @@ interface RawTradeSetup {
   reasoningTh: string[]; risksTh: string[]; invalidationTh: string;
 }
 
-function ruleBasedSetup(input: {
+/**
+ * The deterministic strategy: the fallback when Gemini is unavailable, and the
+ * only part of the signal path that can be replayed over history — an LLM cannot
+ * be re-run bar by bar for two hundred days.
+ *
+ * Exported so the backtest measures the code that ships rather than a copy of
+ * the rules, which would keep reporting an edge after the real one changed.
+ */
+export function ruleBasedSetup(input: {
   price: number; ema20: number; ema50: number; rsi: number; macdHist: number; atr: number;
 }): TradeSetup {
   const { price: p, ema20, ema50, rsi: rsiV, macdHist, atr: atrV } = input;

@@ -220,8 +220,12 @@ export async function checkWaveAlert(dry = false): Promise<WaveAlertResult> {
   if (!chatId) return { changed, sent: false, reason: "Telegram not configured", lineage };
 
   const spot = await getGoldSpot().catch(() => null);
+  // Wave structure is the premium alert; news stays free. Read at send time
+  // from the account, so a lapsed subscription stops receiving without anything
+  // needing to notice.
   const fan = await broadcastToSubscribers(
     formatWaveAlert(changed, stored.alerted, now, lineage, spot?.price ?? 0),
+    "premium",
   );
   const ok = fan.channel || fan.sent > 0;
 

@@ -48,6 +48,10 @@ jobs:
       # token for someone's tier, so single use and a strict format are the
       # whole of its security.
       - run: npx tsx scripts/linkCode.test.mts
+      # Who receives which alert. Gate too tightly and someone who paid stops
+      # receiving with no error; too loosely and the paid alert is free. The
+      # channel is the trap: it has one audience and no tiers.
+      - run: npx tsx scripts/alertTier.test.mts
       - run: npx next build
         env:
           # The build only needs these to exist. Real values live in Vercel;

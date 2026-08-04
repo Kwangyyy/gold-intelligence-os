@@ -198,6 +198,32 @@ export function formatSignalMessage(setup: {
   return lines.join("\n").replace(/\n{3,}/g, "\n\n");
 }
 
+// ── who receives what ───────────────────────────────────────────────────────
+//
+// Exported so the rule is tested against the code that runs, not restated in a
+// test that would keep passing if the two drifted apart. Both directions fail
+// silently: gate too tightly and a paying reader stops receiving with no error
+// anywhere, gate too loosely and the paid alert is free and nothing says so.
+
+import { TIER_RANK, type Tier } from "./tierConfig";
+
+/** Whether an account at `tier` receives an alert requiring `minTier`. */
+export function qualifies(tier: Tier | null | undefined, minTier: Tier): boolean {
+  return TIER_RANK[tier ?? "free"] >= TIER_RANK[minTier];
+}
+
+/**
+ * Whether the broadcast channel carries an alert requiring `minTier`.
+ *
+ * Only free ones. A channel has a single audience and no tiers — everyone in it
+ * sees every message, and membership is an invite link that can be forwarded.
+ * Putting premium content there while filtering the direct subscribers would
+ * gate nothing: joining the channel would be the cheapest way past the paywall.
+ */
+export function channelReceives(minTier: Tier): boolean {
+  return minTier === "free";
+}
+
 // ── fan-out to self-service subscribers ─────────────────────────────────────
 
 /**
@@ -221,9 +247,15 @@ export async function broadcastToSubscribers(
 ): Promise<{ sent: number; failed: number; dropped: number; skipped: number; channel: boolean }> {
   const { listSubscribers, removeSubscriber } = await import("./telegramSubscribers");
   const { getUserTier } = await import("./userTier");
-  const { TIER_RANK } = await import("./tierConfig");
 
-  const channelId = process.env.TELEGRAM_CHANNEL_ID;
+  // Paid alerts do not go to the channel.
+  //
+  // A channel has one audience and no tiers: everyone in it sees every message,
+  // and membership is an invite link that can be forwarded. Sending premium
+  // content there while carefully filtering the direct subscribers would gate
+  // nothing at all — the cheapest way past the paywall would be to join the
+  // channel. Anything above free goes only to linked accounts that qualify.
+  const channelId = channelReceives(minTier) ? process.env.TELEGRAM_CHANNEL_ID : "";
   const channel = channelId ? (await sendTelegramMessage(channelId, text)).ok : false;
 
   const all = await listSubscribers();
@@ -239,7 +271,7 @@ export async function broadcastToSubscribers(
         await Promise.all(
           all.map(async (s) => {
             const tier = s.email ? await getUserTier(s.email).catch(() => "free" as const) : ("free" as const);
-            return TIER_RANK[tier] >= TIER_RANK[minTier] ? s : null;
+            return qualifies(tier, minTier) ? s : null;
           }),
         )
       ).filter((s): s is NonNullable<typeof s> => {

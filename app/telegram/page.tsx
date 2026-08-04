@@ -79,7 +79,10 @@ export default function TelegramConnectPage() {
               {state.linkedAt && ` · ผูกเมื่อ ${new Date(state.linkedAt).toLocaleDateString("th-TH")}`}
             </div>
             <div className="mt-1 text-[12px] text-silver/50">
-              ระดับสมาชิก: <b style={{ color: "#f5c451" }}>{state.tier}</b> — คุณจะได้รับแจ้งเตือนตามระดับนี้
+              ระดับสมาชิก: <b style={{ color: "#f5c451" }}>{state.tier}</b>
+              {state.tier === "free"
+                ? " — ได้รับแจ้งเตือนข่าว (อัปเกรดเป็น Premium เพื่อรับแจ้งเตือนคลื่นด้วย)"
+                : " — ได้รับทั้งข่าวและโครงสร้างคลื่น"}
             </div>
             <a
               href={state.botUrl}
@@ -132,9 +135,19 @@ export default function TelegramConnectPage() {
 
       <div className="panel p-5 text-[12px] leading-relaxed text-silver/50">
         <div className="mb-2 text-[10px] uppercase tracking-widest text-silver/35">คุณจะได้รับอะไร</div>
-        <ul className="space-y-1.5">
-          <li>📰 ข่าวและเหตุการณ์ที่อาจกระทบราคาทอง พร้อมทิศทางว่าหนุนหรือกดราคา</li>
-          <li>〰️ เมื่อโครงสร้างคลื่นระดับใหญ่เปลี่ยน — เฉลี่ยราว 4 วันครั้ง ไม่ใช่ทุกวัน</li>
+        <ul className="space-y-2">
+          <li>
+            📰 <b>ข่าวที่อาจกระทบราคาทอง</b> พร้อมทิศทางว่าหนุนหรือกดราคา
+            <span className="ml-1 rounded px-1.5 py-0.5 text-[10px]" style={{ background: "rgba(148,163,184,0.12)", color: "rgba(175,185,215,0.7)" }}>
+              ทุกระดับ
+            </span>
+          </li>
+          <li>
+            〰️ <b>โครงสร้างคลื่นระดับใหญ่เปลี่ยน</b> — เฉลี่ยราว 4 วันครั้ง ไม่ใช่ทุกวัน
+            <span className="ml-1 rounded px-1.5 py-0.5 text-[10px]" style={{ background: "rgba(245,196,81,0.14)", color: "#f5c451" }}>
+              Premium ขึ้นไป
+            </span>
+          </li>
         </ul>
         <div className="mt-3 text-[11px] text-silver/30">
           วิเคราะห์ประกอบการตัดสินใจ ไม่ใช่คำแนะนำการลงทุน

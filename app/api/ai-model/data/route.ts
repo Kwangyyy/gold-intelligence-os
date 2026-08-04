@@ -10,6 +10,7 @@ import type { OHLC } from "@/lib/backtest";
 import { FEATURE_NAMES } from "@/lib/aiModelTypes";
 import type { ModelDataPayload } from "@/lib/aiModelTypes";
 import { goldChartJson } from "@/lib/goldSource";
+import { kvGet, kvSet } from "@/lib/kvStore";
 
 export const dynamic = "force-dynamic";
 
@@ -180,16 +181,50 @@ function buildFeatures(ohlc: OHLC[]): ModelDataPayload {
   };
 }
 
+// Shared across instances, because the in-memory cache above is empty on a cold
+// one — and a cold instance meeting an upstream hiccup was the only state in
+// which this route had nothing at all to answer with.
+//
+// This is two years of daily bars. An hour old and a minute old are the same
+// data for training purposes, so serving the last good matrix is not a
+// compromise; failing outright was. 233 KB, well inside the store's limit.
+const SHARED_KEY = "gios:ai-model:data";
+const SHARED_TTL_SEC = 6 * 3600;
+
 export async function GET() {
   if (CACHE && Date.now() - CACHE.ts < TTL) {
     return NextResponse.json(CACHE.payload, { headers: { "Cache-Control": "no-store" } });
   }
+
+  const shared = await kvGet<{ payload: ModelDataPayload; ts: number }>(SHARED_KEY).catch(() => null);
+  if (shared && Date.now() - shared.ts < TTL) {
+    CACHE = shared;
+    return NextResponse.json(shared.payload, { headers: { "Cache-Control": "no-store" } });
+  }
+
   try {
-    const ohlc    = await fetchOHLC();
+    const ohlc = await fetchOHLC();
+    if (!ohlc.length) throw new Error("gold history came back empty");
     const payload = buildFeatures(ohlc);
     CACHE = { payload, ts: Date.now() };
+    void kvSet(SHARED_KEY, CACHE, SHARED_TTL_SEC);
     return NextResponse.json(payload, { headers: { "Cache-Control": "no-store" } });
   } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 500 });
+    // Stale beats broken. If the upstream is down or rate limited, a six-hour-old
+    // feature matrix still trains the same model.
+    if (shared) {
+      return NextResponse.json(shared.payload, { headers: { "Cache-Control": "no-store" } });
+    }
+    // Nothing to fall back on. This route has returned 500 three times during
+    // full audit runs and never once when called on its own, and I could not
+    // reproduce it — 304 requests replaying the audit's pattern did not trigger
+    // it. So the failure records itself, because otherwise the next occurrence
+    // will be exactly as uninformative as the last three.
+    const detail = e instanceof Error ? e.message : String(e);
+    void kvSet("gios:ai-model:last-failure", { at: Date.now(), detail }, 7 * 86_400);
+    return NextResponse.json(
+      { error: detail, note: "no cached feature matrix to fall back on" },
+      { status: 500 },
+    );
   }
 }

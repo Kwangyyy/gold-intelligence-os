@@ -15,6 +15,7 @@ import { emaSeries, rsi, macd, atr } from "./indicators";
 import { generateTradeStrategy, geminiEnabled } from "./gemini";
 import { logSignal, getSignals } from "./signalLog";
 import { kvGet, kvSet } from "./kvStore";
+import { currentWaveDirection, judge } from "./waveFilter";
 
 // The strategy reads H1 bars, so a new decision is only meaningful once a new
 // bar has closed. Faster would sample the same bar repeatedly and call it more
@@ -27,6 +28,8 @@ export interface ScheduledResult {
   reason: string;
   direction?: string;
   confidence?: number;
+  /** Set when the wave filter turned a proposed trade into a wait. */
+  filtered?: string;
 }
 
 /**
@@ -70,22 +73,36 @@ export async function runScheduledSignal(force = false): Promise<ScheduledResult
     recentCandles: h1.slice(-10).map((c) => ({ h: c.high, l: c.low, c: c.close })),
   });
 
+  // Trades against the larger degree lost money in every backtest window; see
+  // lib/waveFilter. A refused trade becomes a wait rather than disappearing, so
+  // the record still shows the strategy having had an opinion and the filter
+  // overruling it — deleting those would hide how often that happens.
+  const verdict = judge(setup.direction, await currentWaveDirection());
+  const direction = verdict.allow ? setup.direction : "wait";
+  const blocked = !verdict.allow;
+
   // "wait" is recorded too. Dropping it would leave a log of the times the
   // strategy had an opinion and none of the times it did not, which reads as a
   // strategy that always has one.
   await logSignal({
     symbol: "XAUUSD",
-    direction: setup.direction,
-    confidence: setup.confidence,
-    setupType: setup.setupType,
+    direction,
+    confidence: blocked ? Math.min(setup.confidence, 45) : setup.confidence,
+    setupType: blocked ? `${setup.setupType} — blocked by wave filter` : setup.setupType,
     entry: setup.entry,
-    sl: setup.sl,
-    tp1: setup.tp1,
-    tp2: setup.tp2,
-    rr1: setup.rr1,
+    sl: blocked ? 0 : setup.sl,
+    tp1: blocked ? 0 : setup.tp1,
+    tp2: blocked ? null : setup.tp2,
+    rr1: blocked ? 0 : setup.rr1,
     source: geminiEnabled() ? "gemini" : "rule",
   });
 
   await kvSet(LAST_KEY, Date.now(), Math.ceil(EVERY_MS / 1000));
-  return { ran: true, reason: "logged", direction: setup.direction, confidence: setup.confidence };
+  return {
+    ran: true,
+    reason: "logged",
+    direction,
+    confidence: setup.confidence,
+    ...(blocked ? { filtered: `${setup.direction} → wait: ${verdict.reason}` } : {}),
+  };
 }

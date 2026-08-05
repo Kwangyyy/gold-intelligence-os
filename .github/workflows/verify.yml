@@ -52,6 +52,10 @@ jobs:
       # receiving with no error; too loosely and the paid alert is free. The
       # channel is the trap: it has one audience and no tiers.
       - run: npx tsx scripts/alertTier.test.mts
+      # Whether a proposed trade is allowed through. Blocking what should pass
+      # goes quiet for weeks with no sign why; letting through what should be
+      # blocked emits exactly the trades measured as losing.
+      - run: npx tsx scripts/waveFilter.test.mts
       - run: npx next build
         env:
           # The build only needs these to exist. Real values live in Vercel;

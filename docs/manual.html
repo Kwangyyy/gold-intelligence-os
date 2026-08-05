@@ -1,0 +1,883 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>Gold Intelligence OS — คู่มือการใช้งาน / User Manual</title>
+<style>
+/* ──────────────────────────────────────────────────────────────────────────
+   Gold Intelligence OS — bilingual manual, print-first.
+
+   Palette: deep navy ground with metallic gold. Not yellow — a muted alloy
+   (#C8A44D) that stays legible on both the dark section pages and white paper,
+   which a brighter gold does not. Neutrals carry a blue bias so nothing reads
+   as inherited grey.
+
+   Type: Georgia for the display voice — a manual about a financial instrument
+   earns a serif — against Leelawadee UI, which is the face Windows actually
+   ships with correct Thai shaping. Consolas for anything a reader will type.
+   System faces on purpose: this is printed by local Chrome, so an embedded
+   webfont would only add weight and a chance of silent fallback.
+   ────────────────────────────────────────────────────────────────────────── */
+
+:root {
+  --navy-900: #0A1526;
+  --navy-800: #12233D;
+  --navy-700: #1B3358;
+  --blue-500: #2C5F9E;
+  --blue-300: #6E9BD1;
+
+  --gold-600: #A8863A;
+  --gold-500: #C8A44D;
+  --gold-300: #E3C46B;
+  --gold-050: #F6EFDC;
+
+  --ink:      #16202F;
+  --ink-mid:  #4A5769;   /* blue-biased greys, not neutral */
+  --ink-soft: #7C889B;
+  --rule:     #D9DEE6;
+  --paper:    #FFFFFF;
+  --paper-2:  #F7F8FA;
+
+  --good: #2F7D5C;
+  --warn: #B0812F;
+  --bad:  #A8453D;
+
+  --serif: Georgia, "Times New Roman", serif;
+  --sans:  "Leelawadee UI", "Segoe UI", Tahoma, sans-serif;
+  --mono:  Consolas, "Courier New", monospace;
+}
+
+@page { size: A4; margin: 16mm 14mm 18mm; }
+@page :first { margin: 0; }
+
+* { box-sizing: border-box; }
+html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+body {
+  margin: 0;
+  font-family: var(--sans);
+  font-size: 9.6pt;
+  line-height: 1.62;
+  color: var(--ink);
+  background: var(--paper);
+}
+
+/* ── cover ───────────────────────────────────────────────────────────────── */
+.cover {
+  page-break-after: always;
+  height: 297mm; width: 210mm;
+  background:
+    radial-gradient(120% 80% at 78% 6%, rgba(200,164,77,.20), transparent 58%),
+    linear-gradient(168deg, var(--navy-800) 0%, var(--navy-900) 62%, #060E1A 100%);
+  color: #EAF0F8;
+  padding: 30mm 22mm 22mm;
+  display: flex; flex-direction: column;
+  position: relative; overflow: hidden;
+}
+.cover::after {           /* a hairline gold seam, the only flourish */
+  content: ""; position: absolute; left: 22mm; right: 22mm; bottom: 34mm;
+  height: 1px; background: linear-gradient(90deg, transparent, var(--gold-500), transparent);
+}
+.crest { margin-bottom: 16mm; }
+.eyebrow {
+  font-family: var(--sans); font-size: 8pt; letter-spacing: .26em;
+  text-transform: uppercase; color: var(--gold-300);
+}
+.cover h1 {
+  font-family: var(--serif); font-weight: 400;
+  font-size: 40pt; line-height: 1.06; margin: 0 0 4mm;
+  text-wrap: balance; letter-spacing: -.01em;
+}
+.cover h1 em { font-style: normal; color: var(--gold-500); }
+.cover .th-title {
+  font-size: 17pt; color: #C3D1E4; margin: 0 0 12mm; font-weight: 400;
+}
+.cover .lede {
+  max-width: 108mm; color: #9FB2CA; font-size: 10pt; line-height: 1.7;
+}
+.cover-foot {
+  margin-top: auto; display: flex; justify-content: space-between;
+  align-items: flex-end; font-size: 8.4pt; color: #7C90AC;
+}
+.cover-foot .url { font-family: var(--mono); color: var(--gold-300); }
+
+/* ── running structure ───────────────────────────────────────────────────── */
+/* Sections flow rather than each claiming a fresh page. Forcing a break left
+   about a third of every page blank — which reads as unfinished when the
+   chapters are this short, not as considered white space. */
+section { margin-top: 11mm; }
+section:first-of-type { margin-top: 0; }
+section.break { page-break-before: always; margin-top: 0; }
+.sec-head { page-break-after: avoid; }
+h3 { page-break-after: avoid; }
+
+.sec-head {
+  display: flex; align-items: baseline; gap: 5mm;
+  border-bottom: 2px solid var(--navy-800);
+  padding-bottom: 2.5mm; margin-bottom: 6mm;
+}
+.sec-num {
+  font-family: var(--serif); font-size: 26pt; line-height: 1;
+  color: var(--gold-500); font-weight: 400;
+}
+.sec-title { flex: 1; }
+.sec-title h2 {
+  font-family: var(--serif); font-weight: 400; font-size: 16pt;
+  margin: 0; color: var(--navy-900); letter-spacing: -.005em;
+}
+.sec-title .en {
+  font-size: 8.6pt; color: var(--ink-soft); letter-spacing: .06em;
+  text-transform: uppercase; margin-top: .5mm;
+}
+
+h3 {
+  font-family: var(--sans); font-size: 10.4pt; font-weight: 600;
+  margin: 7mm 0 2mm; color: var(--navy-800);
+}
+h3 .en { font-weight: 400; color: var(--ink-soft); font-size: 9pt; }
+
+/* ── the bilingual pair ──────────────────────────────────────────────────── */
+.pair {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 0 7mm;
+  margin: 0 0 4mm; page-break-inside: avoid;
+}
+.pair > .en-col {
+  border-left: 1px solid var(--rule); padding-left: 7mm;
+  color: var(--ink-mid);
+}
+.pair p { margin: 0 0 2mm; }
+.pair p:last-child { margin-bottom: 0; }
+.lang-tag {
+  font-size: 7pt; letter-spacing: .18em; text-transform: uppercase;
+  color: var(--ink-soft); display: block; margin-bottom: 1.5mm;
+}
+
+/* ── steps ───────────────────────────────────────────────────────────────── */
+ol.steps { list-style: none; counter-reset: s; margin: 3mm 0 0; padding: 0; }
+ol.steps > li {
+  counter-increment: s; position: relative; padding-left: 9mm;
+  margin-bottom: 4mm; page-break-inside: avoid;
+}
+ol.steps > li::before {
+  content: counter(s); position: absolute; left: 0; top: .2mm;
+  width: 6mm; height: 6mm; border-radius: 50%;
+  background: var(--navy-800); color: var(--gold-300);
+  font-family: var(--mono); font-size: 8pt;
+  display: flex; align-items: center; justify-content: center;
+}
+ol.steps .th { font-weight: 500; }
+ol.steps .en { color: var(--ink-soft); font-size: 8.8pt; }
+
+/* ── tables ──────────────────────────────────────────────────────────────── */
+.tbl-wrap { overflow-x: auto; margin: 3mm 0 4mm; }
+table { width: 100%; border-collapse: collapse; font-size: 8.8pt; }
+th {
+  text-align: left; font-weight: 600; font-size: 7.6pt;
+  letter-spacing: .1em; text-transform: uppercase; color: var(--ink-soft);
+  border-bottom: 1.5px solid var(--navy-800); padding: 1.5mm 2mm;
+}
+td { padding: 2mm; border-bottom: 1px solid var(--rule); vertical-align: top; }
+tr:last-child td { border-bottom: none; }
+td.num { font-variant-numeric: tabular-nums; text-align: right; font-family: var(--mono); }
+.tick { color: var(--good); font-weight: 700; }
+.cross { color: var(--ink-soft); }
+
+/* ── callouts ────────────────────────────────────────────────────────────── */
+.note {
+  border-left: 3px solid var(--gold-500); background: var(--gold-050);
+  padding: 3mm 4mm; margin: 4mm 0; font-size: 8.8pt;
+  page-break-inside: avoid;
+}
+.note.caution { border-left-color: var(--bad); background: #FBF1F0; }
+.note strong { color: var(--navy-800); }
+.note .en { color: var(--ink-mid); display: block; margin-top: 1.5mm; font-size: 8.4pt; }
+
+code, .kbd {
+  font-family: var(--mono); font-size: 8.4pt;
+  background: var(--paper-2); border: 1px solid var(--rule);
+  border-radius: 2px; padding: .3mm 1.2mm;
+}
+
+/* ── figures ─────────────────────────────────────────────────────────────── */
+figure { margin: 5mm 0; page-break-inside: avoid; }
+figure svg { width: 100%; height: auto; display: block; }
+figcaption {
+  font-size: 7.8pt; color: var(--ink-soft); margin-top: 2mm;
+  padding-top: 1.5mm; border-top: 1px solid var(--rule);
+}
+figcaption b { color: var(--navy-800); font-weight: 600; }
+
+/* ── contents ────────────────────────────────────────────────────────────── */
+.toc { list-style: none; padding: 0; margin: 4mm 0 0; }
+.toc li {
+  display: flex; align-items: baseline; gap: 3mm;
+  padding: 2.2mm 0; border-bottom: 1px solid var(--rule);
+}
+.toc .n {
+  font-family: var(--serif); color: var(--gold-600);
+  font-size: 11pt; width: 7mm;
+}
+.toc .t { flex: 1; }
+.toc .t .en { color: var(--ink-soft); font-size: 8.4pt; }
+
+/* ── tier chips ──────────────────────────────────────────────────────────── */
+.chip {
+  display: inline-block; font-size: 7.2pt; letter-spacing: .08em;
+  text-transform: uppercase; padding: .6mm 2mm; border-radius: 2mm;
+  border: 1px solid; vertical-align: middle;
+}
+.chip.free { color: var(--ink-mid); border-color: var(--rule); background: var(--paper-2); }
+.chip.prem { color: var(--gold-600); border-color: var(--gold-500); background: var(--gold-050); }
+
+.foot-rule {
+  margin-top: 8mm; padding-top: 3mm; border-top: 1px solid var(--rule);
+  font-size: 7.6pt; color: var(--ink-soft);
+}
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════ COVER ═══════════════════════════ -->
+<div class="cover">
+  <div class="crest">
+    <svg width="46" height="46" viewBox="0 0 46 46" aria-hidden="true">
+      <circle cx="23" cy="23" r="21.5" fill="none" stroke="#C8A44D" stroke-width="1"/>
+      <circle cx="23" cy="23" r="16" fill="none" stroke="#2C5F9E" stroke-width="1"/>
+      <path d="M13 28 L19 20 L24 25 L33 13" fill="none" stroke="#E3C46B" stroke-width="1.8"
+            stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="33" cy="13" r="2.2" fill="#E3C46B"/>
+    </svg>
+  </div>
+
+  <div class="eyebrow">Gold Intelligence OS · XAUUSD</div>
+  <h1>The <em>Analyst's</em><br>Manual</h1>
+  <div class="th-title">คู่มือการใช้งาน — ฉบับสมบูรณ์</div>
+
+  <p class="lede">
+    แพลตฟอร์มวิเคราะห์ตลาดทองคำ 158 หน้า รวมข้อมูลราคาเรียลไทม์
+    การนับคลื่นอีเลียตแบบลำดับชั้น ตำแหน่งของ Smart Money
+    และระบบแจ้งเตือนผ่าน Telegram
+  </p>
+  <p class="lede" style="margin-top:5mm;color:#8497B0;font-size:9pt">
+    A gold-market analysis platform: real-time spot-equivalent pricing,
+    hierarchical Elliott wave counting, institutional positioning, and
+    alerts delivered to Telegram.
+  </p>
+
+  <div class="cover-foot">
+    <div>
+      <div class="url">gold-intelligence-os.vercel.app</div>
+      <div style="margin-top:1.5mm">ฉบับเดือนสิงหาคม 2569 · Edition August 2026</div>
+    </div>
+    <div style="text-align:right">
+      <div>วิเคราะห์ประกอบการตัดสินใจ</div>
+      <div>Not investment advice</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════ CONTENTS ═══════════════════════════ -->
+<section class="break">
+  <div class="sec-head">
+    <div class="sec-num">—</div>
+    <div class="sec-title">
+      <h2>สารบัญ</h2>
+      <div class="en">Contents</div>
+    </div>
+  </div>
+
+  <ol class="toc">
+    <li><span class="n">1</span><span class="t">เริ่มต้นใช้งาน<span class="en"> · Getting started</span></span></li>
+    <li><span class="n">2</span><span class="t">ทำความเข้าใจข้อมูลราคา<span class="en"> · Understanding the price data</span></span></li>
+    <li><span class="n">3</span><span class="t">แผนที่แอป — 12 หมวด<span class="en"> · Map of the app — twelve sections</span></span></li>
+    <li><span class="n">4</span><span class="t">การนับคลื่นอีเลียต<span class="en"> · Reading the Elliott wave count</span></span></li>
+    <li><span class="n">5</span><span class="t">สัญญาณเทรดและการวัดผล<span class="en"> · Signals and how they are scored</span></span></li>
+    <li><span class="n">6</span><span class="t">แจ้งเตือนทาง Telegram<span class="en"> · Telegram alerts</span></span></li>
+    <li><span class="n">7</span><span class="t">ระดับสมาชิก<span class="en"> · Membership tiers</span></span></li>
+    <li><span class="n">8</span><span class="t">ข้อจำกัดที่ควรรู้<span class="en"> · Limits you should know about</span></span></li>
+  </ol>
+
+  <div class="note" style="margin-top:10mm">
+    <strong>คู่มือนี้อธิบายสิ่งที่ระบบทำได้จริง</strong> ตัวเลขทุกตัวในเอกสารนี้มาจากการวัดจริง
+    ไม่ใช่การประมาณ และหัวข้อที่ 8 บอกตรงๆ ว่าอะไรที่ระบบยังทำไม่ได้
+    <span class="en">Every figure in this manual was measured, not estimated. Section 8 states
+    plainly what the system cannot yet do.</span>
+  </div>
+</section>
+
+<!-- ═══════════════════════════ 1 ═══════════════════════════ -->
+<section class="break">
+  <div class="sec-head">
+    <div class="sec-num">1</div>
+    <div class="sec-title">
+      <h2>เริ่มต้นใช้งาน</h2>
+      <div class="en">Getting started</div>
+    </div>
+  </div>
+
+  <ol class="steps">
+    <li>
+      <div class="th">เปิด <code>gold-intelligence-os.vercel.app</code> แล้วกด <b>เข้าสู่ระบบ (Google)</b></div>
+      <div class="en">Open the site and sign in with Google.</div>
+    </li>
+    <li>
+      <div class="th">รอการอนุมัติ — บัญชีใหม่จะอยู่สถานะ <i>รออนุมัติ</i> จนกว่าผู้ดูแลจะกำหนดระดับให้</div>
+      <div class="en">New accounts wait for approval. An administrator assigns your tier before the pages open.</div>
+    </li>
+    <li>
+      <div class="th">เลือกโหมดการแสดงผลที่มุมล่างซ้าย — <b>มือใหม่</b> ซ่อนหน้าขั้นสูง <b>มืออาชีพ</b> แสดงทั้งหมด</div>
+      <div class="en">Pick a display mode at the lower left. <b>Beginner</b> hides the advanced pages; <b>Professional</b> shows all of them.</div>
+    </li>
+    <li>
+      <div class="th">สลับภาษาไทย / อังกฤษ ได้ที่ปุ่มข้างกัน ทุกหน้ารองรับทั้งสองภาษา</div>
+      <div class="en">Switch language beside it. Every page carries both.</div>
+    </li>
+  </ol>
+
+  <h3>หน้าจอที่ควรเปิดก่อนเป็นอันดับแรก <span class="en">Where to start</span></h3>
+
+  <div class="pair">
+    <div>
+      <span class="lang-tag">ไทย</span>
+      <p><b>ภาพรวมตลาด</b> — ราคาปัจจุบัน ทิศทาง และสิ่งที่เปลี่ยนไปในวันนี้ อยู่หน้าแรกสุด</p>
+      <p><b>กราฟ</b> — กราฟแท่งเทียนพร้อมอินดิเคเตอร์ ปรับไทม์เฟรมได้ตั้งแต่ 1 นาทีถึงรายเดือน</p>
+      <p><b>NeoWave Analyzer</b> — การนับคลื่นอีเลียตอัตโนมัติพร้อมกฎที่ผ่านและไม่ผ่าน</p>
+    </div>
+    <div class="en-col">
+      <span class="lang-tag">English</span>
+      <p><b>Overview</b> — price, direction, and what moved today. The landing page.</p>
+      <p><b>Chart</b> — candles with indicators, from one minute to monthly.</p>
+      <p><b>NeoWave Analyzer</b> — the automatic wave count, with every rule it passed and failed shown underneath.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════ 2 ═══════════════════════════ -->
+<section>
+  <div class="sec-head">
+    <div class="sec-num">2</div>
+    <div class="sec-title">
+      <h2>ทำความเข้าใจข้อมูลราคา</h2>
+      <div class="en">Understanding the price data</div>
+    </div>
+  </div>
+
+  <div class="pair">
+    <div>
+      <span class="lang-tag">ไทย</span>
+      <p>ราคาที่แสดงไม่ได้มาจากฟีด futures ที่หน่วงสิบนาทีอย่างที่แพลตฟอร์มฟรีส่วนใหญ่ใช้
+      แต่มาจาก <b>PAXG/USDT</b> ซึ่งเป็นโทเคนที่แลกทองคำ LBMA ได้ 1 ต่อ 1 ออนซ์
+      และซื้อขายแบบเรียลไทม์</p>
+      <p>ผลคือราคาบนกราฟตรงกับตลาดจริง ไม่ใช่ราคาเมื่อสิบนาทีที่แล้ว</p>
+    </div>
+    <div class="en-col">
+      <span class="lang-tag">English</span>
+      <p>The price is not the ten-minute-delayed futures feed most free platforms show.
+      It comes from <b>PAXG/USDT</b> — a token redeemable one-for-one for an ounce
+      of LBMA gold, quoted in real time.</p>
+      <p>What you see is the market now, not the market ten minutes ago.</p>
+    </div>
+  </div>
+
+  <figure>
+    <svg viewBox="0 0 640 168" xmlns="http://www.w3.org/2000/svg" role="img"
+         aria-label="Data sources feeding the platform">
+      <defs>
+        <marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0 0 L8 4 L0 8 z" fill="#7C889B"/>
+        </marker>
+      </defs>
+
+      <!-- sources -->
+      <g font-family="Leelawadee UI, Segoe UI, sans-serif" font-size="10">
+        <rect x="4" y="10" width="150" height="30" rx="3" fill="#F7F8FA" stroke="#D9DEE6"/>
+        <text x="14" y="24" fill="#16202F" font-weight="600">Binance · PAXG/USDT</text>
+        <text x="14" y="35" fill="#7C889B" font-size="8.5">ราคา spot เรียลไทม์ · real-time spot</text>
+
+        <rect x="4" y="49" width="150" height="30" rx="3" fill="#F7F8FA" stroke="#D9DEE6"/>
+        <text x="14" y="63" fill="#16202F" font-weight="600">CBOE · GLD options</text>
+        <text x="14" y="74" fill="#7C889B" font-size="8.5">แนวกำแพง OI · dealer walls</text>
+
+        <rect x="4" y="88" width="150" height="30" rx="3" fill="#F7F8FA" stroke="#D9DEE6"/>
+        <text x="14" y="102" fill="#16202F" font-weight="600">CFTC · COT</text>
+        <text x="14" y="113" fill="#7C889B" font-size="8.5">ตำแหน่งรายสถาบัน · positioning</text>
+
+        <rect x="4" y="127" width="150" height="30" rx="3" fill="#F7F8FA" stroke="#D9DEE6"/>
+        <text x="14" y="141" fill="#16202F" font-weight="600">Google News</text>
+        <text x="14" y="152" fill="#7C889B" font-size="8.5">7 ฟีด · seven feeds</text>
+      </g>
+
+      <path d="M156 25 H208 V78 H222" fill="none" stroke="#7C889B" stroke-width="1" marker-end="url(#ar)"/>
+      <path d="M156 64 H208 V78 H222" fill="none" stroke="#7C889B" stroke-width="1"/>
+      <path d="M156 103 H208 V78" fill="none" stroke="#7C889B" stroke-width="1"/>
+      <path d="M156 142 H208 V78" fill="none" stroke="#7C889B" stroke-width="1"/>
+
+      <!-- engine -->
+      <rect x="226" y="46" width="164" height="64" rx="4" fill="#12233D"/>
+      <text x="308" y="70" text-anchor="middle" fill="#E3C46B"
+            font-family="Georgia, serif" font-size="13">Analysis engine</text>
+      <text x="308" y="86" text-anchor="middle" fill="#9FB2CA"
+            font-family="Leelawadee UI, Segoe UI, sans-serif" font-size="9">
+        คลื่น · อินดิเคเตอร์ · ความเสี่ยง</text>
+      <text x="308" y="99" text-anchor="middle" fill="#7C90AC"
+            font-family="Leelawadee UI, Segoe UI, sans-serif" font-size="8">
+        waves · indicators · risk</text>
+
+      <path d="M392 78 H432" fill="none" stroke="#7C889B" stroke-width="1" marker-end="url(#ar)"/>
+
+      <!-- outputs -->
+      <g font-family="Leelawadee UI, Segoe UI, sans-serif" font-size="10">
+        <rect x="438" y="26" width="196" height="30" rx="3" fill="#FFFFFF" stroke="#2C5F9E"/>
+        <text x="450" y="40" fill="#1B3358" font-weight="600">158 หน้าวิเคราะห์</text>
+        <text x="450" y="51" fill="#7C889B" font-size="8.5">analysis pages in the browser</text>
+
+        <rect x="438" y="63" width="196" height="30" rx="3" fill="#FFFFFF" stroke="#C8A44D"/>
+        <text x="450" y="77" fill="#A8863A" font-weight="600">แจ้งเตือน Telegram</text>
+        <text x="450" y="88" fill="#7C889B" font-size="8.5">alerts pushed to Telegram</text>
+
+        <rect x="438" y="100" width="196" height="30" rx="3" fill="#FFFFFF" stroke="#D9DEE6"/>
+        <text x="450" y="114" fill="#16202F" font-weight="600">บันทึกสัญญาณ + ผลแพ้ชนะ</text>
+        <text x="450" y="125" fill="#7C889B" font-size="8.5">signal log with settled outcomes</text>
+      </g>
+    </svg>
+    <figcaption>
+      <b>เส้นทางของข้อมูล</b> — ทุกแหล่งเป็นข้อมูลสาธารณะที่ตรวจสอบย้อนได้
+      ไม่มีตัวเลขใดถูกสร้างขึ้นเอง ·
+      <b>Where the data comes from.</b> Every source is public and checkable; nothing is generated.
+    </figcaption>
+  </figure>
+
+  <div class="note">
+    <strong>ทำไมบางหน้าถึงยังใช้ราคา futures</strong>
+    หน้าที่ต้องดูประวัติหลายสิบปี (เช่น Drawdown Tracker) ยังใช้ COMEX GC=F
+    เพราะฟีด spot ย้อนหลังได้ถึงปี 2019 เท่านั้น ส่วน “ราคาปัจจุบัน” บนหน้าเหล่านั้นใช้ spot เสมอ
+    <span class="en">Pages needing decades of history still read COMEX futures — the spot feed only
+    reaches 2019 — but the "price now" on those pages is always spot.</span>
+  </div>
+</section>
+
+<!-- ═══════════════════════════ 3 ═══════════════════════════ -->
+<section>
+  <div class="sec-head">
+    <div class="sec-num">3</div>
+    <div class="sec-title">
+      <h2>แผนที่แอป — 12 หมวด</h2>
+      <div class="en">Map of the app — twelve sections</div>
+    </div>
+  </div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th style="width:38%">หมวด · Section</th>
+          <th class="num" style="width:10%">หน้า</th>
+          <th>ใช้ตอบคำถามอะไร · What it answers</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td><b>ภาพรวม</b><br><span style="color:#7C889B">Overview</span></td><td class="num">5</td>
+            <td>ตอนนี้ราคาเท่าไหร่ และวันนี้เกิดอะไรขึ้น<br><span style="color:#7C889B">Where is price, and what moved today</span></td></tr>
+        <tr><td><b>วิเคราะห์เทคนิค</b><br><span style="color:#7C889B">Technical Analysis</span></td><td class="num">23</td>
+            <td>แนวรับแนวต้าน รูปแบบราคา ฟีโบนัชชี การนับคลื่น<br><span style="color:#7C889B">Levels, patterns, Fibonacci, the wave count</span></td></tr>
+        <tr><td><b>สแกนเนอร์</b><br><span style="color:#7C889B">Scanners</span></td><td class="num">4</td>
+            <td>มีอะไรกำลังจะเบรก หรือมีไดเวอร์เจนซ์ตรงไหน<br><span style="color:#7C889B">What is breaking out or diverging right now</span></td></tr>
+        <tr><td><b>Smart Money &amp; COT</b></td><td class="num">19</td>
+            <td>สถาบันวางตำแหน่งไว้ตรงไหน กำแพง OI อยู่ที่ราคาใด<br><span style="color:#7C889B">Where institutions are positioned; where the option walls sit</span></td></tr>
+        <tr><td><b>Macro &amp; ดอกเบี้ย</b><br><span style="color:#7C889B">Macro &amp; Rates</span></td><td class="num">24</td>
+            <td>ดอกเบี้ยจริง ดอลลาร์ และสภาพเศรษฐกิจกดหรือหนุนทอง<br><span style="color:#7C889B">Whether real rates and the dollar help or hurt gold</span></td></tr>
+        <tr><td><b>ปัจจัยพื้นฐาน</b><br><span style="color:#7C889B">Fundamentals</span></td><td class="num">17</td>
+            <td>อุปสงค์อุปทาน ต้นทุนขุด ธนาคารกลางซื้อเท่าไหร่<br><span style="color:#7C889B">Supply, demand, mining cost, central-bank buying</span></td></tr>
+        <tr><td><b>Correlation &amp; Sentiment</b></td><td class="num">14</td>
+            <td>ทองเคลื่อนไหวสัมพันธ์กับสินทรัพย์อื่นอย่างไร<br><span style="color:#7C889B">How gold moves against everything else</span></td></tr>
+        <tr><td><b>วัฏจักร &amp; ฤดูกาล</b><br><span style="color:#7C889B">Cycle &amp; Seasonality</span></td><td class="num">6</td>
+            <td>เดือนนี้ในอดีตทองมักทำอะไร วัฏจักรอยู่ช่วงไหน<br><span style="color:#7C889B">What this month has historically done; where the cycle stands</span></td></tr>
+        <tr><td><b>เครื่องมือเทรด</b><br><span style="color:#7C889B">Trading Tools</span></td><td class="num">11</td>
+            <td>วางแผนไม้ คำนวณขนาดล็อต ประเมินคุณภาพการเทรด<br><span style="color:#7C889B">Plan a trade, size it, grade it</span></td></tr>
+        <tr><td><b>พอร์ต &amp; EA</b><br><span style="color:#7C889B">Portfolio &amp; EA</span></td><td class="num">12</td>
+            <td>พอร์ตเป็นอย่างไร EA ทำงานดีแค่ไหน<br><span style="color:#7C889B">How the account and the EAs are doing</span></td></tr>
+        <tr><td><b>AI, ข่าว &amp; ปฏิทิน</b><br><span style="color:#7C889B">AI, News &amp; Calendar</span></td><td class="num">17</td>
+            <td>สภา AI ลงมติอย่างไร มีข่าวอะไรที่ต้องรู้<br><span style="color:#7C889B">What the AI council voted, and what news matters</span></td></tr>
+        <tr><td><b>แจ้งเตือน &amp; ระบบ</b><br><span style="color:#7C889B">Alerts &amp; System</span></td><td class="num">6</td>
+            <td>ตั้งแจ้งเตือน ดูบันทึกสัญญาณ ผูก Telegram<br><span style="color:#7C889B">Set alerts, read the signal log, connect Telegram</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note">
+    <strong>ไม่ต้องอ่านทุกหน้า</strong> หมวดที่ตอบคำถามของคุณได้ตรงที่สุดมักมีอยู่ไม่กี่หมวด
+    ที่เหลือคือเครื่องมือสำหรับตอนที่คำถามเปลี่ยนไป
+    <span class="en">You are not meant to read all of them. A few sections will answer your
+    questions; the rest are there for when the question changes.</span>
+  </div>
+</section>
+
+<!-- ═══════════════════════════ 4 ═══════════════════════════ -->
+<section>
+  <div class="sec-head">
+    <div class="sec-num">4</div>
+    <div class="sec-title">
+      <h2>การนับคลื่นอีเลียต</h2>
+      <div class="en">Reading the Elliott wave count</div>
+    </div>
+  </div>
+
+  <div class="pair">
+    <div>
+      <span class="lang-tag">ไทย</span>
+      <p>ระบบนับคลื่นเป็น <b>ลำดับชั้น</b> ไม่ใช่นับแยกกันในแต่ละไทม์เฟรม
+      คลื่นใหญ่ถูกนับจากประวัติที่ยาวที่สุดที่มี แล้วคลื่นเล็กจึงถูกนับ
+      <i>ภายใน</i> ขาที่กำลังเดินของคลื่นใหญ่</p>
+      <p>ผลคือทุกไทม์เฟรมเห็นคลื่นใหญ่ตรงกัน ไม่ใช่รายวันบอกอย่างหนึ่ง
+      รายสัปดาห์บอกอีกอย่าง</p>
+    </div>
+    <div class="en-col">
+      <span class="lang-tag">English</span>
+      <p>The count is <b>hierarchical</b>, not computed separately per timeframe.
+      The large degree is counted from the longest history available, and smaller
+      degrees are counted <i>inside</i> the leg the larger one is currently in.</p>
+      <p>So every timeframe agrees about the large degree, instead of the daily
+      chart saying one thing and the weekly another.</p>
+    </div>
+  </div>
+
+  <figure>
+    <svg viewBox="0 0 640 152" xmlns="http://www.w3.org/2000/svg" role="img"
+         aria-label="Wave degrees nested inside one another">
+      <g font-family="Leelawadee UI, Segoe UI, sans-serif">
+        <!-- Primary band -->
+        <rect x="8" y="14" width="624" height="34" rx="3" fill="#12233D"/>
+        <text x="18" y="30" fill="#E3C46B" font-size="10" font-weight="600">Primary</text>
+        <text x="18" y="42" fill="#7C90AC" font-size="8">2024-05 → 2026-04 · ①②③④⑤</text>
+        <text x="612" y="36" fill="#9FB2CA" font-size="8.5" text-anchor="end">เปลี่ยนน้อยมาก · changes rarely</text>
+
+        <!-- Intermediate -->
+        <rect x="300" y="54" width="332" height="34" rx="3" fill="#1B3358"/>
+        <text x="310" y="70" fill="#E3C46B" font-size="10" font-weight="600">Intermediate</text>
+        <text x="310" y="82" fill="#7C90AC" font-size="8">(1)(2)(3)(4)(5) หรือ (A)(B)(C)</text>
+        <text x="622" y="76" fill="#9FB2CA" font-size="8.5" text-anchor="end">ทุก ~4 วัน · every ~4 days</text>
+
+        <!-- Minor -->
+        <rect x="440" y="94" width="192" height="30" rx="3" fill="#2C5F9E"/>
+        <text x="450" y="108" fill="#EAF0F8" font-size="10" font-weight="600">Minor</text>
+        <text x="450" y="119" fill="#BBD0E8" font-size="8">ทุกวัน · daily — เหวี่ยงสูง</text>
+
+        <!-- connectors -->
+        <path d="M300 48 V54" stroke="#C8A44D" stroke-width="1"/>
+        <path d="M440 88 V94" stroke="#C8A44D" stroke-width="1"/>
+
+        <text x="8" y="142" fill="#7C889B" font-size="8.5">
+          คลื่นเล็กถูกนับภายในขาที่กำลังเดินของคลื่นที่ใหญ่กว่าเสมอ ·
+          each degree is counted inside the leg the one above it is currently in</text>
+      </g>
+    </svg>
+    <figcaption>
+      <b>ยิ่งดีกรีเล็ก ยิ่งเปลี่ยนบ่อยและเชื่อถือได้น้อยลง</b> — วัดจากการย้อนทดสอบ 40 วัน:
+      Primary ไม่เปลี่ยนเลย Intermediate เปลี่ยน 10 ครั้งและไม่เคยถอยกลับ
+      ส่วน Minor เปลี่ยน 39 ครั้งโดยถอยกลับ 9 ครั้ง ·
+      <b>Smaller degrees change more often and mean less.</b> Measured across forty days.
+    </figcaption>
+  </figure>
+
+  <h3>อ่านแผงกฎอย่างไร <span class="en">How to read the rule panel</span></h3>
+
+  <div class="pair">
+    <div>
+      <span class="lang-tag">ไทย</span>
+      <p>ใต้การนับทุกดีกรีจะมีรายการกฎพร้อมผลว่าผ่านหรือไม่ผ่าน
+      พร้อมตัวเลขจริง เช่น <i>“คลื่น 2 รีเทรซ 96% ของคลื่น 1”</i></p>
+      <p><b>ความเชื่อมั่นคือดีกรีที่อ่อนที่สุดในสาย</b> ไม่ใช่ค่าเฉลี่ย
+      เพราะการนับจะแม่นได้ไม่เกินดีกรีที่มันเกาะอยู่</p>
+    </div>
+    <div class="en-col">
+      <span class="lang-tag">English</span>
+      <p>Under every degree is the list of rules it was checked against, each with
+      the actual figure — <i>"wave 2 retraced 96% of wave 1"</i>.</p>
+      <p><b>Confidence is the weakest degree in the chain</b>, not an average: a
+      count is only as sound as the degree it hangs from.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════ 5 ═══════════════════════════ -->
+<section>
+  <div class="sec-head">
+    <div class="sec-num">5</div>
+    <div class="sec-title">
+      <h2>สัญญาณเทรดและการวัดผล</h2>
+      <div class="en">Signals and how they are scored</div>
+    </div>
+  </div>
+
+  <figure>
+    <svg viewBox="0 0 640 128" xmlns="http://www.w3.org/2000/svg" role="img"
+         aria-label="Signal lifecycle from generation to settlement">
+      <defs>
+        <marker id="ar2" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0 0 L8 4 L0 8 z" fill="#7C889B"/>
+        </marker>
+      </defs>
+      <g font-family="Leelawadee UI, Segoe UI, sans-serif" font-size="9">
+        <rect x="4" y="34" width="112" height="44" rx="3" fill="#F7F8FA" stroke="#D9DEE6"/>
+        <text x="60" y="52" text-anchor="middle" fill="#16202F" font-weight="600">ทุก 1 ชั่วโมง</text>
+        <text x="60" y="64" text-anchor="middle" fill="#7C889B" font-size="8">hourly, on the bar close</text>
+
+        <path d="M118 56 H150" stroke="#7C889B" stroke-width="1" marker-end="url(#ar2)"/>
+
+        <rect x="152" y="34" width="120" height="44" rx="3" fill="#F7F8FA" stroke="#D9DEE6"/>
+        <text x="212" y="52" text-anchor="middle" fill="#16202F" font-weight="600">วิเคราะห์ H1</text>
+        <text x="212" y="64" text-anchor="middle" fill="#7C889B" font-size="8">EMA · RSI · MACD · ATR</text>
+
+        <path d="M274 56 H306" stroke="#7C889B" stroke-width="1" marker-end="url(#ar2)"/>
+
+        <rect x="308" y="26" width="128" height="60" rx="3" fill="#12233D"/>
+        <text x="372" y="46" text-anchor="middle" fill="#E3C46B" font-weight="600">ตัวกรองคลื่น</text>
+        <text x="372" y="58" text-anchor="middle" fill="#9FB2CA" font-size="8">wave filter</text>
+        <text x="372" y="72" text-anchor="middle" fill="#7C90AC" font-size="7.5">สวนคลื่นใหญ่ = ไม่เทรด</text>
+
+        <path d="M438 42 H492" stroke="#2F7D5C" stroke-width="1.2" marker-end="url(#ar2)"/>
+        <text x="465" y="36" text-anchor="middle" fill="#2F7D5C" font-size="7.5">ผ่าน · pass</text>
+
+        <path d="M438 74 H492" stroke="#A8453D" stroke-width="1.2" marker-end="url(#ar2)"/>
+        <text x="452" y="70" fill="#A8453D" font-size="7">ถูกกรอง</text>
+
+        <rect x="494" y="26" width="142" height="32" rx="3" fill="#FFFFFF" stroke="#2F7D5C"/>
+        <text x="565" y="41" text-anchor="middle" fill="#2F7D5C" font-weight="600">ออกสัญญาณ + บันทึก</text>
+        <text x="565" y="52" text-anchor="middle" fill="#7C889B" font-size="7.5">signal issued and logged</text>
+
+        <rect x="494" y="62" width="142" height="32" rx="3" fill="#FFFFFF" stroke="#D9DEE6"/>
+        <text x="565" y="77" text-anchor="middle" fill="#4A5769" font-weight="600">บันทึกเป็น “รอ”</text>
+        <text x="565" y="88" text-anchor="middle" fill="#7C889B" font-size="7.5">recorded as a wait, with the reason</text>
+
+        <text x="4" y="116" fill="#7C889B" font-size="8">
+          ไม้ที่ถูกกรองยังถูกบันทึกไว้ ไม่ได้หายไป — เพื่อให้เห็นว่าตัวกรองทำงานบ่อยแค่ไหน ·
+          blocked trades are still recorded, so the filter's own frequency stays visible</text>
+      </g>
+    </svg>
+    <figcaption>
+      <b>วงจรของสัญญาณหนึ่งไม้</b> — ระบบจะไม่ออกสัญญาณใหม่ขณะที่ไม้เดิมยังไม่รู้ผล ·
+      <b>The life of one signal.</b> No new signal is issued while an earlier one is still open.
+    </figcaption>
+  </figure>
+
+  <h3>ผลแพ้ชนะถูกตัดสินอย่างไร <span class="en">How outcomes are decided</span></h3>
+
+  <div class="pair">
+    <div>
+      <span class="lang-tag">ไทย</span>
+      <p>ระบบเดินดูแท่งเทียน 15 นาทีหลังออกสัญญาณ แล้วดูว่าราคาชน TP หรือ SL ก่อน</p>
+      <p><b>ถ้าแท่งเดียวชนทั้งสองอย่าง จะนับเป็นแพ้</b> เพราะแท่ง OHLC
+      บอกไม่ได้ว่าอะไรมาก่อน และการเดาว่าเป็น TP คือวิธีที่สถิติหลอกตัวเอง</p>
+      <p>ไม้ที่ไม่ชนอะไรเลยภายใน 14 วันจะถูกปิดตามราคาขณะนั้น
+      ไม่ปล่อยค้างไว้ เพราะไม้ที่ค้างจะหลุดจากสถิติและทำให้ตัวเลขดูดีเกินจริง</p>
+    </div>
+    <div class="en-col">
+      <span class="lang-tag">English</span>
+      <p>Fifteen-minute bars after the signal are walked forward to see whether the
+      target or the stop came first.</p>
+      <p><b>A bar that touched both is scored as a loss.</b> An OHLC bar cannot say
+      which came first, and assuming the target is how a record flatters itself.</p>
+      <p>A trade that reaches neither within fourteen days is settled at whatever it
+      was then worth. Left open, it would drop out of every statistic and quietly
+      improve the numbers.</p>
+    </div>
+  </div>
+
+  <div class="note caution">
+    <strong>สถิติปัจจุบันยังสรุปอะไรไม่ได้</strong>
+    ณ วันที่จัดทำคู่มือ มีเพียง 4 ไม้ที่รู้ผล ตัวเลขจะเริ่มมีความหมายเมื่อครบราว 20 ไม้
+    หน้า Signal Log จะแสดงอัตราชนะเป็นสีเทาพร้อมข้อความเตือนจนกว่าจะถึงจุดนั้น
+    <span class="en">At the time of writing only four trades have settled. The figure means
+    nothing until roughly twenty; the page shows it in grey and says so until then.</span>
+  </div>
+</section>
+
+<!-- ═══════════════════════════ 6 ═══════════════════════════ -->
+<section>
+  <div class="sec-head">
+    <div class="sec-num">6</div>
+    <div class="sec-title">
+      <h2>แจ้งเตือนทาง Telegram</h2>
+      <div class="en">Telegram alerts</div>
+    </div>
+  </div>
+
+  <ol class="steps">
+    <li>
+      <div class="th">เข้าเมนู <b>แจ้งเตือน &amp; ระบบ → แจ้งเตือน Telegram</b> หรือเปิด <code>/telegram</code></div>
+      <div class="en">Open <b>Alerts &amp; System → Telegram Alerts</b>.</div>
+    </li>
+    <li>
+      <div class="th">กด <b>เชื่อมต่อ Telegram</b> — แอป Telegram จะเปิดขึ้นพร้อมผูกบัญชีให้อัตโนมัติ</div>
+      <div class="en">Press <b>Connect Telegram</b>. The app opens with your account already attached.</div>
+    </li>
+    <li>
+      <div class="th">กด <b>START</b> ในแอป Telegram เป็นอันเสร็จ</div>
+      <div class="en">Press <b>START</b> in Telegram. That is the whole flow.</div>
+    </li>
+    <li>
+      <div class="th">พิมพ์ <code>/status</code> เพื่อดูว่ากำลังรับอะไรอยู่ · <code>/stop</code> เพื่อหยุดรับ</div>
+      <div class="en">Type <code>/status</code> to see what you receive, <code>/stop</code> to stop.</div>
+    </li>
+  </ol>
+
+  <div class="note">
+    <strong>ถ้า Telegram ไม่เปิดขึ้นเอง</strong> หน้าเว็บจะแสดงคำสั่ง <code>/link</code> พร้อมรหัส
+    ให้คัดลอกไปพิมพ์ในแชทบอทแทน รหัสใช้ได้ครั้งเดียวและหมดอายุใน 15 นาที — อย่าส่งต่อให้ใคร
+    <span class="en">If Telegram does not open, the page shows a <code>/link</code> command to paste
+    instead. The code is single-use, expires in fifteen minutes, and should not be shared.</span>
+  </div>
+
+  <h3>อะเลิทสองชนิด <span class="en">The two kinds of alert</span></h3>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead>
+        <tr><th style="width:30%">ชนิด · Type</th><th style="width:22%">ความถี่ · Frequency</th><th>ระดับที่ได้รับ · Who receives it</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><b>ข่าวกระทบราคาทอง</b><br><span style="color:#7C889B">Market-moving news</span></td>
+          <td>ทุก 15 นาที<br><span style="color:#7C889B">checked every 15 min</span></td>
+          <td><span class="chip free">ทุกระดับ · All tiers</span><br>
+              <span style="color:#7C889B;font-size:8.4pt">พร้อมทิศทางว่าข่าวหนุนหรือกดราคา · with the direction it pushes gold</span></td>
+        </tr>
+        <tr>
+          <td><b>โครงสร้างคลื่นเปลี่ยน</b><br><span style="color:#7C889B">Wave structure change</span></td>
+          <td>เฉลี่ย ~4 วันครั้ง<br><span style="color:#7C889B">roughly every 4 days</span></td>
+          <td><span class="chip prem">Premium ขึ้นไป</span><br>
+              <span style="color:#7C889B;font-size:8.4pt">เฉพาะ Primary และ Intermediate · large degrees only</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="pair">
+    <div>
+      <span class="lang-tag">ไทย</span>
+      <p>อะเลิทคลื่นต้องเห็นการเปลี่ยนแปลง <b>สองครั้งติดกัน</b> ก่อนถึงจะส่ง
+      เพราะแท่งที่ยังไม่ปิดทำให้การนับเหวี่ยงได้ การยอมช้าหนึ่งรอบ
+      ดีกว่าการต้องขอถอนคำพูด</p>
+    </div>
+    <div class="en-col">
+      <span class="lang-tag">English</span>
+      <p>A wave change must be seen <b>twice</b> before it is sent. A bar still
+      forming can pull the count either way, and one scan of delay is a cheap
+      premium against retracting a push.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════ 7 ═══════════════════════════ -->
+<section>
+  <div class="sec-head">
+    <div class="sec-num">7</div>
+    <div class="sec-title">
+      <h2>ระดับสมาชิก</h2>
+      <div class="en">Membership tiers</div>
+    </div>
+  </div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th style="width:46%">สิ่งที่ได้รับ · What you get</th>
+          <th style="width:18%;text-align:center">Free</th>
+          <th style="width:18%;text-align:center">Premium</th>
+          <th style="width:18%;text-align:center">Pro</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>หน้าภาพรวมและกราฟ<br><span style="color:#7C889B">Overview and charts</span></td>
+            <td style="text-align:center" class="tick">●</td><td style="text-align:center" class="tick">●</td><td style="text-align:center" class="tick">●</td></tr>
+        <tr><td>การนับคลื่นอีเลียต<br><span style="color:#7C889B">Elliott wave count</span></td>
+            <td style="text-align:center" class="tick">●</td><td style="text-align:center" class="tick">●</td><td style="text-align:center" class="tick">●</td></tr>
+        <tr><td>แจ้งเตือนข่าวทาง Telegram<br><span style="color:#7C889B">News alerts on Telegram</span></td>
+            <td style="text-align:center" class="tick">●</td><td style="text-align:center" class="tick">●</td><td style="text-align:center" class="tick">●</td></tr>
+        <tr><td>สแกนเนอร์หลายสินทรัพย์<br><span style="color:#7C889B">Multi-symbol scanners</span></td>
+            <td style="text-align:center" class="cross">—</td><td style="text-align:center" class="tick">●</td><td style="text-align:center" class="tick">●</td></tr>
+        <tr><td>แจ้งเตือนโครงสร้างคลื่น<br><span style="color:#7C889B">Wave structure alerts</span></td>
+            <td style="text-align:center" class="cross">—</td><td style="text-align:center" class="tick">●</td><td style="text-align:center" class="tick">●</td></tr>
+        <tr><td>บันทึกการเทรดและสถิติ<br><span style="color:#7C889B">Journal and performance</span></td>
+            <td style="text-align:center" class="cross">—</td><td style="text-align:center" class="tick">●</td><td style="text-align:center" class="tick">●</td></tr>
+        <tr><td>ศูนย์ควบคุมและ EA<br><span style="color:#7C889B">Command centre and EA tools</span></td>
+            <td style="text-align:center" class="cross">—</td><td style="text-align:center" class="cross">—</td><td style="text-align:center" class="tick">●</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note">
+    <strong>ระดับสมาชิกถูกอ่านสดทุกครั้งที่ส่งอะเลิท</strong>
+    ไม่ได้บันทึกค้างไว้ตอนผูกบัญชี ดังนั้นเมื่อระดับเปลี่ยน สิทธิ์การรับจะเปลี่ยนตามทันที
+    โดยไม่ต้องผูกบัญชีใหม่
+    <span class="en">Your tier is read from your account at the moment each alert is sent, not
+    copied when you linked. Change the tier and delivery follows immediately.</span>
+  </div>
+
+  <div class="note">
+    <strong>ช่อง Telegram สาธารณะรับเฉพาะอะเลิทระดับฟรี</strong>
+    เพราะช่องมีผู้ชมกลุ่มเดียวและแยกระดับไม่ได้ — อะเลิทระดับ Premium
+    จึงส่งตรงถึงบัญชีที่ผูกไว้เท่านั้น
+    <span class="en">The public channel carries free alerts only: a channel has one audience and no
+    tiers, so paid alerts go only to linked accounts.</span>
+  </div>
+</section>
+
+<!-- ═══════════════════════════ 8 ═══════════════════════════ -->
+<section>
+  <div class="sec-head">
+    <div class="sec-num">8</div>
+    <div class="sec-title">
+      <h2>ข้อจำกัดที่ควรรู้</h2>
+      <div class="en">Limits you should know about</div>
+    </div>
+  </div>
+
+  <div class="pair">
+    <div>
+      <span class="lang-tag">ไทย</span>
+      <p><b>กลยุทธ์เดี่ยวๆ ยังไม่แสดงความได้เปรียบ</b> การย้อนทดสอบบนสามไทม์เฟรม
+      พบว่ากฎตามเทรนด์เพียงอย่างเดียวเป็นบวกโดยรวม แต่ติดลบอย่างน้อยหนึ่งช่วง
+      ในทุกไทม์เฟรม และแพ้การถือทองเฉยๆ ในหน้าต่างที่ยาวพอ</p>
+      <p><b>ตัวกรองคลื่นคือส่วนที่วัดผลได้</b> ไม้ที่สวนคลื่นใหญ่ชนะเพียง 22–28%
+      เทียบกับ 38–45% ของไม้ที่ตามคลื่น เมื่อกรองแล้วผลเป็นบวกครบทั้ง 9 ช่วง
+      แต่ทั้งหมดนี้คือสินทรัพย์เดียวบนประวัติชุดเดียว ไม่ใช่การยืนยันสามครั้ง</p>
+      <p><b>เส้นทาง AI ยังไม่ถูกวัด</b> สัญญาณจริงทั้งหมดมาจากโมเดลภาษา
+      ซึ่งเล่นย้อนหลังทีละแท่งไม่ได้ ตัวเลขข้างต้นวัดเฉพาะกฎที่กำหนดค่าได้แน่นอน</p>
+      <p><b>ราคาจากโบรกเกอร์ของคุณ</b> ใช้ได้เฉพาะเมื่อมีโพซิชัน XAU เปิดอยู่ใน MT5</p>
+    </div>
+    <div class="en-col">
+      <span class="lang-tag">English</span>
+      <p><b>The strategy alone is not a demonstrated edge.</b> Replayed across three
+      timeframes, the trend rule is positive overall but negative in at least one
+      period on every one, and loses to simply holding gold over the long windows.</p>
+      <p><b>The wave filter is the part that measures.</b> Trades against the larger
+      degree won 22–28% against 38–45% for trades with it; filtered, the result is
+      positive in all nine periods. But this is one asset over one nested history —
+      not three independent confirmations.</p>
+      <p><b>The AI path is unmeasured.</b> Every live signal came from a language
+      model, which cannot be replayed bar by bar. The figures above describe only
+      the deterministic rule.</p>
+      <p><b>Your broker's price</b> is available only while an XAU position is open
+      in MT5.</p>
+    </div>
+  </div>
+
+  <div class="note caution" style="margin-top:8mm">
+    <strong>เอกสารนี้ไม่ใช่คำแนะนำการลงทุน</strong>
+    ทุกอย่างในแพลตฟอร์มเป็นการวิเคราะห์ประกอบการตัดสินใจ การนับคลื่นเป็นการตีความ
+    ไม่ใช่การพยากรณ์ และการนับแบบอื่นที่ถูกกฎก็มีได้เสมอ
+    ผลการทดสอบย้อนหลังไม่รับประกันผลในอนาคต
+    <span class="en">Nothing here is investment advice. A wave count is an interpretation, not a
+    forecast, and other valid counts always exist. Past results do not guarantee
+    future ones.</span>
+  </div>
+
+  <div class="foot-rule">
+    Gold Intelligence OS · คู่มือฉบับเดือนสิงหาคม 2569 / Edition August 2026 ·
+    gold-intelligence-os.vercel.app
+  </div>
+</section>
+
+</body>
+</html>

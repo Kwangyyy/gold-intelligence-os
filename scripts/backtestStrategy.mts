@@ -20,6 +20,7 @@
 import { getGoldCandles } from "../lib/goldSource";
 import { emaSeries, rsi, macd, atr } from "../lib/indicators";
 import { ruleBasedSetup } from "../lib/gemini";
+import { countMultiSource } from "../lib/waveHierarchy";
 
 // Gold spreads run a few tens of cents; a strategy that only works at zero cost
 // does not work. Passed as an argument so the sensitivity is visible rather than
@@ -37,6 +38,8 @@ const EXPIRY_BARS = BARS_PER_DAY * 14; // the live settler gives a trade fourtee
 
 interface Trade {
   dir: "buy" | "sell";
+  /** Whether the larger-degree wave was travelling the same way. */
+  waveAgrees: boolean;
   entryIdx: number;
   entry: number;
   sl: number;
@@ -56,6 +59,30 @@ console.log(`cost assumed: ${COST.toFixed(2)} points per trade (spread + slippag
 const candles = bars.t.map((t, i) => ({
   time: t, open: bars.o[i], high: bars.h[i], low: bars.l[i], close: bars.c[i],
 }));
+
+// The wave filter reads the same coarse series the live counter does, cut to the
+// bar being decided on so nothing from the future leaks in. One count costs
+// under a millisecond, so this runs on every bar rather than being sampled.
+const coarse = await Promise.all(
+  (["1M", "1w", "1d"] as const).map((c) => getGoldCandles(c, c === "1M" ? 200 : 1000, false).catch(() => null)),
+);
+
+/** Direction of the leg in progress at Intermediate degree, at time `ts`. */
+function waveDirectionAt(ts: number): "up" | "down" | null {
+  const spine = coarse
+    .filter((c): c is NonNullable<typeof c> => !!c)
+    .map((c) => {
+      const keep: number[] = [];
+      for (let i = 0; i < c.t.length; i++) if (c.t[i] <= ts) keep.push(i);
+      return { t: keep.map((i) => c.t[i]), h: keep.map((i) => c.h[i]), l: keep.map((i) => c.l[i]), c: keep.map((i) => c.c[i]) };
+    })
+    .filter((s2) => s2.c.length >= 25);
+  if (!spine.length) return null;
+  const levels = countMultiSource(spine, 4);
+  const lvl = levels.find((l) => l.degree === "Intermediate") ?? levels[levels.length - 1];
+  const leg = lvl?.legs[lvl.legs.length - 1];
+  return leg ? (leg.up ? "up" : "down") : null;
+}
 
 const trades: Trade[] = [];
 let waits = 0;
@@ -83,6 +110,13 @@ for (let i = WARMUP; i < n - 1; i++) {
   const dir = setup.direction as "buy" | "sell";
   const long = dir === "buy";
 
+  // Recorded, not applied. Both populations come from the same trades and the
+  // same settlement, so the filter's effect is the only difference between the
+  // two sets of numbers below — which is the whole point of measuring it here
+  // rather than in a second run against a second sample.
+  const wd = waveDirectionAt(bars.t[i]);
+  const waveAgrees = wd == null ? false : (long ? wd === "up" : wd === "down");
+
   // Entry at the close of bar i, so settlement starts at bar i+1. Starting at i
   // would let the bar that triggered the signal also resolve it, using a high
   // and low that had already printed when the decision was made.
@@ -95,7 +129,7 @@ for (let i = WARMUP; i < n - 1; i++) {
     // stop is assumed. Counting these as wins is how a backtest flatters itself.
     if (hitSl) {
       settled = {
-        dir, entryIdx: i, entry: price, sl: setup.sl, tp: setup.tp1,
+        dir, waveAgrees, entryIdx: i, entry: price, sl: setup.sl, tp: setup.tp1,
         exitIdx: j, exit: setup.sl, outcome: "sl",
         points: (long ? setup.sl - price : price - setup.sl) - COST,
         ambiguous: hitTp,
@@ -104,7 +138,7 @@ for (let i = WARMUP; i < n - 1; i++) {
     }
     if (hitTp) {
       settled = {
-        dir, entryIdx: i, entry: price, sl: setup.sl, tp: setup.tp1,
+        dir, waveAgrees, entryIdx: i, entry: price, sl: setup.sl, tp: setup.tp1,
         exitIdx: j, exit: setup.tp1, outcome: "tp",
         points: (long ? setup.tp1 - price : price - setup.tp1) - COST,
         ambiguous: false,
@@ -113,7 +147,7 @@ for (let i = WARMUP; i < n - 1; i++) {
     }
     if (j - i >= EXPIRY_BARS) {
       settled = {
-        dir, entryIdx: i, entry: price, sl: setup.sl, tp: setup.tp1,
+        dir, waveAgrees, entryIdx: i, entry: price, sl: setup.sl, tp: setup.tp1,
         exitIdx: j, exit: bars.c[j], outcome: "expired",
         points: (long ? bars.c[j] - price : price - bars.c[j]) - COST,
         ambiguous: false,
@@ -166,6 +200,28 @@ console.log();
 const first = bars.c[WARMUP], last = bars.c[n - 1];
 console.log(`  buy and hold over the same window: ${(last - first).toFixed(1)} points`);
 
+// ── does the wave filter help? ───────────────────────────────────────────────
+// Same trades, same settlement, split by whether the larger-degree leg was
+// travelling the same way. If the filter adds nothing, the two rows are the
+// same and that is the finding — a filter that does not change the outcome is
+// complexity with a story attached.
+{
+  const agree = trades.filter((t) => t.waveAgrees);
+  const against = trades.filter((t) => !t.waveAgrees);
+  const row = (name: string, list: Trade[]) => {
+    if (!list.length) return `    ${name.padEnd(22)} no trades`;
+    const p = list.reduce((s2, t) => s2 + t.points, 0);
+    const w = list.filter((t) => t.outcome === "tp").length;
+    const gw = list.filter((t) => t.points > 0).reduce((s2, t) => s2 + t.points, 0);
+    const gl = Math.abs(list.filter((t) => t.points < 0).reduce((s2, t) => s2 + t.points, 0));
+    return `    ${name.padEnd(22)} ${String(list.length).padStart(3)} trades  ${pct(w, list.length).padStart(6)} won  PF ${(gl ? gw / gl : Infinity).toFixed(2).padStart(5)}  ${(p >= 0 ? "+" : "")}${p.toFixed(0)} points  (avg ${(p / list.length).toFixed(1)})`;
+  };
+  console.log("\n  wave filter — larger-degree leg agrees with the trade:");
+  console.log(row("wave agrees", agree));
+  console.log(row("wave disagrees", against));
+  console.log(row("all trades", trades));
+}
+
 // Split into thirds. A strategy that only works in one stretch is a strategy
 // that fitted that stretch, and the average across the whole window hides it.
 if (trades.length >= 30) {
@@ -179,7 +235,15 @@ if (trades.length >= 30) {
     const from = new Date(bars.t[slice[0].entryIdx] * 1000).toISOString().slice(0, 10);
     const to = new Date(bars.t[slice[slice.length - 1].exitIdx] * 1000).toISOString().slice(0, 10);
     const sign = p >= 0 ? "+" : "";
-    console.log(`    ${from} → ${to}  ${String(slice.length).padStart(3)} trades  ${pct(w, slice.length).padStart(6)} won  ${sign}${p.toFixed(0)} points`);
+    // The filtered figure alongside, because the whole question about a filter
+    // is whether it holds up in the stretches where the unfiltered one did not.
+    const f = slice.filter((t) => t.waveAgrees);
+    const fp = f.reduce((s2, t) => s2 + t.points, 0);
+    const fsign = fp >= 0 ? "+" : "";
+    console.log(
+      `    ${from} → ${to}  ${String(slice.length).padStart(3)} trades  ${pct(w, slice.length).padStart(6)} won  ${sign}${p.toFixed(0).padStart(5)} pts` +
+      `   │ wave-filtered: ${String(f.length).padStart(3)} trades  ${fsign}${fp.toFixed(0).padStart(5)} pts`,
+    );
   }
 }
 

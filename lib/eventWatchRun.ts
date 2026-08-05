@@ -19,6 +19,7 @@ import { getGoldSpot } from "./goldSource";
 import { broadcastToSubscribers } from "./telegram";
 import { kvGet, kvSet } from "./kvStore";
 import { checkWaveAlert } from "./waveAlert";
+import { runScheduledSignal } from "./signalRun";
 import { waitUntil } from "@vercel/functions";
 
 // Only alert on things that would change a decision. The scanner sees a hundred
@@ -76,7 +77,7 @@ export interface WatchResult {
   alerted?: { title: string; severity: number; category: string }[];
   waiting?: number;
   preview?: string;
-  lastTrafficScan?: { at: number; sent: boolean; scanned: number; waveSent?: boolean; agoMin: number } | null;
+  lastTrafficScan?: { at: number; sent: boolean; scanned: number; waveSent?: boolean; signalLogged?: boolean; agoMin: number } | null;
   /** Channel plus subscribers, and how many were dropped for blocking the bot. */
   delivery?: { sent: number; failed: number; dropped: number; channel: boolean };
 }
@@ -193,9 +194,13 @@ export function triggerFromTraffic(): void {
       // pushes cannot arrive on different schedules and contradict each other
       // about what the price was when they were written.
       const w = await checkWaveAlert(false).catch(() => null);
+      // The signal log rides the same clock. It holds its own hourly throttle —
+      // the strategy reads H1 bars, so a new decision only means something once
+      // a new bar has closed.
+      const sig = await runScheduledSignal().catch(() => null);
       await kvSet(
         TRAFFIC_DONE_KEY,
-        { at: Date.now(), sent: r.sent, scanned: r.scanned, waveSent: !!w?.sent },
+        { at: Date.now(), sent: r.sent, scanned: r.scanned, waveSent: !!w?.sent, signalLogged: !!sig?.ran },
         86_400,
       );
     } catch {
@@ -223,7 +228,7 @@ export function triggerFromTraffic(): void {
 
 /** When traffic last drove a scan to completion, for checking that it does. */
 export async function lastTrafficScan(): Promise<WatchResult["lastTrafficScan"]> {
-  const v = await kvGet<{ at: number; sent: boolean; scanned: number; waveSent?: boolean }>(TRAFFIC_DONE_KEY).catch(() => null);
+  const v = await kvGet<{ at: number; sent: boolean; scanned: number; waveSent?: boolean; signalLogged?: boolean }>(TRAFFIC_DONE_KEY).catch(() => null);
   if (!v) return null;
   return { ...v, agoMin: Math.round((Date.now() - v.at) / 60_000) };
 }

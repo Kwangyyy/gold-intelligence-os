@@ -142,15 +142,20 @@ export default function SignalLogPage() {
   const MIN_SAMPLE = 20;
   const reliable = resolved.length >= MIN_SAMPLE;
 
-  // How far off a usable sample is, and roughly when — the question a launch
-  // decision turns on, worked out from the pace the log is actually settling at
-  // rather than left for someone to count dates by hand.
-  const stamps = resolved
-    .map((s) => s.outcomeTs ?? s.ts)
-    .filter((t): t is number => typeof t === "number")
-    .sort((a, b) => a - b);
-  const spanDays = stamps.length >= 2 ? (stamps[stamps.length - 1] - stamps[0]) / 86_400_000 : 0;
-  const perDay = spanDays >= 1 && stamps.length >= 2 ? stamps.length / spanDays : null;
+  // How far off a usable sample is, and roughly when.
+  //
+  // Measured from when trades were opened, over a trailing window — not from
+  // when they were marked settled. The resolver's first run settled four old
+  // trades at once, and reading that as a rate gave 2.34 a day against a true
+  // 0.17. The window also drops the era before signals ran on a schedule, which
+  // was paced by page visits rather than by the market.
+  const RATE_WINDOW_DAYS = 14;
+  const MIN_FOR_RATE = 3;
+  const since = Date.now() - RATE_WINDOW_DAYS * 86_400_000;
+  const openedRecently = tradeable.filter((s) => s.ts >= since);
+  const perDay = openedRecently.length >= MIN_FOR_RATE
+    ? openedRecently.length / RATE_WINDOW_DAYS
+    : null;
   const remaining = Math.max(0, MIN_SAMPLE - resolved.length);
   const readyAbout =
     remaining === 0 || !perDay
@@ -229,12 +234,13 @@ export default function SignalLogPage() {
           <div className="mt-2 text-[11px] text-silver/40">
             เหลืออีก <b style={{ color: "#f5c451" }}>{remaining}</b> ไม้
             {perDay
-              ? <> · ตอนนี้รู้ผลเฉลี่ย {perDay.toFixed(2)} ไม้/วัน · คาดว่าครบราว{" "}
+              ? <> · ออกไม้เฉลี่ย {perDay.toFixed(2)} ไม้/วัน · คาดว่าครบราว{" "}
                   <b>{readyAbout?.toLocaleDateString("th-TH", { day: "numeric", month: "short" })}</b></>
-              : <> · ยังประเมินวันไม่ได้จนกว่าจะมีไม้รู้ผลห่างกันเกินหนึ่งวัน</>}
+              : <> · ยังประเมินวันไม่ได้ — มีไม้ใน 14 วันล่าสุดเพียง {openedRecently.length} ไม้
+                  (ต้องมีอย่างน้อย {MIN_FOR_RATE})</>}
           </div>
           <div className="mt-1 text-[10px] text-silver/25">
-            ประมาณการจากจังหวะจริงของระบบ ไม่ใช่จากผลย้อนหลัง — ถ้าช้ากว่าที่ควร จะเห็นตรงนี้ก่อน
+            วัดจากเวลาที่ออกไม้ใน 14 วันล่าสุด ไม่ใช่จากผลย้อนหลัง — ถ้าระบบออกไม้ช้ากว่าที่ควร จะเห็นตรงนี้ก่อน
           </div>
         </div>
       )}

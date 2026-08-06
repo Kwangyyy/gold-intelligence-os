@@ -123,7 +123,10 @@ export interface Performance {
   /** How far off a usable sample is, and roughly when. */
   target: number;
   remaining: number;
-  settlingPerDay: number | null;
+  /** Directional trades opened per day, over a trailing window. */
+  tradesPerDay: number | null;
+  /** How many trades that rate rests on — below three, there is no estimate. */
+  rateFromTrades: number;
   readyAbout: string | null;
   verdict: string;
   verdictTh: string;
@@ -168,19 +171,24 @@ export function performanceOf(signals: SignalEntry[]): Performance {
 
   // When will this be worth reading?
   //
-  // The question a launch decision actually turns on, and one nobody should have
-  // to work out by hand from a list of dates. Measured from the trades that have
-  // settled rather than from the backtest's rate: the live cadence is what
-  // governs, and if it runs slower than history that is itself worth seeing
-  // early rather than discovering three weeks in.
-  const stamped = settled
-    .map((s) => s.outcomeTs ?? s.ts)
-    .filter((t): t is number => typeof t === "number")
-    .sort((a, b) => a - b);
-  const spanDays = stamped.length >= 2
-    ? (stamped[stamped.length - 1] - stamped[0]) / 86_400_000
-    : 0;
-  const perDay = spanDays >= 1 && stamped.length >= 2 ? stamped.length / spanDays : null;
+  // The question a launch decision turns on, and one that is easy to answer
+  // confidently and wrongly. The first version measured outcomeTs — when a trade
+  // was *marked* settled — and the resolver's first run had settled four old
+  // trades in the same second. That produced 2.34 a day against a true 0.17, and
+  // a launch date sixteen times too optimistic.
+  //
+  // So the rate comes from when trades were opened, over a trailing window. The
+  // window matters as much as the field: before the scheduler existed, signals
+  // were logged only when somebody opened a page, and averaging that era in
+  // would describe a cadence the system no longer has.
+  const RATE_WINDOW_DAYS = 14;
+  const MIN_FOR_RATE = 3;
+
+  const since = Date.now() - RATE_WINDOW_DAYS * 86_400_000;
+  const openedRecently = trades.filter((s) => s.ts >= since);
+  const perDay = openedRecently.length >= MIN_FOR_RATE
+    ? openedRecently.length / RATE_WINDOW_DAYS
+    : null;
   const remaining = Math.max(0, MIN_SAMPLE - settled.length);
   const readyAbout =
     remaining === 0 || !perDay || perDay <= 0
@@ -190,7 +198,10 @@ export function performanceOf(signals: SignalEntry[]): Performance {
   return {
     target: MIN_SAMPLE,
     remaining,
-    settlingPerDay: perDay == null ? null : +perDay.toFixed(2),
+    // Named for what it measures. "settling" invited the reading that tripped
+    // this up in the first place.
+    tradesPerDay: perDay == null ? null : +perDay.toFixed(2),
+    rateFromTrades: openedRecently.length,
     readyAbout,
     settled: settled.length,
     wins: wins.length,

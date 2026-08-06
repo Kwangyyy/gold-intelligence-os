@@ -142,6 +142,21 @@ export default function SignalLogPage() {
   const MIN_SAMPLE = 20;
   const reliable = resolved.length >= MIN_SAMPLE;
 
+  // How far off a usable sample is, and roughly when — the question a launch
+  // decision turns on, worked out from the pace the log is actually settling at
+  // rather than left for someone to count dates by hand.
+  const stamps = resolved
+    .map((s) => s.outcomeTs ?? s.ts)
+    .filter((t): t is number => typeof t === "number")
+    .sort((a, b) => a - b);
+  const spanDays = stamps.length >= 2 ? (stamps[stamps.length - 1] - stamps[0]) / 86_400_000 : 0;
+  const perDay = spanDays >= 1 && stamps.length >= 2 ? stamps.length / spanDays : null;
+  const remaining = Math.max(0, MIN_SAMPLE - resolved.length);
+  const readyAbout =
+    remaining === 0 || !perDay
+      ? null
+      : new Date(Date.now() + (remaining / perDay) * 86_400_000);
+
   const winRateColor = winRate === null ? "#475569"
     : !reliable ? "#94a3b8"
     : winRate >= 60 ? "#34d399" : winRate >= 45 ? "#f5c451" : "#f87171";
@@ -190,6 +205,39 @@ export default function SignalLogPage() {
           <div className="mt-0.5 text-[10px] text-silver/30">ยังไม่ mark</div>
         </div>
       </div>
+
+      {/* ── Progress toward a readable sample ──────────────────── */}
+      {!reliable && (
+        <div className="mb-5 panel p-4">
+          <div className="mb-2 flex items-baseline justify-between">
+            <span className="text-[10px] uppercase tracking-widest text-silver/35">
+              ความคืบหน้าสู่ตัวอย่างที่อ่านได้
+            </span>
+            <span className="font-mono text-xs" style={{ color: "#f5c451" }}>
+              {resolved.length} / {MIN_SAMPLE}
+            </span>
+          </div>
+          <div className="h-2 overflow-hidden rounded-full" style={{ background: "rgba(148,163,184,0.12)" }}>
+            <div
+              className="h-full rounded-full transition-all"
+              style={{
+                width: `${Math.min(100, (resolved.length / MIN_SAMPLE) * 100)}%`,
+                background: "linear-gradient(90deg,#b98f2e,#f5c451)",
+              }}
+            />
+          </div>
+          <div className="mt-2 text-[11px] text-silver/40">
+            เหลืออีก <b style={{ color: "#f5c451" }}>{remaining}</b> ไม้
+            {perDay
+              ? <> · ตอนนี้รู้ผลเฉลี่ย {perDay.toFixed(2)} ไม้/วัน · คาดว่าครบราว{" "}
+                  <b>{readyAbout?.toLocaleDateString("th-TH", { day: "numeric", month: "short" })}</b></>
+              : <> · ยังประเมินวันไม่ได้จนกว่าจะมีไม้รู้ผลห่างกันเกินหนึ่งวัน</>}
+          </div>
+          <div className="mt-1 text-[10px] text-silver/25">
+            ประมาณการจากจังหวะจริงของระบบ ไม่ใช่จากผลย้อนหลัง — ถ้าช้ากว่าที่ควร จะเห็นตรงนี้ก่อน
+          </div>
+        </div>
+      )}
 
       {/* ── Win rate progress bar ──────────────────────────────── */}
       {resolved.length > 0 && (

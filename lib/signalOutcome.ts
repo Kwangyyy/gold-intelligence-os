@@ -120,6 +120,11 @@ export interface Performance {
   totalPips: number;
   /** Whether the sample is large enough to mean anything. */
   reliable: boolean;
+  /** How far off a usable sample is, and roughly when. */
+  target: number;
+  remaining: number;
+  settlingPerDay: number | null;
+  readyAbout: string | null;
   verdict: string;
   verdictTh: string;
 }
@@ -161,7 +166,32 @@ export function performanceOf(signals: SignalEntry[]): Performance {
     ? `รู้ผลแล้ว ${settled.length} ไม้ ชนะ ${winRate!.toFixed(0)}% เฉลี่ยได้ ${expectancy.toFixed(1)} จุดต่อไม้`
     : `รู้ผลแล้ว ${settled.length} ไม้ ชนะ ${winRate!.toFixed(0)}% เฉลี่ยเสีย ${Math.abs(expectancy ?? 0).toFixed(1)} จุดต่อไม้`;
 
+  // When will this be worth reading?
+  //
+  // The question a launch decision actually turns on, and one nobody should have
+  // to work out by hand from a list of dates. Measured from the trades that have
+  // settled rather than from the backtest's rate: the live cadence is what
+  // governs, and if it runs slower than history that is itself worth seeing
+  // early rather than discovering three weeks in.
+  const stamped = settled
+    .map((s) => s.outcomeTs ?? s.ts)
+    .filter((t): t is number => typeof t === "number")
+    .sort((a, b) => a - b);
+  const spanDays = stamped.length >= 2
+    ? (stamped[stamped.length - 1] - stamped[0]) / 86_400_000
+    : 0;
+  const perDay = spanDays >= 1 && stamped.length >= 2 ? stamped.length / spanDays : null;
+  const remaining = Math.max(0, MIN_SAMPLE - settled.length);
+  const readyAbout =
+    remaining === 0 || !perDay || perDay <= 0
+      ? null
+      : new Date(Date.now() + (remaining / perDay) * 86_400_000).toISOString().slice(0, 10);
+
   return {
+    target: MIN_SAMPLE,
+    remaining,
+    settlingPerDay: perDay == null ? null : +perDay.toFixed(2),
+    readyAbout,
     settled: settled.length,
     wins: wins.length,
     losses: losses.length,
